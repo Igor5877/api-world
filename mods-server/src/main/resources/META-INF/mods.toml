@@ -1,0 +1,8 @@
+modLoader="javafml"
+loaderVersion="[36,)"
+license="MIT"
+[[mods]]
+modId="clonecontainermod"
+version="1.0"
+displayName="Clone Container Mod"
+description='''Мод, який викликає API бекенд для клонування LXD контейнера.'''
