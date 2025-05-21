@@ -1,8 +1,67 @@
-modLoader="javafml"
-loaderVersion="[36,)"
-license="MIT"
-[[mods]]
-modId="clonecontainermod"
-version="1.0"
-displayName="Clone Container Mod"
-description='''Мод, який викликає API бекенд для клонування LXD контейнера.'''
+# This is the mods.toml file. It contains metadata for your mod.
+# For more information, see https://forge.gemwire.com/wiki/Mods_Toml
+
+# The modloader version to use
+modLoader="javafml" #mandatory
+
+# A version range to match for said modloader - for Forge, this is typically the Forge version
+# Forge for 1.20.1 is version 47
+loaderVersion="[47,)" #mandatory This means Forge 47 or later. Adjust if a specific later version is needed.
+
+# The license for your mod. This is mandatory metadata.
+license="MIT" # Example: "All rights reserved" or "MIT" or "GPL-3.0" etc.
+
+# A URL to refer people to when problems occur with this mod
+issueTrackerURL="http://www.example.com/issues" #optional
+
+# A list of mods - how many allowed here is determined by the individual mod loader
+[[mods]] #mandatory
+
+# The modid of the mod
+modId="containermod" #mandatory
+
+# The version number of the mod - there's a few well known ${} variables useable here or just hardcode it
+# ${file.jarVersion} will substitute the value of the Implementation-Version attribute in the manifest
+version="${file.jarVersion}" #mandatory
+
+# A display name for the mod
+displayName="Container Mod" #mandatory
+
+# A URL to query for updates for this mod. See the JSON update specification https://mcforge.readthedocs.io/en/latest/gettingstarted/autoupdate/
+# updateJSONURL="http://myurl.me/updates.json" #optional
+
+# A URL for the "homepage" for this mod, displayed in the mod list
+displayURL="http://www.example.com/" #optional
+
+# A file name (in the root of the mod JAR) containing a logo for display
+logoFile="containermod_logo.png" #optional (Needs to be created if specified)
+
+# A text field displayed in the mod UI
+credits="Thanks for using Container Mod!" #optional
+
+# A text field displayed in the mod UI
+authors="YourNameOrAlias" #optional
+
+# The description text for the mod (multi line!) (If you cover the optional description fields like below, this field is non-mandatory)
+description='''
+A mod to interact with an external API for managing LXC containers for players.
+Allows players to launch their own game server instances.
+'''
+
+# It's good practice to explicitly state dependency on Minecraft and Forge.
+[[dependencies.containermod]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)" # Forge 47 or later for Minecraft 1.20.1
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.containermod]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.20.1,1.21)" # Minecraft 1.20.1, up to (but not including) 1.21
+    ordering="NONE"
+    side="BOTH"
+
+# For this mod, the primary dependencies (HttpClient, Gson) are handled by Gradle as libraries
+# and don't need to be listed here unless they are other Forge mods.

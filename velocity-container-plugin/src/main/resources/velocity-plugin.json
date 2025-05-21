@@ -1,0 +1,11 @@
+{
+  "id": "containervelocityplugin",
+  "name": "ContainerVelocityPlugin",
+  "version": "1.0.0",
+  "description": "A Velocity plugin to interact with a container management API for player-specific game instances.",
+  "authors": [
+    "YourNameOrAlias"
+  ],
+  "dependencies": [],
+  "main": "com.example.velocity.containermod.ContainerVelocityPlugin"
+}
