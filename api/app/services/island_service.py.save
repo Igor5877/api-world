@@ -1,0 +1,167 @@
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import BackgroundTasks # For managing background tasks from service layer if needed
+
+from app.core.config import settings
+from app.services.lxd_service import lxd_service # LXD interactions remain mocked for now
+from app.crud.crud_island import crud_island    # Import the actual CRUD operations
+from app.schemas.island import IslandCreate, IslandResponse, IslandUpdate, IslandStatusEnum
+from app.models.island import Island as IslandModel # SQLAlchemy model
+
+import uuid
+import asyncio # For async operations like sleep
+from datetime import datetime, timezone # For created_at, updated_at, last_seen_at
+import logging
+
+logger = logging.getLogger(__name__)
+
+class IslandService:
+    def __init__(self):
+        # No longer using self._db, will use crud_island with a passed db_session
+        logger.info("IslandService: Initialized to use CRUD operations with DB session.")
+
+    async def get_island_by_player_uuid(self, db_session: AsyncSession, *, player_uuid: uuid.UUID) -> IslandResponse | None:
+        """
+        Retrieves island details for a given player UUID using CRUD operations.
+        """
+        logger.debug(f"Service: Fetching island for player_uuid: {player_uuid}")
+        island_db_model = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
+        
+        if not island_db_model:
+            logger.info(f"Service: Island not found for player_uuid: {player_uuid}")
+            return None
+        
+        logger.info(f"Service: Island found for player_uuid: {player_uuid}, id: {island_db_model.id}")
+        # Pydantic's IslandResponse model with orm_mode=True will handle the conversion
+        return IslandResponse.model_validate(island_db_model)
+
+
+    async def create_new_island(
+        self, db_session: AsyncSession, *, island_create_data: IslandCreate, background_tasks: BackgroundTasks
+    ) -> IslandResponse:
+        """
+        Handles the business logic for creating a new island using CRUD operations.
+        1. Check if island already exists.
+        2. Generate container name.
+        3. Create initial island record in DB with status PENDING_CREATION.
+        4. Add a background task to call LXD service to clone the container and then update status.
+        """
+        logger.info(f"Service: Attempting to create new island for player_uuid: {island_create_data.player_uuid}")
+        existing_island = await crud_island.get_by_player_uuid(db_session, player_uuid=island_create_data.player_uuid)
+        if existing_island:
+            logger.warning(f"Service: Island creation conflict for player_uuid: {island_create_data.player_uuid}")
+            raise ValueError("Island already exists for this player.")
+
+        container_name = f"skyblock-{str(island_create_data.player_uuid)}"
+        
+        # Create the island record in the database first
+        # The CRUD create method now handles setting player_uuid as string, container_name, and initial_status
+        try:
+            island_db_model = await crud_island.create(
+                db_session=db_session, 
+                island_in=island_create_data,
+                container_name=container_name,
+                initial_status=IslandStatusEnum.PENDING_CREATION
+            )
+            logger.info(f"Service: Island record created in DB for {island_db_model.player_uuid}, status PENDING_CREATION. ID: {island_db_model.id}")
+        except Exception as e: # Catch specific DB errors if possible
+            logger.error(f"Service: DB error during initial island record creation for {island_create_data.player_uuid}: {e}")
+            # Consider how to handle this - if DB write fails, don't proceed to LXD.
+            raise ValueError(f"Failed to create initial island record in database: {e}")
+
+
+        # Add the LXD cloning and subsequent DB update as a background task
+        # The background task needs its own DB session.
+        # For now, _finish_island_creation will be responsible for getting one if it needs it,
+        # or we modify it to not need one if it only calls other services that manage their own sessions.
+        # Let's simplify: the background task will just update status via crud_island.update_status
+        # which means it will need a new session when it runs. This is tricky with FastAPI's BackgroundTasks.
+        # A more robust solution would use Celery or similar.
+        # For now, let's assume _finish_island_creation can operate or we pass necessary identifiers.
+        
+        # Simplification: The background task will need player_uuid and container_name.
+        # It will need to acquire its own DB session when it runs.
+        # This is a common pattern/challenge with background tasks.
+        # One way is to pass identifiers and re-fetch/create session in the task.
+        
+        # For FastAPI BackgroundTasks, the task function itself needs to handle its dependencies (like DB session)
+        # if it's not a simple fire-and-forget.
+        # The current `_finish_island_creation` is an `async def` method of this class.
+        # If BackgroundTasks can run `async` methods, it's fine.
+        # It will need a db_session. We CANNOT pass the current db_session to a background task
+        # as it will be closed when the request finishes.
+        
+        # Solution: _finish_island_creation will need to be adapted to acquire a session,
+        # or we make it simpler for now. Let's make it simpler: it will just call LXD,
+        # and a *separate mechanism* (e.g., a poller, or another endpoint called by LXD post-clone)
+        # would update the status.
+        # OR, for this stage, we can make the LXD call here and await it, making the endpoint slower
+        # but simpler for DB state management. The plan says "Async Task", so let's stick to that.
+        
+        # Let's assume for now _finish_island_creation can get a session or is refactored.
+        # The challenge: `background_tasks.add_task` doesn't easily allow passing `Depends`.
+        # We'll need to refactor `_finish_island_creation` to be a standalone function
+        # or make it callable in a way that it can manage its own session.
+        
+        # For now, let's keep the asyncio.create_task for the LXD part,
+        # and it will use crud_island.update_status which internally handles its session if needed.
+        # This is still not ideal for session management within the task.
+        # A better way for _finish_island_creation is to make it a top-level function
+        # or a static method that explicitly creates a session.
+        
+        # Let's proceed with the current structure and address session in background task later if it becomes an issue.
+        # The `crud_island` methods already take `db_session` as an argument.
+        # The `_finish_island_creation` will need to be called with a *new* session.
+        
+        # Re-think: BackgroundTasks are best for fire-and-forget or tasks that don't modify the *current* request's DB session.
+        # If _finish_island_creation needs to write to DB, it must get its own session.
+        
+        background_tasks.add_task(
+            self._perform_lxd_clone_and_update_status, 
+            player_uuid=island_db_model.player_uuid, # Pass UUID string
+            container_name=container_name
+        )
+        logger.info(f"Service: Background task scheduled for LXD cloning for island {island_db_model.id}.")
+        
+        return IslandResponse.model_validate(island_db_model)
+
+    async def _perform_lxd_clone_and_update_status(self, player_uuid: str, container_name: str):
+        """
+        Actual LXD cloning and DB status update, designed to be run in a background task.
+        This method MUST acquire its own database session.
+        """
+        from app.db.session import AsyncSessionLocal # Import here to avoid circular dependency at module level
+
+        async with AsyncSessionLocal() as db_session_bg: # Acquire a new session for the background task
+            try:
+                logger.info(f"Service (background): Cloning '{settings.LXD_BASE_IMAGE}' to '{container_name}' for {player_uuid}...")
+                await lxd_service.clone_container(
+                    source_image_alias=settings.LXD_BASE_IMAGE,
+                    new_container_name=container_name
+                )
+                logger.info(f"Service (background): Container '{container_name}' cloned successfully.")
+                
+                await crud_island.update_status(
+                    db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.STOPPED
+                )
+                # No need to commit here, crud_island.update_status handles its commit.
+                logger.info(f"Service (background): Island {player_uuid} status updated to STOPPED in DB.")
+
+            except Exception as e:
+                logger.error(f"Service (background): Error during LXD clone or DB update for {player_uuid}: {e}")
+                try:
+                    await crud_island.update_status(
+                        db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR
+                    )
+                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR in DB due to failure.")
+                except Exception as db_e:
+                    logger.error(f"Service (background): CRITICAL - Failed to update island {player_uuid} status to ERROR: {db_e}")
+            finally:
+                await db_session_bg.close()
+
+
+    async def start_island_instance(self, db_session: AsyncSession, *, player_uuid: uuid.UUID, background_tasks: BackgroundTasks) -> IslandResponse:
+        """
+        Handles the business logic for starting an island using CRUD.
+        """
+        logger.info(f"Service: Attempting to start island for player_uuid: {player_uuid}")
+        island_db_model = await crud_island.get_by_player_
