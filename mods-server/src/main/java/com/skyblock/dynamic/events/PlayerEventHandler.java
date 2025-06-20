@@ -42,7 +42,7 @@ public class PlayerEventHandler {
 
             LOGGER.info("Player {} (UUID: {}) logged out. Attempting to send freeze request to API.", playerName, playerUuid);
 
-            String apiUrl = Config.getApiBaseUrl() + "islands/" + playerUuid.toString() + "/freeze";
+            String apiUrl = Config.getApiBaseUrl() + "islands/" + playerUuid.toString() + "/freeze"; // Reverted to original, which was correct
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(apiUrl))
@@ -51,20 +51,20 @@ public class PlayerEventHandler {
                     .build();
 
             HTTP_CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(response -> {
-                    if (response.statusCode() == 200 || response.statusCode() == 202) { // OK or Accepted
-                        LOGGER.info("API call to freeze island for player {} successful. Status: {}", playerName, response.statusCode());
-                    } else if (response.statusCode() == 404) {
-                        LOGGER.warn("API call to freeze island for player {} returned 404 - island not found or not running. Status: {}", playerName, response.statusCode());
+                .thenAccept(response -> { // Changed thenApply to thenAccept
+                    int statusCode = response.statusCode();
+                    if (statusCode == 200 || statusCode == 202) { // OK or Accepted
+                        LOGGER.info("API call to freeze island for player {} (UUID: {}) successful. Status: {}", playerName, playerUuid, statusCode);
+                    } else if (statusCode == 404) {
+                        LOGGER.warn("API call to freeze island for player {} (UUID: {}) returned 404 - island not found or not running. Status: {}, Body: {}", playerName, playerUuid, statusCode, response.body());
+                    } else {
+                        LOGGER.error("API call to freeze island for player {} (UUID: {}) failed. Status: {}, Body: {}", playerName, playerUuid, statusCode, response.body());
                     }
-                    else {
-                        LOGGER.error("API call to freeze island for player {} failed. Status: {} - Body: {}", playerName, response.statusCode(), response.body());
-                    }
-                    return response;
+                    // No player message is sent here, this is purely server-side.
                 })
                 .exceptionally(e -> {
-                    LOGGER.error("Exception during API call to freeze island for player {}:", playerName, e);
-                    return null;
+                    LOGGER.error("Exception during API call to freeze island for player {} (UUID: {}): {}", playerName, playerUuid, e.getMessage(), e);
+                    return null; // Void for exceptionally
                 });
         }
     }
