@@ -1,0 +1,1 @@
+{"id":"nestworldvelocity","name":"NestworldVelocity","version":"1.0.0","description":"Velocity plugin for Nestworld Dynamic SkyBlock to manage player connections to their islands.","authors":["YourName/Team"],"dependencies":[],"main":"com.skyblockdynamic.nestworld.velocity.NestworldVelocityPlugin"}

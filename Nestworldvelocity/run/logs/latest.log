@@ -1,0 +1,23 @@
+[13:28:15] [main/INFO] [com.velocitypowered.proxy.VelocityServer]: Booting up Velocity 3.4.0-SNAPSHOT (git-fe69214e-b514)...
+[13:28:15] [main/INFO] [com.velocitypowered.proxy.VelocityServer]: Loading localizations...
+[13:28:15] [main/INFO] [com.velocitypowered.proxy.network.ConnectionManager]: Connections will use epoll channels, libdeflate (Linux x86_64) compression, OpenSSL 3.x.x (Linux x86_64) ciphers
+[13:28:15] [main/WARN] [com.velocitypowered.proxy.config.VelocityConfiguration]: The proxy is running in offline mode! This is a security risk and you will NOT receive any support!
+[13:28:15] [main/WARN] [com.velocitypowered.proxy.config.VelocityConfiguration]: Player info forwarding is disabled! All players will appear to be connecting from the proxy and will have offline-mode UUIDs.
+[13:28:15] [main/INFO] [com.velocitypowered.proxy.VelocityServer]: Loading plugins...
+[13:28:15] [main/INFO] [nestworldvelocity]: NestworldVelocityPlugin is constructing...
+[13:28:15] [main/INFO] [com.velocitypowered.proxy.plugin.VelocityPluginManager]: Loaded plugin nestworldvelocity 1.0.0 by YourName/Team
+[13:28:15] [main/INFO] [com.velocitypowered.proxy.VelocityServer]: Loaded 2 plugins
+[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: NestworldVelocityPlugin onProxyInitialization started...
+[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: Configuration file not found, creating default: plugins/nestworldvelocity/nestworldvelocity.toml
+[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: Successfully loaded configuration from plugins/nestworldvelocity/nestworldvelocity.toml
+[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: API URL: http://127.0.0.1:8000/api/v1
+[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: Fallback Server: hub
+[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: API Request Timeout: 10s
+[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: Polling Interval: 2000ms, Max Attempts: 15
+[13:28:16] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: NestworldVelocityPlugin initialized successfully with listeners and config!
+[13:28:16] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: API URL configured to: http://127.0.0.1:8000/api/v1
+[13:28:16] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: Fallback server configured to: hub
+[13:28:16] [Netty epoll Boss #0/INFO] [com.velocitypowered.proxy.network.ConnectionManager]: Listening on /[0:0:0:0:0:0:0:0]:25565
+[13:28:16] [main/INFO] [com.velocitypowered.proxy.Velocity]: Done (1,56s)!
+[13:28:40] [Thread-2/INFO] [com.velocitypowered.proxy.VelocityServer]: Shutting down the proxy...
+[13:28:40] [Thread-2/INFO] [com.velocitypowered.proxy.network.ConnectionManager]: Closing endpoint /0.0.0.0:25565

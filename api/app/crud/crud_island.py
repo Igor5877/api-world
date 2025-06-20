@@ -123,17 +123,25 @@ class CRUDisland:
         player_uuid_str = str(player_uuid)
 
         try:
+            # First, perform the update
             stmt = (
                 sqlalchemy_update(IslandModel)
                 .where(IslandModel.player_uuid == player_uuid_str)
                 .values(**values_to_update)
-                .returning(IslandModel) # To get the updated row back
             )
-            result = await db_session.execute(stmt)
+            await db_session.execute(stmt)
             await db_session.commit()
-            updated_island = result.scalars().first()
+
+            # Then, fetch the updated island
+            # Using the existing get_by_player_uuid method might be cleaner if it doesn't cause issues with session state
+            # For now, a direct select:
+            updated_island_result = await db_session.execute(
+                select(IslandModel).filter(IslandModel.player_uuid == player_uuid_str)
+            )
+            updated_island = updated_island_result.scalars().first()
+            
             if not updated_island:
-                 logger.warning(f"No island found with player_uuid {player_uuid_str} during status update.")
+                 logger.warning(f"No island found with player_uuid {player_uuid_str} after status update.")
             return updated_island
         except SQLAlchemyError as e:
             logger.error(f"Database error in CRUDisland.update_status for player_uuid {player_uuid_str}: {e}")

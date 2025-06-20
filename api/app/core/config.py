@@ -16,7 +16,10 @@ class Settings(BaseSettings):
     LXD_SOCKET_PATH: str | None = os.getenv("LXD_SOCKET_PATH", None) # e.g., /var/snap/lxd/common/lxd/unix.socket or /var/lib/lxd/unix.socket
     LXD_PROJECT: str | None = os.getenv("LXD_PROJECT", "default")
     LXD_BASE_IMAGE: str = os.getenv("LXD_BASE_IMAGE", "skyblock-template") # Name of the published LXD image
-
+    LXD_OPERATION_TIMEOUT: int = int(os.getenv("LXD_OPERATION_TIMEOUT", "30")) # Seconds for LXD operations like start/stop
+    LXD_IP_RETRY_ATTEMPTS: int = int(os.getenv("LXD_IP_RETRY_ATTEMPTS", "10")) # How many times to try fetching an IP
+    LXD_IP_RETRY_DELAY: int = int(os.getenv("LXD_IP_RETRY_DELAY", "3")) # Delay in seconds between IP fetch attempts
+    LXD_DEFAULT_PROFILES: list[str] = os.getenv("LXD_DEFAULT_PROFILES", "default,skyblock").split(',') # Comma-separated list e.g., "default,skyblock"
     # Server resource management
     MAX_RUNNING_SERVERS: int = int(os.getenv("MAX_RUNNING_SERVERS", "10")) # Max concurrent running islands
     

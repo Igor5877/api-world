@@ -8,7 +8,7 @@
 # Database URL
 # Replace with your actual database connection string
 # For MySQL with aiomysql:
-DATABASE_URL="mysql+aiomysql://name:pasworld@localhost:3306/names-db"
+DATABASE_URL="mysql+aiomysql://Sci-blok-API:viG6bZo7qBC44SQ_@localhost:3306/viG6bZo7qBC44SQ_"
 # For PostgreSQL with asyncpg:
 # DATABASE_URL="postgresql+asyncpg://skyblock_user:skyblock_password@localhost:5432/skyblock_db"
 # For SQLite (testing only, not recommended for production with async):

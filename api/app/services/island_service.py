@@ -42,7 +42,16 @@ class IslandService:
             logger.warning(f"Service: Island creation conflict for player_uuid: {island_create_data.player_uuid}")
             raise ValueError("Island already exists for this player.")
 
-        container_name = f"skyblock-{str(island_create_data.player_uuid)}"
+        # Sanitize player_name for use in container name (simple sanitization)
+        # Replace spaces and other potentially problematic characters with underscores
+        # LXD is generally quite permissive, but it's good practice.
+        # A more robust solution might involve a whitelist of characters or more complex regex.
+        safe_player_name = "".join(c if c.isalnum() or c in ['-'] else '_' for c in island_create_data.player_name)
+        if not safe_player_name: # Handle cases where player_name is all non-alphanumeric
+            safe_player_name = "player"
+
+        container_name = f"skyblock-{safe_player_name}-{str(island_create_data.player_uuid)}"
+        logger.info(f"Service: Generated container name: {container_name}")
 
         try:
             island_db_model = await crud_island.create(
@@ -74,27 +83,39 @@ class IslandService:
 
         async with AsyncSessionLocal() as db_session_bg:
             try:
-                logger.info(f"Service (background): Cloning '{settings.LXD_BASE_IMAGE}' to '{container_name}' for {player_uuid}...")
+                logger.info(f"Service (background): Cloning '{settings.LXD_BASE_IMAGE}' to '{container_name}' for {player_uuid} with profiles {settings.LXD_DEFAULT_PROFILES}...")
+                # Assuming LXD_DEFAULT_PROFILES is a list like ["default", "skyblock"]
                 await lxd_service.clone_container(
                     source_image_alias=settings.LXD_BASE_IMAGE,
-                    new_container_name=container_name
+                    new_container_name=container_name,
+                    profiles=settings.LXD_DEFAULT_PROFILES
                 )
                 logger.info(f"Service (background): Container '{container_name}' cloned successfully.")
 
+                # After cloning, the container is created but not started. Its status in DB should be STOPPED.
                 await crud_island.update_status(
                     db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.STOPPED
                 )
-                logger.info(f"Service (background): Island {player_uuid} status updated to STOPPED in DB.")
+                logger.info(f"Service (background): Island {player_uuid} status updated to STOPPED in DB post-cloning.")
 
-            except Exception as e:
-                logger.error(f"Service (background): Error during LXD clone or DB update for {player_uuid}: {e}")
+            except lxd_service.LXDServiceError as lxd_e: # More specific error handling
+                logger.error(f"Service (background): LXD Error during LXD clone for {player_uuid}: {lxd_e}")
+                try:
+                    await crud_island.update_status(
+                        db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE
+                    )
+                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_CREATE in DB due to LXD clone failure.")
+                except Exception as db_e:
+                    logger.critical(f"Service (background): CRITICAL - Failed to update island {player_uuid} status to ERROR_CREATE: {db_e}")
+            except Exception as e: # Catch other potential errors
+                logger.error(f"Service (background): Generic error during LXD clone or DB update for {player_uuid}: {e}", exc_info=True)
                 try:
                     await crud_island.update_status(
                         db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR
                     )
-                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR in DB due to failure.")
+                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR in DB due to generic failure.")
                 except Exception as db_e:
-                    logger.error(f"Service (background): CRITICAL - Failed to update island {player_uuid} status to ERROR: {db_e}")
+                    logger.critical(f"Service (background): CRITICAL - Failed to update island {player_uuid} status to ERROR: {db_e}")
             finally:
                 await db_session_bg.close()
 
@@ -152,19 +173,31 @@ class IslandService:
             try:
                 logger.info(f"Service (background): Starting LXD operations for {player_uuid}, container {container_name}")
                 if was_frozen:
+                    logger.info(f"Service (background): Container {container_name} was frozen. Unfreezing...")
                     await lxd_service.unfreeze_container(container_name)
                     logger.info(f"Service (background): Container {container_name} unfrozen.")
-
+                
+                logger.info(f"Service (background): Attempting to start container {container_name}...")
                 await lxd_service.start_container(container_name)
-                logger.info(f"Service (background): Container {container_name} started (mock).")
+                logger.info(f"Service (background): Container {container_name} started successfully via LXDService.")
 
-                lxd_state = await lxd_service.get_container_state(container_name)
-                ip_address = lxd_state.get("ip_address") if lxd_state else f"10.0.4.{uuid.uuid4().int % 100}"
-                internal_port = settings.DEFAULT_MC_PORT_INTERNAL
+                # Retrieve IP address using the dedicated method with retries
+                ip_address = await lxd_service.get_container_ip(container_name)
+                if not ip_address:
+                    logger.error(f"Service (background): Failed to get IP address for container {container_name} after starting.")
+                    # Set status to ERROR_START or a specific no-IP error status
+                    await crud_island.update_status(
+                        db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_START  # Or a new status like ERROR_NO_IP
+                    )
+                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_START due to IP retrieval failure.")
+                    return # Exit the task
+
+                internal_port = settings.DEFAULT_MC_PORT_INTERNAL # This should be the port Minecraft runs on INSIDE the container
 
                 update_fields = {
                     "internal_ip_address": ip_address,
-                    "internal_port": internal_port,
+                    "internal_port": internal_port, # Default Minecraft port inside container
+                    "external_port": None, # External port will be managed by Velocity or another proxy mechanism, not directly known here unless LXD proxy device is used.
                     "last_seen_at": datetime.now(timezone.utc)
                 }
                 await crud_island.update_status(
@@ -173,17 +206,31 @@ class IslandService:
                     status=IslandStatusEnum.RUNNING,
                     extra_fields=update_fields
                 )
-                logger.info(f"Service (background): Island {player_uuid} status updated to RUNNING. IP: {ip_address}:{internal_port}")
+                logger.info(f"Service (background): Island {player_uuid} status updated to RUNNING. Internal IP: {ip_address}:{internal_port}")
 
+            except lxd_service.LXDContainerNotFoundError:
+                logger.error(f"Service (background): Container {container_name} not found during start operations for {player_uuid}.")
+                # Status should already be PENDING_START or similar, this is an unexpected state.
+                # Consider setting to a specific error state.
+                await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_START)
+            except lxd_service.LXDServiceError as lxd_e:
+                logger.error(f"Service (background): LXD Error during LXD start for {player_uuid}: {lxd_e}")
+                try:
+                    await crud_island.update_status(
+                        db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_START
+                    )
+                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_START in DB due to LXD start failure.")
+                except Exception as db_e:
+                    logger.critical(f"Service (background): CRITICAL - Failed to update island {player_uuid} status to ERROR_START: {db_e}")
             except Exception as e:
-                logger.error(f"Service (background): Error during LXD start or DB update for {player_uuid}: {e}")
+                logger.error(f"Service (background): Generic error during LXD start or DB update for {player_uuid}: {e}", exc_info=True)
                 try:
                     await crud_island.update_status(
                         db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR
                     )
-                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR due to start failure.")
+                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR in DB due to generic start failure.")
                 except Exception as db_e:
-                    logger.error(f"Service (background): CRITICAL - Failed to update island {player_uuid} status to ERROR after start failure: {db_e}")
+                    logger.critical(f"Service (background): CRITICAL - Failed to update island {player_uuid} status to ERROR: {db_e}")
             finally:
                 await db_session_bg.close()
 

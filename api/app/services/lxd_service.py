@@ -1,252 +1,446 @@
-# This file will contain the logic for interacting with LXD.
-# It will use a library like 'pylxd' or 'asyncio-lxd' to communicate with the LXD daemon.
+import asyncio
+import logging
+from typing import Optional, Dict, Any, List, Tuple
+from functools import partial
 
-# For now, this will be a placeholder mock service.
-# Ensure you install the chosen LXD library:
-# pip install pylxd  (synchronous)
-# pip install asyncio-lxd (asynchronous, preferred for FastAPI)
+import pylxd
+from pylxd.exceptions import LXDAPIException, NotFound
 
 from app.core.config import settings
-import asyncio # For async sleep
 
-# Assuming use of asyncio-lxd in the future
-# import aiolxd
+logger = logging.getLogger(__name__)
+
+class LXDServiceError(Exception):
+    """Custom exception for LXDService errors."""
+    pass
+
+class LXDContainerNotFoundError(LXDServiceError):
+    """Specific error for when a container is not found."""
+    pass
 
 class LXDService:
     def __init__(self):
-        self.client = None # Placeholder for LXD client object
-        # In a real scenario, client initialization would happen in main.py lifespan or here.
-        # Example with aiolxd:
-        # self.client = aiolxd.Client(endpoint=settings.LXD_SOCKET_PATH) 
-        print("LXDService: Initialized (mock).")
-        if settings.LXD_SOCKET_PATH:
-            print(f"LXDService: Would connect to LXD socket at {settings.LXD_SOCKET_PATH}")
+        self.client: Optional[pylxd.Client] = None
+        self._connect_lock = asyncio.Lock() # To ensure client is initialized once if needed concurrently
+        logger.info("LXDService: Initialized for pylxd.")
+        if not settings.LXD_SOCKET_PATH:
+            logger.warning("LXDService: LXD_SOCKET_PATH not configured. Service will not be able to connect to LXD.")
         else:
-            print("LXDService: LXD_SOCKET_PATH not configured. Using mock mode fully.")
+            # Initialize client synchronously here, as pylxd.Client() is cheap
+            # and doesn't do I/O until methods are called.
+            try:
+                self.client = pylxd.Client(endpoint=settings.LXD_SOCKET_PATH)
+                logger.info(f"LXDService: pylxd.Client initialized for socket {settings.LXD_SOCKET_PATH}.")
+                # You can test connectivity if necessary, e.g., by listing profiles
+                # self.client.profiles.all() # This would be a blocking call
+            except Exception as e:
+                logger.error(f"LXDService: Failed to initialize pylxd.Client: {e}")
+                self.client = None
 
 
-    async def _connect(self):
-        """Placeholder for connecting to LXD."""
-        if not self.client and settings.LXD_SOCKET_PATH:
-            # try:
-            #     # For aiolxd:
-            #     # self.client = aiolxd.Client(endpoint=settings.LXD_SOCKET_PATH)
-            #     # await self.client.authenticate('your-password-if-needed') # if LXD requires it
-            #     # print("LXDService: Successfully connected to LXD daemon.")
-            # except Exception as e:
-            #     print(f"LXDService: Failed to connect to LXD daemon: {e}")
-            #     self.client = None # Ensure client is None if connection fails
-            #     raise # Re-raise the exception to signal failure
-            print("LXDService: Mock connect. Real connection logic needed.")
-            # For testing, simulate a client object
-            self.client = object() 
-        elif not settings.LXD_SOCKET_PATH:
-            print("LXDService: Mock mode, no LXD socket path provided.")
-            self.client = object() # Simulate client for mock operations
-        # If self.client already exists, assume it's connected.
-
-    async def close(self):
-        """Placeholder for closing the LXD connection."""
-        if self.client:
-            # For aiolxd:
-            # await self.client.close()
-            print("LXDService: Mock close. Real disconnection logic needed.")
-            self.client = None
-
-    async def list_containers(self) -> list:
-        await self._connect()
-        if not self.client: return []
-        # Real implementation:
-        # containers = await self.client.containers.all()
-        # return [c.name for c in containers]
-        print("LXDService: Mock list_containers()")
-        return ["mock-container-1", "mock-container-2"]
-
-    async def clone_container(self, source_image_alias: str, new_container_name: str, config: dict | None = None) -> dict:
-        await self._connect()
-        if not self.client: raise ConnectionError("LXD client not available.")
+    async def _run_sync(self, func, *args, **kwargs):
+        """Helper to run synchronous pylxd calls in a thread pool."""
+        if not self.client:
+            # This can happen if client init failed or LXD_SOCKET_PATH was not set
+            logger.error("LXDService: LXD client is not available.")
+            raise LXDServiceError("LXD client not available. Check configuration and LXD service.")
         
-        print(f"LXDService: Mock clone_container '{source_image_alias}' to '{new_container_name}'")
-        await asyncio.sleep(1) # Simulate delay
-        # Real pylxd/aiolxd logic:
-        # image = await self.client.images.get_by_alias(source_image_alias)
-        # if not image:
-        #     raise ValueError(f"Source image '{source_image_alias}' not found.")
-        # container_config = {
-        #     'name': new_container_name,
-        #     'source': {'type': 'image', 'alias': source_image_alias},
-        #     # Add other configs: profiles, devices, etc.
-        # }
-        # if config:
-        #    container_config.update(config)
-        # try:
-        #    container = await self.client.containers.create(container_config, wait=True) # wait=True for sync creation
-        #    print(f"LXD container '{new_container_name}' created from '{source_image_alias}'.")
-        #    return {"name": container.name, "status": container.status, "ephemeral": container.ephemeral}
-        # except Exception as e:
-        #    print(f"Error cloning container: {e}")
-        #    raise
-        return {"name": new_container_name, "status": "Cloned (mock)", "ephemeral": False}
+        loop = asyncio.get_running_loop()
+        # Use partial to bind arguments to the function before sending to thread
+        bound_func = partial(func, *args, **kwargs)
+        return await loop.run_in_executor(None, bound_func)
+
+    # Note: pylxd client doesn't have an explicit close() method for socket connections.
+    # Connections are typically managed per request by the underlying requests library.
+    # So, a specific close() method for the service might not be needed unless
+    # we were managing a persistent connection differently.
+
+    async def list_container_names(self) -> List[str]:
+        """Lists names of all containers."""
+        def _sync_list_container_names():
+            return [c.name for c in self.client.containers.all()]
+        try:
+            return await self._run_sync(_sync_list_container_names)
+        except LXDAPIException as e:
+            logger.error(f"LXDService: LXD API error listing containers: {e}")
+            raise LXDServiceError(f"LXD API error listing containers: {e}")
+        except Exception as e: # Catch other potential errors like connection issues if client init was deferred
+            logger.error(f"LXDService: Error listing containers: {e}")
+            raise LXDServiceError(f"Error listing containers: {e}")
+
+    async def clone_container(self, source_image_alias: str, new_container_name: str, config: Optional[Dict[str, Any]] = None, profiles: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Clones a new container from a source image using pylxd.
+        """
+        if profiles is None:
+            profiles = ["default"]
+
+        logger.info(f"LXDService: Attempting to clone '{source_image_alias}' to '{new_container_name}' with profiles {profiles} using pylxd.")
+
+        def _sync_clone():
+            if not self.client.images.exists(source_image_alias, alias=True):
+                logger.error(f"LXDService: Source image '{source_image_alias}' not found.")
+                raise LXDServiceError(f"Source image '{source_image_alias}' not found.")
+
+            container_config_pylxd = {
+                'name': new_container_name,
+                'source': {'type': 'image', 'alias': source_image_alias},
+                'profiles': profiles,
+            }
+            if config: # pylxd uses 'config' key for container config, not top-level
+                container_config_pylxd['config'] = config 
+
+            if self.client.containers.exists(new_container_name):
+                logger.warning(f"LXDService: Container '{new_container_name}' already exists. Returning existing.")
+                container = self.client.containers.get(new_container_name)
+            else:
+                logger.info(f"LXDService: Creating container '{new_container_name}'...")
+                container = self.client.containers.create(container_config_pylxd, wait=True)
+                logger.info(f"LXDService: Container '{new_container_name}' created from '{source_image_alias}'.")
+            
+            return {"name": container.name, "status": container.status, "ephemeral": container.ephemeral}
+
+        try:
+            return await self._run_sync(_sync_clone)
+        except NotFound as e: # pylxd specific not found
+            logger.error(f"LXDService: LXD NotFound error (e.g. image alias) cloning container '{new_container_name}': {e}")
+            raise LXDServiceError(f"LXD NotFound error cloning container: {e}")
+        except LXDAPIException as e:
+            logger.error(f"LXDService: LXD API error cloning container '{new_container_name}': {e}")
+            raise LXDServiceError(f"LXD API error cloning container: {e}")
+        except Exception as e:
+            logger.error(f"LXDService: Unexpected error cloning container '{new_container_name}': {e}")
+            raise LXDServiceError(f"Unexpected error cloning container: {e}")
 
     async def start_container(self, container_name: str) -> bool:
-        await self._connect()
-        if not self.client: raise ConnectionError("LXD client not available.")
+        logger.info(f"LXDService: Attempting to start container '{container_name}'.")
+        def _sync_start():
+            try:
+                container = self.client.containers.get(container_name)
+                if container.status.lower() == 'running':
+                    logger.info(f"LXDService: Container '{container_name}' is already running.")
+                    return True
+                container.start(wait=True, timeout=settings.LXD_OPERATION_TIMEOUT)
+                logger.info(f"LXDService: Container '{container_name}' started successfully.")
+                return True
+            except NotFound:
+                logger.error(f"LXDService: Container '{container_name}' not found for starting.")
+                raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+        try:
+            return await self._run_sync(_sync_start)
+        except LXDContainerNotFoundError: # Re-raise specific error
+             raise
+        except LXDAPIException as e:
+            logger.error(f"LXDService: LXD API error starting container '{container_name}': {e}")
+            raise LXDServiceError(f"LXD API error starting container: {e}")
+        except Exception as e:
+            logger.error(f"LXDService: Error starting container '{container_name}': {e}")
+            raise LXDServiceError(f"Error starting container: {e}")
 
-        print(f"LXDService: Mock start_container '{container_name}'")
-        await asyncio.sleep(0.5) # Simulate delay
-        # Real logic:
-        # container = await self.client.containers.get(container_name)
-        # if not container.status == 'Running':
-        #    await container.start(wait=True) # wait=True for sync start
-        # print(f"LXD container '{container_name}' started.")
-        # return True
-        return True
+    async def stop_container(self, container_name: str, force: bool = True, timeout: Optional[int] = None) -> bool: # pylxd default force=True
+        stop_timeout = timeout if timeout is not None else settings.LXD_OPERATION_TIMEOUT
+        logger.info(f"LXDService: Attempting to stop container '{container_name}' (force={force}, timeout={stop_timeout}).")
+        def _sync_stop():
+            try:
+                container = self.client.containers.get(container_name)
+                if container.status.lower() == 'stopped':
+                    logger.info(f"LXDService: Container '{container_name}' is already stopped.")
+                    return True
+                container.stop(wait=True, force=force, timeout=stop_timeout)
+                logger.info(f"LXDService: Container '{container_name}' stopped successfully.")
+                return True
+            except NotFound:
+                logger.error(f"LXDService: Container '{container_name}' not found for stopping.")
+                raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+        try:
+            return await self._run_sync(_sync_stop)
+        except LXDContainerNotFoundError: # Re-raise specific error
+             raise
+        except LXDAPIException as e:
+            logger.error(f"LXDService: LXD API error stopping container '{container_name}': {e}")
+            raise LXDServiceError(f"LXD API error stopping container: {e}")
+        except Exception as e:
+            logger.error(f"LXDService: Error stopping container '{container_name}': {e}")
+            raise LXDServiceError(f"Error stopping container: {e}")
 
-    async def stop_container(self, container_name: str, force: bool = False, timeout: int = 30) -> bool:
-        await self._connect()
-        if not self.client: raise ConnectionError("LXD client not available.")
+    async def delete_container(self, container_name: str, stop_if_running: bool = True) -> bool:
+        logger.info(f"LXDService: Attempting to delete container '{container_name}'.")
+        async def _sync_delete_wrapper(): # Need async wrapper for await self.stop_container
+            try:
+                # Check existence with _run_sync first to avoid awaiting stop_container for non-existent one
+                if not await self._run_sync(self.client.containers.exists, container_name):
+                    logger.warning(f"LXDService: Container '{container_name}' not found for deletion. Assuming already deleted.")
+                    return False
 
-        print(f"LXDService: Mock stop_container '{container_name}' (force={force})")
-        await asyncio.sleep(0.5)
-        # Real logic:
-        # container = await self.client.containers.get(container_name)
-        # if container.status == 'Running':
-        #    await container.stop(force=force, timeout=timeout, wait=True)
-        # print(f"LXD container '{container_name}' stopped.")
-        # return True
-        return True
+                container = await self._run_sync(self.client.containers.get, container_name)
+                if stop_if_running and container.status.lower() != 'stopped':
+                    logger.info(f"LXDService: Container '{container_name}' is not stopped. Stopping before deletion...")
+                    await self.stop_container(container_name, force=True) # This is already an async method using _run_sync
+                
+                await self._run_sync(container.delete, wait=True)
+                logger.info(f"LXDService: Container '{container_name}' deleted successfully.")
+                return True
+            except NotFound: # Should be caught by exists check, but as safeguard
+                logger.warning(f"LXDService: Container '{container_name}' not found for deletion (during get/delete).")
+                return False
+        
+        try:
+            return await _sync_delete_wrapper()
+        except LXDContainerNotFoundError: # From stop_container if called
+             logger.warning(f"LXDService: Container '{container_name}' not found during pre-delete stop attempt.")
+             return False # Or handle as appropriate
+        except LXDAPIException as e:
+            logger.error(f"LXDService: LXD API error deleting container '{container_name}': {e}")
+            raise LXDServiceError(f"LXD API error deleting container: {e}")
+        except Exception as e:
+            logger.error(f"LXDService: Error deleting container '{container_name}': {e}")
+            raise LXDServiceError(f"Error deleting container: {e}")
+
+    async def get_container_state(self, container_name: str) -> Optional[Dict[str, Any]]:
+        logger.debug(f"LXDService: Getting state for container '{container_name}'.")
+        def _sync_get_state():
+            try:
+                container = self.client.containers.get(container_name)
+                # pylxd's container.state() is a blocking call that returns a ContainerState object
+                state = container.state() 
+                
+                ip_address: Optional[str] = None
+                device_name = 'eth0' # Default, adjust if needed
+                if state.network and device_name in state.network:
+                    for addr_info in state.network[device_name].get('addresses', []):
+                        if addr_info['family'].lower() == 'inet' and addr_info['scope'].lower() == 'global':
+                            ip_address = addr_info['address']
+                            break
+                
+                return {
+                    "name": container.name,
+                    "status": state.status,
+                    "status_code": state.status_code,
+                    "ip_address": ip_address,
+                    "pid": state.pid,
+                    "ephemeral": container.ephemeral,
+                    "profiles": container.profiles,
+                    "description": container.description,
+                }
+            except NotFound:
+                logger.warning(f"LXDService: Container '{container_name}' not found when getting state (sync).")
+                return None # Explicitly return None if not found inside sync part
+        
+        try:
+            result = await self._run_sync(_sync_get_state)
+            if result is None and await self._run_sync(self.client.containers.exists, container_name) is False: # Double check for log clarity
+                 logger.warning(f"LXDService: Confirmed container '{container_name}' not found when getting state.")
+            return result
+        except LXDAPIException as e: # Should be caught by _sync_get_state's try/except for NotFound
+            logger.error(f"LXDService: LXD API error getting state for '{container_name}': {e}")
+            raise LXDServiceError(f"LXD API error getting state for '{container_name}': {e}")
+        except Exception as e:
+            logger.error(f"LXDService: Error getting state for '{container_name}': {e}")
+            raise LXDServiceError(f"Error getting state for '{container_name}': {e}")
+
+    async def get_container_ip(self, container_name: str, interface: str = 'eth0', family: str = 'inet', scope: str = 'global') -> Optional[str]:
+        logger.debug(f"LXDService: Attempting to get IP for container '{container_name}' on interface '{interface}'.")
+        
+        async def _sync_get_ip_with_retry(): # Needs to be async to use asyncio.sleep
+            try:
+                # Initial check if container exists and is running
+                container_exists = await self._run_sync(self.client.containers.exists, container_name)
+                if not container_exists:
+                    logger.error(f"LXDService: Container '{container_name}' not found when trying to get IP.")
+                    raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+
+                container_status = (await self.get_container_state(container_name)).get('status', '').lower()
+                if container_status != "running":
+                    logger.warning(f"Container '{container_name}' is not running (status: {container_status}). Cannot get IP.")
+                    return None
+
+                for attempt in range(settings.LXD_IP_RETRY_ATTEMPTS):
+                    state_data = await self.get_container_state(container_name) # Re-fetch state
+                    if state_data and state_data.get('ip_address'): # get_container_state now extracts IP
+                        ip = state_data['ip_address']
+                        # Verify family and scope if necessary, though get_container_state should handle it
+                        logger.info(f"Found IP {ip} for {container_name} on attempt {attempt + 1}")
+                        return ip
+                    
+                    if attempt < settings.LXD_IP_RETRY_ATTEMPTS - 1:
+                        logger.debug(f"IP not found for {container_name} on attempt {attempt + 1}, retrying in {settings.LXD_IP_RETRY_DELAY}s...")
+                        await asyncio.sleep(settings.LXD_IP_RETRY_DELAY)
+                
+                logger.warning(f"Could not find IP address for container '{container_name}' after {settings.LXD_IP_RETRY_ATTEMPTS} attempts.")
+                return None
+            except NotFound: # Should be caught by exists check
+                logger.error(f"LXDService: Container '{container_name}' not found (sync) when trying to get IP.")
+                raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+        
+        try:
+            return await _sync_get_ip_with_retry()
+        except LXDContainerNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"LXDService: Error getting IP for '{container_name}': {e}")
+            raise LXDServiceError(f"Error getting IP for '{container_name}': {e}")
+
+    async def execute_command_in_container(self, container_name: str, command: List[str], environment: Optional[Dict[str, str]] = None) -> Tuple[int, str, str]:
+        logger.info(f"LXDService: Executing command {command} in container '{container_name}'.")
+        def _sync_execute():
+            try:
+                container = self.client.containers.get(container_name)
+                if container.status.lower() != "running":
+                    logger.error(f"LXDService: Container '{container_name}' is not running. Cannot execute command.")
+                    # This error should ideally be raised to stop further processing
+                    raise LXDServiceError(f"Container '{container_name}' is not running.")
+                
+                # pylxd's execute returns (exit_code, stdout, stderr)
+                result = container.execute(command, environment=environment)
+                logger.debug(f"LXDService: Command in '{container_name}' exited with code {result[0]}. Stdout: {result[1][:100]}..., Stderr: {result[2][:100]}...")
+                return result
+            except NotFound:
+                logger.error(f"LXDService: Container '{container_name}' not found for command execution.")
+                raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+        
+        try:
+            return await self._run_sync(_sync_execute)
+        except LXDContainerNotFoundError: # Re-raise specific error
+             raise
+        except LXDServiceError as e: # Catch "not running" error from _sync_execute
+            logger.error(f"LXDService: Service error executing command in '{container_name}': {e}")
+            raise
+        except LXDAPIException as e:
+            logger.error(f"LXDService: LXD API error executing command in '{container_name}': {e}")
+            raise LXDServiceError(f"LXD API error executing command: {e}")
+        except Exception as e:
+            logger.error(f"LXDService: Error executing command in '{container_name}': {e}")
+            raise LXDServiceError(f"Error executing command: {e}")
 
     async def freeze_container(self, container_name: str) -> bool:
-        await self._connect()
-        if not self.client: raise ConnectionError("LXD client not available.")
-        print(f"LXDService: Mock freeze_container '{container_name}'")
-        await asyncio.sleep(0.2)
-        # Real logic:
-        # container = await self.client.containers.get(container_name)
-        # if container.status == 'Running':
-        #    await container.freeze(wait=True)
-        # print(f"LXD container '{container_name}' frozen.")
-        # return True
-        return True
+        logger.info(f"LXDService: Attempting to freeze container '{container_name}'.")
+        def _sync_freeze():
+            try:
+                container = self.client.containers.get(container_name)
+                if container.status.lower() == 'frozen':
+                    logger.info(f"Container '{container_name}' is already frozen.")
+                    return True
+                if container.status.lower() != 'running':
+                    logger.warning(f"Container '{container_name}' is not running, cannot freeze. Status: {container.status}")
+                    return False
+                container.freeze(wait=True, timeout=settings.LXD_OPERATION_TIMEOUT)
+                logger.info(f"LXDService: Container '{container_name}' frozen successfully.")
+                return True
+            except NotFound:
+                logger.error(f"LXDService: Container '{container_name}' not found for freezing.")
+                raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+        try:
+            return await self._run_sync(_sync_freeze)
+        except LXDContainerNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"LXDService: Error freezing container '{container_name}': {e}")
+            raise LXDServiceError(f"Error freezing container: {e}")
 
     async def unfreeze_container(self, container_name: str) -> bool:
-        await self._connect()
-        if not self.client: raise ConnectionError("LXD client not available.")
-        print(f"LXDService: Mock unfreeze_container '{container_name}'")
-        await asyncio.sleep(0.2)
-        # Real logic:
-        # container = await self.client.containers.get(container_name)
-        # if container.status == 'Frozen':
-        #    await container.unfreeze(wait=True)
-        # print(f"LXD container '{container_name}' unfrozen.")
-        # return True
-        return True
-
-
-    async def delete_container(self, container_name: str, force: bool = True) -> bool:
-        await self._connect()
-        if not self.client: raise ConnectionError("LXD client not available.")
-        print(f"LXDService: Mock delete_container '{container_name}'")
-        await asyncio.sleep(0.5)
-        # Real logic:
-        # try:
-        #    container = await self.client.containers.get(container_name)
-        #    if container.status != 'Stopped' and force: # Ensure it's stopped before deleting if not forcing hard
-        #       await container.stop(wait=True, force=True)
-        #    await container.delete(wait=True)
-        #    print(f"LXD container '{container_name}' deleted.")
-        #    return True
-        # except aiolxd.exceptions.LXDAPIException as e:
-        #    if e.response.status_code == 404: # Not found
-        #        print(f"LXD container '{container_name}' not found for deletion.")
-        #        return False
-        #    raise
-        return True
-
-    async def get_container_state(self, container_name: str) -> dict | None:
-        await self._connect()
-        if not self.client: raise ConnectionError("LXD client not available.")
-        print(f"LXDService: Mock get_container_state for '{container_name}'")
-        # Real logic:
-        # try:
-        #    container = await self.client.containers.get(container_name)
-        #    state = await container.state()
-        #    # Example: state.network['eth0']['addresses'][0]['address'] for IP
-        #    # This structure highly depends on your container's network config and LXD version.
-        #    ip_address = None
-        #    if state.network and 'eth0' in state.network and state.network['eth0']['addresses']:
-        #        for addr_info in state.network['eth0']['addresses']:
-        #            if addr_info['family'] == 'inet' and addr_info['scope'] == 'global': # Find IPv4 global
-        #                ip_address = addr_info['address']
-        #                break
-        #    return {"status": state.status, "ip_address": ip_address, "pid": state.pid}
-        # except aiolxd.exceptions.LXDAPIException as e:
-        #    if e.response.status_code == 404:
-        #        return None # Container not found
-        #    raise
-        # Simulate some state
-        if "nonexistent" in container_name: return None
-        return {
-            "status": "Running", # Could be Stopped, Frozen, etc.
-            "ip_address": f"10.0.2.{hash(container_name) % 250 + 1}", # Fake IP
-            "pid": hash(container_name) % 30000 + 1000 # Fake PID
-        }
-
-    async def execute_command(self, container_name: str, command: list[str], environment: dict | None = None) -> tuple[int, str, str]:
-        await self._connect()
-        if not self.client: raise ConnectionError("LXD client not available.")
-        print(f"LXDService: Mock execute_command in '{container_name}': {command}")
-        # Real logic:
-        # container = await self.client.containers.get(container_name)
-        # result = await container.execute(command, environment=environment) # result is a tuple (exit_code, stdout, stderr)
-        # return result
-        if command == ["java", "-jar", "server.jar", "nogui"]: # Simulate server start
-            return 0, "Server started successfully (mock)", ""
-        return 0, "Command executed (mock)", ""
+        logger.info(f"LXDService: Attempting to unfreeze container '{container_name}'.")
+        def _sync_unfreeze():
+            try:
+                container = self.client.containers.get(container_name)
+                if container.status.lower() != 'frozen':
+                    logger.warning(f"Container '{container_name}' is not frozen. Status: {container.status}")
+                    return False
+                container.unfreeze(wait=True, timeout=settings.LXD_OPERATION_TIMEOUT)
+                logger.info(f"LXDService: Container '{container_name}' unfrozen successfully.")
+                return True
+            except NotFound:
+                logger.error(f"LXDService: Container '{container_name}' not found for unfreezing.")
+                raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+        try:
+            return await self._run_sync(_sync_unfreeze)
+        except LXDContainerNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"LXDService: Error unfreezing container '{container_name}': {e}")
+            raise LXDServiceError(f"Error unfreezing container: {e}")
 
 
 # Instantiate the service for use in other parts of the application
 lxd_service = LXDService()
 
-# Example usage (typically from another service or an API endpoint):
-async def example_lxd_interaction():
-    # This would be done in app startup usually
-    # await lxd_service._connect() # Or rely on methods to call it
 
-    print(await lxd_service.list_containers())
+# Example usage (for testing or direct script execution):
+async def _main_example():
+    logging.basicConfig(level=logging.INFO)
+    # settings.LXD_SOCKET_PATH = "/var/snap/lxd/common/lxd/unix.socket" # For local testing
+    # settings.LXD_BASE_IMAGE = "your-ubuntu-image-alias" # For local testing
+    # settings.LXD_OPERATION_TIMEOUT = 30
+    # settings.LXD_IP_RETRY_ATTEMPTS = 5
+    # settings.LXD_IP_RETRY_DELAY = 2
+
+
+    if not settings.LXD_SOCKET_PATH or not settings.LXD_BASE_IMAGE:
+        logger.error("LXD_SOCKET_PATH and LXD_BASE_IMAGE must be set in settings or environment for this example.")
+        return
     
-    new_name = "my-test-skyblock-clone"
+    # Re-initialize lxd_service if settings were just manually set for testing script
+    global lxd_service
+    if not lxd_service.client: # If it failed in global scope due to missing settings
+        lxd_service = LXDService()
+        if not lxd_service.client:
+            logger.error("Failed to initialize LXDService client for example run.")
+            return
+
+
+    test_container_name = "test-pylxd-skyblock-02"
+
     try:
-        await lxd_service.clone_container(settings.LXD_BASE_IMAGE, new_name)
-        await lxd_service.start_container(new_name)
-        state = await lxd_service.get_container_state(new_name)
-        print(f"State of {new_name}: {state}")
-        # Simulate running a Minecraft server start command
-        # This is highly dependent on how the server is started within the container image.
-        # It might be a systemd service, a script, or direct java command.
-        # Example: await lxd_service.execute_command(new_name, ["/start_minecraft.sh"])
-        # Or: await lxd_service.execute_command(new_name, ["java", "-Xmx2G", "-jar", "forge-server.jar", "nogui"])
+        logger.info(f"Available containers: {await lxd_service.list_container_names()}")
 
-        await lxd_service.freeze_container(new_name)
-        state = await lxd_service.get_container_state(new_name)
-        print(f"State of {new_name} after freeze: {state}")
+        logger.info(f"Cloning {settings.LXD_BASE_IMAGE} to {test_container_name}...")
+        clone_info = await lxd_service.clone_container(settings.LXD_BASE_IMAGE, test_container_name, profiles=settings.LXD_DEFAULT_PROFILES or ["default"])
+        logger.info(f"Clone info: {clone_info}")
+
+        logger.info(f"Starting {test_container_name}...")
+        await lxd_service.start_container(test_container_name)
+
+        state = await lxd_service.get_container_state(test_container_name)
+        logger.info(f"State of {test_container_name}: {state}")
+        ip = await lxd_service.get_container_ip(test_container_name)
+        logger.info(f"IP of {test_container_name}: {ip}")
         
-        await lxd_service.unfreeze_container(new_name)
-        state = await lxd_service.get_container_state(new_name)
-        print(f"State of {new_name} after unfreeze: {state}")
+        if ip: # Only try to execute if we have an IP / it's running
+            exit_code, stdout, stderr = await lxd_service.execute_command_in_container(test_container_name, ["ls", "-la", "/"])
+            logger.info(f"Command ls -la / in {test_container_name}: Exit={exit_code}, STDOUT='{stdout[:200]}...', STDERR='{stderr[:200]}...'")
 
-        await lxd_service.stop_container(new_name)
-        await lxd_service.delete_container(new_name)
+        logger.info(f"Stopping {test_container_name}...")
+        await lxd_service.stop_container(test_container_name)
+        
+        state_stopped = await lxd_service.get_container_state(test_container_name)
+        logger.info(f"State of {test_container_name} after stop: {state_stopped}")
+
+    except LXDContainerNotFoundError:
+        logger.warning(f"Container {test_container_name} was not found at some point.")
+    except LXDServiceError as e:
+        logger.error(f"LXDServiceError during example: {e}")
     except Exception as e:
-        print(f"An error occurred during LXD interaction: {e}")
+        logger.error(f"An unexpected error occurred during LXD interaction example: {e}", exc_info=True)
     finally:
-        # This would be done in app shutdown usually
-        await lxd_service.close()
+        try:
+            # Ensure container exists before trying to delete, to prevent error if clone failed
+            if await lxd_service._run_sync(lxd_service.client.containers.exists, test_container_name):
+                 logger.info(f"Attempting to delete {test_container_name} as cleanup...")
+                 deleted = await lxd_service.delete_container(test_container_name, stop_if_running=True)
+                 if deleted:
+                     logger.info(f"Successfully deleted {test_container_name}.")
+                 else:
+                     logger.info(f"{test_container_name} was not found for deletion (delete returned False).")
+            else:
+                logger.info(f"Test container {test_container_name} does not exist, no need to delete.")
+
+        except LXDServiceError as e:
+            logger.error(f"Cleanup error: Failed to delete {test_container_name}: {e}")
+        except Exception as e: # Catch any other error during cleanup
+            logger.error(f"Unexpected cleanup error for {test_container_name}: {e}", exc_info=True)
+        
+        # No explicit client.close() for pylxd socket connections
+        logger.info("LXD Service example finished (pylxd).")
 
 if __name__ == "__main__":
-    # To run this example (ensure asyncio-lxd or pylxd is installed and LXD is running and configured)
-    # Note: This example_lxd_interaction won't run directly without an asyncio event loop.
-    # You'd typically run it with `asyncio.run(example_lxd_interaction())`
-    # For now, it's just illustrative.
-    # asyncio.run(example_lxd_interaction())
-    pass
+    # Example: LXD_SOCKET_PATH=/var/snap/lxd/common/lxd/unix.socket LXD_BASE_IMAGE=your-base-image-alias python -m app.services.lxd_service
+    asyncio.run(_main_example())

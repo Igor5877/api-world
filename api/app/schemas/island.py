@@ -13,6 +13,8 @@ class IslandStatusEnum(str, enum.Enum):
     DELETING = "DELETING"
     ARCHIVED = "ARCHIVED"
     ERROR = "ERROR"
+    ERROR_CREATE = "ERROR_CREATE" # Specific error during creation (e.g., LXD clone failure)
+    ERROR_START = "ERROR_START"   # Specific error during start (e.g., LXD start failure, no IP)
     PENDING_START = "PENDING_START"
     PENDING_CREATION = "PENDING_CREATION"
 

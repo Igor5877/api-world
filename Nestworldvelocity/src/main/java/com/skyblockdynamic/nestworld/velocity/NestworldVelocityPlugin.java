@@ -1,0 +1,76 @@
+package com.skyblockdynamic.nestworld.velocity;
+
+import com.google.inject.Inject;
+import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
+import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.plugin.annotation.DataDirectory;
+import com.velocitypowered.api.proxy.ProxyServer;
+import org.slf4j.Logger;
+
+import java.nio.file.Path;
+import com.skyblockdynamic.nestworld.velocity.network.ApiClient;
+import com.skyblockdynamic.nestworld.velocity.config.PluginConfig;
+import com.skyblockdynamic.nestworld.velocity.listener.PlayerConnectionListener;
+
+@Plugin(
+    id = "nestworldvelocity",
+    name = "NestworldVelocity",
+    version = "1.0.0",
+    description = "Velocity plugin for Nestworld Dynamic SkyBlock to manage player connections to their islands.",
+    authors = {"YourName/Team"} // Replace with your name
+)
+public class NestworldVelocityPlugin {
+
+    private final ProxyServer server;
+    private final Logger logger;
+    private final Path dataDirectory;
+
+    // Config and API client will be initialized here
+    private PluginConfig pluginConfig;
+    private ApiClient apiClient;
+
+
+    @Inject
+    public NestworldVelocityPlugin(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
+        this.server = server;
+        this.logger = logger;
+        this.dataDirectory = dataDirectory;
+
+        logger.info("NestworldVelocityPlugin is constructing...");
+    }
+
+    @Subscribe
+    public void onProxyInitialization(ProxyInitializeEvent event) {
+        logger.info("NestworldVelocityPlugin onProxyInitialization started...");
+        // Load configuration
+        this.pluginConfig = PluginConfig.load(dataDirectory, logger);
+        // PluginConfig.load handles logging errors and returning a fallback, so pluginConfig should not be null.
+        
+        this.apiClient = new ApiClient(logger, pluginConfig);
+
+        // Register event listeners
+        server.getEventManager().register(this, new PlayerConnectionListener(this, server, logger, apiClient, pluginConfig));
+        
+        logger.info("NestworldVelocityPlugin initialized successfully with listeners and config!");
+        logger.info("API URL configured to: {}", pluginConfig.getApiUrl());
+        logger.info("Fallback server configured to: {}", pluginConfig.getFallbackServerName());
+    }
+
+    // Getter methods if other classes need them
+    public ProxyServer getServer() {
+        return server;
+    }
+
+    public Logger getLogger() {
+        return logger;
+    }
+
+    // public PluginConfig getConfig() {
+    //    return config;
+    // }
+
+    // public ApiClient getApiClient() {
+    //    return apiClient;
+    // }
+}
