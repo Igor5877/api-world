@@ -234,5 +234,169 @@ class IslandService:
             finally:
                 await db_session_bg.close()
 
+    async def freeze_island_instance(self, db_session: AsyncSession, *, player_uuid: uuid.UUID, background_tasks: BackgroundTasks) -> IslandResponse:
+        """
+        Handles the business logic for freezing an island.
+        """
+        logger.info(f"Service: Attempting to freeze island for player_uuid: {player_uuid}")
+        island_db_model = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
+
+        if not island_db_model:
+            logger.warning(f"Service: Island not found for freeze request: player_uuid {player_uuid}")
+            raise ValueError("Island not found.")
+
+        current_status = island_db_model.status
+        container_name = island_db_model.container_name
+
+        if current_status == IslandStatusEnum.FROZEN:
+            logger.info(f"Service: Island {container_name} is already FROZEN.")
+        elif current_status == IslandStatusEnum.RUNNING:
+            logger.info(f"Service: Freezing island {container_name} from status {current_status.value}...")
+            updated_island_db_model = await crud_island.update_status(
+                db_session, player_uuid=player_uuid, status=IslandStatusEnum.PENDING_FREEZE
+            )
+            if not updated_island_db_model:
+                logger.error(f"Service: Failed to update island {player_uuid} to PENDING_FREEZE, not found during update.")
+                raise ValueError("Island disappeared during status update to PENDING_FREEZE.")
+            island_db_model = updated_island_db_model
+
+            background_tasks.add_task(
+                self._perform_lxd_freeze_and_update_status,
+                player_uuid=str(player_uuid),
+                container_name=container_name
+            )
+            logger.info(f"Service: Background task scheduled for LXD freeze for island {island_db_model.id}.")
+        elif current_status == IslandStatusEnum.PENDING_FREEZE:
+            logger.info(f"Service: Island {container_name} is already PENDING_FREEZE.")
+        else:
+            logger.warning(f"Service: Island {container_name} cannot be frozen from status: {current_status.value}")
+            raise ValueError(f"Island cannot be frozen from status: {current_status.value}")
+
+        return IslandResponse.model_validate(island_db_model)
+
+    async def _perform_lxd_freeze_and_update_status(self, player_uuid: str, container_name: str):
+        """
+        Actual LXD freeze and DB status update, for background task.
+        This method MUST acquire its own database session.
+        """
+        from app.db.session import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as db_session_bg:
+            try:
+                logger.info(f"Service (background): Freezing LXD container {container_name} for {player_uuid}")
+                await lxd_service.freeze_container(container_name)
+                logger.info(f"Service (background): Container {container_name} frozen successfully via LXDService.")
+
+                await crud_island.update_status(
+                    db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.FROZEN,
+                    extra_fields={"last_seen_at": datetime.now(timezone.utc)} # Update last_seen_at on freeze
+                )
+                logger.info(f"Service (background): Island {player_uuid} status updated to FROZEN.")
+
+            except lxd_service.LXDContainerNotFoundError:
+                logger.error(f"Service (background): Container {container_name} not found during freeze for {player_uuid}.")
+                await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR) # Or a more specific error
+            except lxd_service.LXDServiceError as lxd_e:
+                logger.error(f"Service (background): LXD Error during LXD freeze for {player_uuid}: {lxd_e}")
+                await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR)
+            except Exception as e:
+                logger.error(f"Service (background): Generic error during LXD freeze or DB update for {player_uuid}: {e}", exc_info=True)
+                await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR)
+            finally:
+                await db_session_bg.close()
+
+    async def stop_island_instance(self, db_session: AsyncSession, *, player_uuid: uuid.UUID, background_tasks: BackgroundTasks) -> IslandResponse:
+        """
+        Handles the business logic for stopping an island.
+        """
+        logger.info(f"Service: Attempting to stop island for player_uuid: {player_uuid}")
+        island_db_model = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
+
+        if not island_db_model:
+            logger.warning(f"Service: Island not found for stop request: player_uuid {player_uuid}")
+            raise ValueError("Island not found.")
+
+        current_status = island_db_model.status
+        container_name = island_db_model.container_name
+
+        if current_status == IslandStatusEnum.STOPPED:
+            logger.info(f"Service: Island {container_name} is already STOPPED.")
+        elif current_status in [IslandStatusEnum.RUNNING, IslandStatusEnum.FROZEN, IslandStatusEnum.PENDING_START, IslandStatusEnum.ERROR_START]:
+            # Allow stopping from RUNNING, FROZEN, or even PENDING_START/ERROR_START to attempt cleanup
+            logger.info(f"Service: Stopping island {container_name} from status {current_status.value}...")
+            
+            # If it was PENDING_START, the background task for starting might still be running.
+            # LXD stop is generally safe but consider if cancellation of the start task is needed for complex scenarios.
+            # For now, proceeding with stop.
+
+            updated_island_db_model = await crud_island.update_status(
+                db_session, player_uuid=player_uuid, status=IslandStatusEnum.PENDING_STOP
+            )
+            if not updated_island_db_model:
+                logger.error(f"Service: Failed to update island {player_uuid} to PENDING_STOP, not found during update.")
+                raise ValueError("Island disappeared during status update to PENDING_STOP.")
+            island_db_model = updated_island_db_model
+
+            background_tasks.add_task(
+                self._perform_lxd_stop_and_update_status,
+                player_uuid=str(player_uuid),
+                container_name=container_name
+            )
+            logger.info(f"Service: Background task scheduled for LXD stop for island {island_db_model.id}.")
+        elif current_status == IslandStatusEnum.PENDING_STOP:
+            logger.info(f"Service: Island {container_name} is already PENDING_STOP.")
+        else:
+            # e.g. PENDING_CREATION, CREATING, DELETING, ERROR_CREATE - these states generally shouldn't be stopped manually this way
+            # or the stop operation isn't meaningful.
+            logger.warning(f"Service: Island {container_name} cannot be stopped from status: {current_status.value}")
+            raise ValueError(f"Island cannot be stopped from status: {current_status.value}")
+
+        return IslandResponse.model_validate(island_db_model)
+
+    async def _perform_lxd_stop_and_update_status(self, player_uuid: str, container_name: str):
+        """
+        Actual LXD stop and DB status update, for background task.
+        This method MUST acquire its own database session.
+        """
+        from app.db.session import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as db_session_bg:
+            try:
+                logger.info(f"Service (background): Stopping LXD container {container_name} for {player_uuid}")
+                # LXD service's stop_container usually handles unfreezing if necessary, or stops directly.
+                # If specific unfreeze logic is needed before stop, it could be added here.
+                # For pylxd, container.stop(force=True) is robust.
+                await lxd_service.stop_container(container_name, force=True) # Using force=True by default as per lxd_service
+                logger.info(f"Service (background): Container {container_name} stopped successfully via LXDService.")
+
+                update_fields = {
+                    "internal_ip_address": None, # Clear IP on stop
+                    "internal_port": None, # Clear port on stop
+                    "external_port": None,
+                    "last_seen_at": datetime.now(timezone.utc) # Update last_seen_at on stop
+                }
+                await crud_island.update_status(
+                    db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.STOPPED,
+                    extra_fields=update_fields
+                )
+                logger.info(f"Service (background): Island {player_uuid} status updated to STOPPED and network info cleared.")
+
+            except lxd_service.LXDContainerNotFoundError:
+                # If container not found, it might have been deleted or failed creation.
+                # Consider it stopped or error state.
+                logger.warning(f"Service (background): Container {container_name} not found during stop operation for {player_uuid}. Assuming effectively stopped.")
+                await crud_island.update_status(
+                    db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.STOPPED,
+                    extra_fields={"internal_ip_address": None, "internal_port": None, "external_port": None} # Ensure fields are cleared
+                )
+            except lxd_service.LXDServiceError as lxd_e:
+                logger.error(f"Service (background): LXD Error during LXD stop for {player_uuid}: {lxd_e}")
+                # Potentially set to ERROR or ERROR_STOP if we add such a state
+                await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR)
+            except Exception as e:
+                logger.error(f"Service (background): Generic error during LXD stop or DB update for {player_uuid}: {e}", exc_info=True)
+                await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR)
+            finally:
+                await db_session_bg.close()
 # Instantiate the service
 island_service = IslandService()

@@ -90,6 +90,72 @@ async def start_island_endpoint(
         logger.error(f"Endpoint Error: Unexpected error during island start for {player_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while starting the island.")
 
+@router.post("/{player_uuid}/stop", response_model=IslandResponse, status_code=status.HTTP_202_ACCEPTED)
+async def stop_island_endpoint(
+    player_uuid: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Endpoint to stop a player's island.
+    This is an asynchronous process. The initial response indicates acceptance.
+    The actual LXD stop happens in the background.
+    The response will reflect the island's status (e.g., PENDING_STOP).
+    """
+    logger.info(f"Endpoint: Received request to stop island UUID: {player_uuid}")
+    try:
+        updated_island = await island_service.stop_island_instance(
+            db_session=db_session,
+            player_uuid=player_uuid,
+            background_tasks=background_tasks
+        )
+        return updated_island
+    except ValueError as e:
+        logger.warning(f"Endpoint: ValueError during island stop for {player_uuid}: {e}")
+        if "not found" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        elif "cannot be stopped" in str(e).lower() or "already stopped" in str(e).lower() or "pending_stop" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Endpoint Error: Unexpected error during island stop for {player_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while stopping the island.")
+
+
+@router.post("/{player_uuid}/freeze", response_model=IslandResponse, status_code=status.HTTP_202_ACCEPTED)
+async def freeze_island_endpoint(
+    player_uuid: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Endpoint to freeze a player's island.
+    This is an asynchronous process. The initial response indicates acceptance.
+    The actual LXD freeze happens in the background.
+    The response will reflect the island's status (e.g., PENDING_FREEZE).
+    """
+    logger.info(f"Endpoint: Received request to freeze island UUID: {player_uuid}")
+    try:
+        updated_island = await island_service.freeze_island_instance(
+            db_session=db_session,
+            player_uuid=player_uuid,
+            background_tasks=background_tasks
+        )
+        return updated_island
+    except ValueError as e:
+        logger.warning(f"Endpoint: ValueError during island freeze for {player_uuid}: {e}")
+        if "not found" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        elif "cannot be frozen" in str(e).lower() or "already frozen" in str(e).lower() or "pending_freeze" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Endpoint Error: Unexpected error during island freeze for {player_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while freezing the island.")
+
+
 # TODO: Add more endpoints from Stage 1 & 2:
 # POST /islands/{uuid}/freeze
 # POST /islands/{uuid}/stop

@@ -17,7 +17,8 @@ class IslandStatusEnum(str, enum.Enum):
     ERROR_START = "ERROR_START"   # Specific error during start (e.g., LXD start failure, no IP)
     PENDING_START = "PENDING_START"
     PENDING_CREATION = "PENDING_CREATION"
-
+    PENDING_STOP = "PENDING_STOP"
+    PENDING_FREEZE = "PENDING_FREEZE"
 # Base model for common island attributes
 class IslandBase(BaseModel):
     player_name: Optional[str] = Field(None, max_length=16, description="Minecraft player name")

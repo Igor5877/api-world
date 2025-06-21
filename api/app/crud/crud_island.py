@@ -213,5 +213,21 @@ class CRUDisland:
             logger.error(f"Database error in CRUDisland.get_islands_by_status for status {status}: {e}")
             raise
 
+    async def get_islands_by_statuses(self, db_session: AsyncSession, *, statuses: List[IslandStatusEnum], limit: int = 1000) -> List[IslandModel]:
+        """
+        Get islands by a list of specific statuses.
+        """
+        try:
+            # Ensure statuses are actual enum members if string names are passed, though type hint should enforce IslandStatusEnum
+            # valid_statuses = [s.value if isinstance(s, IslandStatusEnum) else s for s in statuses]
+            # Using .in_ operator for a list of statuses
+            result = await db_session.execute(
+                select(IslandModel).filter(IslandModel.status.in_(statuses)).limit(limit).order_by(IslandModel.updated_at)
+            )
+            return result.scalars().all()
+        except SQLAlchemyError as e:
+            logger.error(f"Database error in CRUDisland.get_islands_by_statuses for statuses {statuses}: {e}")
+            raise
+
 # Instantiate the CRUD object for islands
 crud_island = CRUDisland()
