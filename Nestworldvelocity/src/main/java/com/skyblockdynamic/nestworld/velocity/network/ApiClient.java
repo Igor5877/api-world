@@ -93,4 +93,27 @@ public class ApiClient {
                     return new ApiResponse(ex.getMessage());
                 });
     }
+
+    public CompletableFuture<ApiResponse> requestIslandStop(UUID playerUuid) {
+        String path = "/islands/" + playerUuid.toString() + "/stop";
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(apiUrlBase + path))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .timeout(this.requestTimeout)
+                .build();
+
+        logger.info("Requesting island stop for {}: POST {}", playerUuid, request.uri());
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(httpResponse -> {
+                    logger.info("API Response for requestIslandStop for {}: Status Code {}", playerUuid, httpResponse.statusCode());
+                    logger.debug("API Response Body: {}", httpResponse.body().substring(0, Math.min(httpResponse.body().length(), 500)));
+                    return new ApiResponse(httpResponse.statusCode(), httpResponse.body());
+                })
+                .exceptionally(ex -> {
+                    logger.error("API request failed for requestIslandStop for {}: {}", playerUuid, ex.getMessage(), ex);
+                    return new ApiResponse(ex.getMessage());
+                });
+    }
 }

@@ -19,16 +19,15 @@ public class Config {
             .comment("The base URL for the SkyBlock API (e.g., http://localhost:8000/api/v1)")
             .define("apiBaseUrl", "http://localhost:8000/api/v1", Config::validateUrl);
     
-    // You can add other config values here as needed, for example:
-    // private static final ForgeConfigSpec.IntValue REQUEST_TIMEOUT_SECONDS = BUILDER
-    //         .comment("Timeout in seconds for API requests.")
-    //         .defineInRange("requestTimeoutSeconds", 10, 1, 60);
+    private static final ForgeConfigSpec.IntValue API_REQUEST_TIMEOUT_SECONDS = BUILDER
+            .comment("Timeout in seconds for API requests to the SkyBlock API.")
+            .defineInRange("apiRequestTimeoutSeconds", 10, 5, 60);
 
 
     static final ForgeConfigSpec SPEC = BUILDER.build();
 
     private static String apiBaseUrl;
-    // private static int requestTimeoutSeconds;
+    private static int apiRequestTimeoutSeconds; // Field to store the baked value
 
     private static boolean validateUrl(final Object obj) {
         if (obj instanceof final String urlString) {
@@ -46,15 +45,18 @@ public class Config {
         return apiBaseUrl;
     }
 
-    // public static int getRequestTimeoutSeconds() {
-    //     return requestTimeoutSeconds;
-    // }
+    public static int getApiRequestTimeoutSeconds() {
+        // Return the baked value. If called before baking, this might be 0 or the previous value.
+        // SkyBlockMod's HTTP_CLIENT initialization is static, but the timeout for the *request*
+        // is applied when the request is built, by which time Config.bake() should have run via events.
+        return apiRequestTimeoutSeconds > 0 ? apiRequestTimeoutSeconds : 10; // Fallback to 10 if not baked or invalid
+    }
 
     // This method is called by Forge when the config is loaded or reloaded.
     // We "bake" the values into static fields for easy access.
     public static void bake() {
         apiBaseUrl = API_BASE_URL.get();
-        // requestTimeoutSeconds = REQUEST_TIMEOUT_SECONDS.get();
+        apiRequestTimeoutSeconds = API_REQUEST_TIMEOUT_SECONDS.get();
         // Ensure trailing slash for base URL consistency
         if (apiBaseUrl != null && !apiBaseUrl.endsWith("/")) {
             apiBaseUrl += "/";

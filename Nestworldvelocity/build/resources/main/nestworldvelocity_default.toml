@@ -1,0 +1,20 @@
+# Default configuration for NestworldVelocity Plugin
+
+[general]
+# The server players are sent to if their island isn't available or they don't have one.
+fallback_server = "hub"
+
+[api]
+# Base URL for the SkyBlock LXD API.
+# Ensure this matches your API server's address and port.
+base_url = "http://127.0.0.1:8000/api/v1"
+
+# Timeout in seconds for API requests.
+request_timeout_seconds = 10
+
+# How often (in milliseconds) to poll for island status when it's starting.
+polling_interval_millis = 2000
+
+# Maximum number of polling attempts before giving up.
+# Total polling time = polling_interval_millis * max_polling_attempts
+max_polling_attempts = 15
