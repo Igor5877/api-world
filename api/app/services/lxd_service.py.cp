@@ -19,10 +19,6 @@ class LXDContainerNotFoundError(LXDServiceError):
     pass
 
 class LXDService:
-    # Make exceptions accessible as class attributes
-    LXDServiceError = LXDServiceError
-    LXDContainerNotFoundError = LXDContainerNotFoundError
-
     def __init__(self):
         self.client: Optional[pylxd.Client] = None
         self._connect_lock = asyncio.Lock() # To ensure client is initialized once if needed concurrently
@@ -362,70 +358,6 @@ class LXDService:
         except Exception as e:
             logger.error(f"LXDService: Error unfreezing container '{container_name}': {e}")
             raise LXDServiceError(f"Error unfreezing container: {e}")
-
-    async def push_file_to_container(self, container_name: str, target_path: str, content: bytes, mode: Optional[int] = None, uid: Optional[int] = None, gid: Optional[int] = None) -> bool:
-        logger.info(f"LXDService: Attempting to push file to '{target_path}' in container '{container_name}'.")
-        
-        def _sync_push_file():
-            try:
-                container = self.client.containers.get(container_name)
-                # pylxd's files.put uses keyword arguments for mode, uid, gid
-                kwargs = {}
-                if mode is not None:
-                    kwargs['mode'] = mode
-                if uid is not None:
-                    kwargs['uid'] = uid
-                if gid is not None:
-                    kwargs['gid'] = gid
-                
-                container.files.put(target_path, content, **kwargs)
-                logger.info(f"LXDService: File successfully pushed to '{target_path}' in container '{container_name}'.")
-                return True
-            except NotFound:
-                logger.error(f"LXDService: Container '{container_name}' not found for pushing file.")
-                raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
-            except LXDAPIException as e:
-                # Check if the error is because the parent directory doesn't exist
-                if 'no such file or directory' in str(e).lower() or 'failed to create file' in str(e).lower():
-                    # Attempt to create parent directory
-                    # This is a common issue. LXD's files.put doesn't create parent dirs.
-                    # We need to execute a mkdir command.
-                    logger.warning(f"LXDService: Failed to push file, target path '{target_path}' likely missing parent directory. Attempting to create.")
-                    parent_dir = "/".join(target_path.split('/')[:-1])
-                    if parent_dir: # Ensure parent_dir is not empty (e.g. if target_path is in root)
-                        try:
-                            # Execute mkdir -p to create parent directories
-                            # This is a synchronous call within _sync_push_file, so it's okay
-                            mkdir_command = ['mkdir', '-p', parent_dir]
-                            logger.info(f"LXDService: Executing {mkdir_command} in {container_name}")
-                            exit_code, stdout, stderr = container.execute(mkdir_command)
-                            if exit_code == 0:
-                                logger.info(f"LXDService: Successfully created parent directory '{parent_dir}'. Retrying file push.")
-                                # Retry pushing the file
-                                container.files.put(target_path, content, **kwargs)
-                                logger.info(f"LXDService: File successfully pushed to '{target_path}' after creating parent directory.")
-                                return True
-                            else:
-                                logger.error(f"LXDService: Failed to create parent directory '{parent_dir}'. Exit code: {exit_code}, stderr: {stderr}")
-                                raise LXDServiceError(f"Failed to create parent directory '{parent_dir}' for file push: {stderr}")
-                        except Exception as mkdir_e:
-                            logger.error(f"LXDService: Exception during mkdir attempt for '{parent_dir}': {mkdir_e}")
-                            raise LXDServiceError(f"Exception during mkdir for file push: {mkdir_e}")
-                    else: # No parent directory to create, original error stands
-                        raise # Re-raise the original LXDAPIException
-                else: # Other LXDAPIException
-                    raise
-
-        try:
-            return await self._run_sync(_sync_push_file)
-        except LXDContainerNotFoundError:
-            raise
-        except LXDAPIException as e: # Catch LXDAPIException re-raised from _sync_push_file or new ones
-            logger.error(f"LXDService: LXD API error pushing file to '{target_path}' in '{container_name}': {e}")
-            raise LXDServiceError(f"LXD API error pushing file: {e}")
-        except Exception as e:
-            logger.error(f"LXDService: Error pushing file to '{target_path}' in '{container_name}': {e}")
-            raise LXDServiceError(f"Error pushing file: {e}")
 
 
 # Instantiate the service for use in other parts of the application
