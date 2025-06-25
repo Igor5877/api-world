@@ -36,6 +36,11 @@ public class IslandCommand {
         dispatcher.register(Commands.literal("island")
             .then(Commands.literal("create")
                 .executes(context -> {
+                    // Check context before executing
+                    if (SkyBlockMod.isIslandServer()) {
+                        context.getSource().sendFailure(Component.literal("Ця команда недоступна на сервері острова."));
+                        return 0; // Command failed or is disallowed
+                    }
                     try {
                         return createIsland(context.getSource());
                     } catch (Exception e) {
@@ -59,9 +64,9 @@ public class IslandCommand {
         jsonPayload.addProperty("player_uuid", playerUuid.toString());
         jsonPayload.addProperty("player_name", playerName);
 
-        // TODO: Get API URL from Config
-        String apiUrl = Config.getApiBaseUrl() + "islands/"; // Removed leading slash from "islands/"
-        // String apiUrl = "http://localhost:8000/api/v1/islands/"; // Placeholder
+        String apiUrl = Config.getApiBaseUrl() + "islands/"; 
+        LOGGER.info("Attempting to create island for {} (UUID: {}) via API: {}", playerName, playerUuid, apiUrl);
+
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(apiUrl))
