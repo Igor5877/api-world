@@ -6,7 +6,7 @@ plugins {
 }
 
 group = 'com.skyblockdynamic.nestworld.velocity'
-version = '1.0-SNAPSHOT'
+version = '1.3-SNAPSHOT'
 
 repositories {
     maven {

@@ -4,6 +4,7 @@
 # The server players are sent to if their island isn't available or they don't have one.
 fallback_server = "hub"
 
+auto_redirect_to_island_on_login = false
 [api]
 # Base URL for the SkyBlock LXD API.
 # Ensure this matches your API server's address and port.

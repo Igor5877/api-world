@@ -3,7 +3,6 @@ package com.skyblockdynamic.nestworld.velocity.config;
 import com.moandjiezana.toml.Toml;
 import org.slf4j.Logger;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -16,33 +15,28 @@ public class PluginConfig {
     private final int apiRequestTimeoutSeconds;
     private final int pollingIntervalMillis;
     private final int maxPollingAttempts;
+    private final boolean autoRedirectToIslandEnabled; // ADDED: Нове поле
 
-    private PluginConfig(String apiUrl, String fallbackServerName, int apiRequestTimeoutSeconds, int pollingIntervalMillis, int maxPollingAttempts) {
+    // ADDED: Оновлений конструктор
+    private PluginConfig(String apiUrl, String fallbackServerName, int apiRequestTimeoutSeconds, int pollingIntervalMillis, int maxPollingAttempts, boolean autoRedirectToIslandEnabled) {
         this.apiUrl = apiUrl;
         this.fallbackServerName = fallbackServerName;
         this.apiRequestTimeoutSeconds = apiRequestTimeoutSeconds;
         this.pollingIntervalMillis = pollingIntervalMillis;
         this.maxPollingAttempts = maxPollingAttempts;
+        this.autoRedirectToIslandEnabled = autoRedirectToIslandEnabled; // ADDED: Ініціалізація нового поля
     }
 
-    public String getApiUrl() {
-        return apiUrl;
-    }
-
-    public String getFallbackServerName() {
-        return fallbackServerName;
-    }
-
-    public int getApiRequestTimeoutSeconds() {
-        return apiRequestTimeoutSeconds;
-    }
+    // ... гетери для існуючих полів ...
+    public String getApiUrl() { return apiUrl; }
+    public String getFallbackServerName() { return fallbackServerName; }
+    public int getApiRequestTimeoutSeconds() { return apiRequestTimeoutSeconds; }
+    public int getPollingIntervalMillis() { return pollingIntervalMillis; }
+    public int getMaxPollingAttempts() { return maxPollingAttempts; }
     
-    public int getPollingIntervalMillis() {
-        return pollingIntervalMillis;
-    }
-
-    public int getMaxPollingAttempts() {
-        return maxPollingAttempts;
+    // ADDED: Гетер для нового поля
+    public boolean isAutoRedirectToIslandEnabled() {
+        return autoRedirectToIslandEnabled;
     }
 
     public static PluginConfig load(Path dataDirectory, Logger logger) {
@@ -53,14 +47,13 @@ public class PluginConfig {
                 try (InputStream in = PluginConfig.class.getClassLoader().getResourceAsStream("nestworldvelocity_default.toml")) {
                     if (in == null) {
                         logger.error("Default configuration file (nestworldvelocity_default.toml) not found in plugin JAR.");
-                        // Create a minimal config directly if default is missing
                         return createAndSaveMinimalConfig(configPath, logger);
                     }
-                    Files.createDirectories(dataDirectory); // Ensure directory exists
+                    Files.createDirectories(dataDirectory);
                     Files.copy(in, configPath);
                 } catch (IOException e) {
                     logger.error("Failed to copy default configuration file: ", e);
-                    return createMinimalHardcodedConfig(logger); // Fallback
+                    return createMinimalHardcodedConfig(logger);
                 }
             }
 
@@ -68,18 +61,23 @@ public class PluginConfig {
 
             String apiUrl = toml.getString("api.base_url", "http://127.0.0.1:8000/api/v1");
             String fallbackServer = toml.getString("general.fallback_server", "hub");
+            // ADDED: Читаємо новий параметр з файлу. За замовчуванням - true.
+            boolean autoRedirect = toml.getBoolean("general.auto_redirect_to_island_on_login", true);
+            
             long timeout = toml.getLong("api.request_timeout_seconds", 10L);
-            long interval = toml.getLong("api.polling_interval_millis", 2000L); // 2 seconds
-            long attempts = toml.getLong("api.max_polling_attempts", 15L);  // 15 attempts * 2s = 30s total polling time
+            long interval = toml.getLong("api.polling_interval_millis", 5000L); // Змінив на 5с для прикладу
+            long attempts = toml.getLong("api.max_polling_attempts", 120L);  // Змінив на 120 для прикладу
 
             logger.info("Successfully loaded configuration from " + configPath);
             logger.info("API URL: {}", apiUrl);
             logger.info("Fallback Server: {}", fallbackServer);
+            logger.info("Auto-redirect to island on login: {}", autoRedirect); // ADDED: Логуємо новий параметр
             logger.info("API Request Timeout: {}s", timeout);
             logger.info("Polling Interval: {}ms, Max Attempts: {}", interval, attempts);
 
 
-            return new PluginConfig(apiUrl, fallbackServer, (int)timeout, (int)interval, (int)attempts);
+            // ADDED: Передаємо новий параметр в конструктор
+            return new PluginConfig(apiUrl, fallbackServer, (int)timeout, (int)interval, (int)attempts, autoRedirect);
 
         } catch (Exception e) {
             logger.error("Error loading NestworldVelocityPlugin configuration: ", e);
@@ -91,31 +89,36 @@ public class PluginConfig {
     private static PluginConfig createAndSaveMinimalConfig(Path configPath, Logger logger) {
         String defaultApiUrl = "http://127.0.0.1:8000/api/v1";
         String defaultFallback = "hub";
+        boolean defaultAutoRedirect = false; // ADDED
         int defaultTimeout = 10;
-        int defaultInterval = 2000;
-        int defaultAttempts = 15;
+        int defaultInterval = 5000;
+        int defaultAttempts = 120;
 
         try {
+            // ADDED: Оновлений формат файлу
             String content = String.format(
                 "[general]\n" +
-                "fallback_server = \"%s\"\n\n" +
+                "fallback_server = \"%s\"\n" +
+                "auto_redirect_to_island_on_login = %b\n\n" + // ADDED
                 "[api]\n" +
                 "base_url = \"%s\"\n" +
                 "request_timeout_seconds = %d\n" +
                 "polling_interval_millis = %d\n" +
                 "max_polling_attempts = %d\n",
-                defaultFallback, defaultApiUrl, defaultTimeout, defaultInterval, defaultAttempts
+                defaultFallback, defaultAutoRedirect, defaultApiUrl, defaultTimeout, defaultInterval, defaultAttempts
             );
             Files.writeString(configPath, content);
             logger.info("Created a minimal configuration file at: " + configPath);
         } catch (IOException ex) {
             logger.error("Failed to write minimal configuration file: ", ex);
         }
-        return new PluginConfig(defaultApiUrl, defaultFallback, defaultTimeout, defaultInterval, defaultAttempts);
+        // ADDED: Передаємо новий параметр в конструктор
+        return new PluginConfig(defaultApiUrl, defaultFallback, defaultTimeout, defaultInterval, defaultAttempts, defaultAutoRedirect);
     }
 
     private static PluginConfig createMinimalHardcodedConfig(Logger logger) {
         logger.warn("Creating a minimal hardcoded config due to previous errors.");
-        return new PluginConfig("http://127.0.0.1:8000/api/v1", "hub", 10, 2000, 15);
+        // ADDED: Передаємо новий параметр в конструктор
+        return new PluginConfig("http://127.0.0.1:8000/api/v1", "hub", 10, 5000, 120, true);
     }
 }
