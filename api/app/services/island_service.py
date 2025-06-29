@@ -487,5 +487,42 @@ class IslandService:
                 await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR)
             finally:
                 await db_session_bg.close()
+    async def mark_island_as_ready_for_players(self, db_session: AsyncSession, *, player_uuid: uuid.UUID):
+        """
+        Marks an island as fully ready for players (Minecraft server loaded).
+        """
+        logger.info(f"Service: Attempting to mark island as ready for players for player_uuid: {player_uuid}")
+        island_db_model = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
+
+        if not island_db_model:
+            logger.warning(f"Service: Island not found for marking as ready: player_uuid {player_uuid}")
+            raise ValueError("Island not found.")
+
+        # Check current status - should ideally be RUNNING (LXD is up)
+        # and not yet marked as minecraft_ready.
+        if island_db_model.status != IslandStatusEnum.RUNNING:
+            logger.warning(f"Service: Island {island_db_model.container_name} for {player_uuid} is not in RUNNING state (current: {island_db_model.status}). Cannot mark as ready for players.")
+            raise ValueError("Island is not in a state to be marked ready for players (must be RUNNING).")
+
+        if hasattr(island_db_model, 'minecraft_ready') and island_db_model.minecraft_ready:
+            logger.info(f"Service: Island {island_db_model.container_name} for {player_uuid} is already marked as ready for players.")
+            # Depending on desired idempotency, either raise an error or return successfully.
+            # For now, raising an error to indicate it's already in the desired state.
+            raise ValueError("Island already marked as ready for players.")
+
+        try:
+            # Assuming 'minecraft_ready' will be a new field in the model.
+            # The actual update will happen via crud_island.update which needs to support this field.
+            updated_island = await crud_island.update(
+                db_session,
+                db_obj=island_db_model,
+                obj_in={"minecraft_ready": True, "last_seen_at": datetime.now(timezone.utc)} # Also update last_seen_at
+            )
+            logger.info(f"Service: Island {updated_island.container_name} for {player_uuid} successfully marked as ready for players (minecraft_ready=True).")
+        except Exception as e: # Catch potential errors from CRUD or DB
+            logger.error(f"Service: Error updating island {player_uuid} to mark as ready for players: {e}", exc_info=True)
+            # This could be a more specific DB error or validation error if obj_in was complex.
+            raise ValueError(f"Failed to update island to ready state: {e}")
+
 # Instantiate the service
 island_service = IslandService()

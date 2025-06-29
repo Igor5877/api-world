@@ -49,6 +49,7 @@ class IslandResponse(IslandBase):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     last_seen_at: Optional[datetime] = None
+    minecraft_ready: bool = Field(False, description="Indicates if the Minecraft server itself is fully loaded and ready for players")
 
     # FIX: model_config is now a direct attribute of the class
     model_config = ConfigDict(from_attributes=True)
@@ -66,6 +67,7 @@ class IslandInDBBase(IslandBase):
     created_at: datetime
     updated_at: datetime
     last_seen_at: Optional[datetime] = None
+    minecraft_ready: bool = False # Default to False
 
     # FIX: model_config is now a direct attribute of the class
     model_config = ConfigDict(from_attributes=True)

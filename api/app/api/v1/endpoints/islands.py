@@ -165,3 +165,35 @@ async def freeze_island_endpoint(
 # FastAPI will automatically validate it if you type hint it as `uuid.UUID`.
 # For example: `player_uuid: uuid.UUID` in function parameters.
 # For this initial setup, string is fine.
+
+@router.post("/{player_uuid}/ready", response_model=MessageResponse, status_code=status.HTTP_200_OK)
+async def mark_island_ready_endpoint(
+    player_uuid: uuid.UUID,
+    background_tasks: BackgroundTasks, # Keep consistent with other update-like endpoints
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Endpoint for the Minecraft server to signal that it's fully loaded and ready for players.
+    """
+    logger.info(f"Endpoint: Received request to mark island ready for player UUID: {player_uuid}")
+    try:
+        await island_service.mark_island_as_ready_for_players(
+            db_session=db_session,
+            player_uuid=player_uuid
+            # background_tasks argument is not strictly needed by the service method itself for this action,
+            # but kept for consistency or future use if background tasks become relevant here.
+        )
+        return MessageResponse(message="Island marked as ready for players.")
+    except ValueError as e:
+        logger.warning(f"Endpoint: ValueError marking island ready for {player_uuid}: {e}")
+        if "not found" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        elif "not in a state to be marked ready" in str(e).lower() or "already marked as ready" in str(e).lower():
+            # Using 409 Conflict if the state is not appropriate for this action
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        else:
+            # Generic bad request or internal error depending on expected exceptions
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Endpoint Error: Unexpected error marking island ready for {player_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while marking the island ready.")

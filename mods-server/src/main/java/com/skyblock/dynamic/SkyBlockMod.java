@@ -106,13 +106,61 @@ public class SkyBlockMod
 
     @SubscribeEvent
     public void onServerStarted(ServerStartedEvent event) {
-        // Old logic for sending 'confirm_ready' is removed.
-        // New logic, if any, for when the server is fully started can go here.
-        // For example, logging the determined context.
         if (islandContext.isIslandServer()) {
             LOGGER.info("SkyBlockMod: Server started. Running as an ISLAND SERVER. Creator UUID: {}", islandContext.getCreatorUuid());
+            // Send request to API to mark island as ready for players
+            sendIslandReadyForPlayersSignal();
         } else {
             LOGGER.info("SkyBlockMod: Server started. Running as a HUB SERVER.");
+        }
+    }
+
+    private void sendIslandReadyForPlayersSignal() {
+        if (!islandContext.isIslandServer() || islandContext.getCreatorUuid() == null) {
+            LOGGER.warn("SkyBlockMod: Attempted to send ready signal, but not an island server or UUID is missing.");
+            return;
+        }
+
+        String creatorUuid = islandContext.getCreatorUuid();
+        String apiBaseUrl = Config.getApiBaseUrl(); // Assuming this ends with /api/v1
+        if (apiBaseUrl == null || apiBaseUrl.trim().isEmpty()) {
+            LOGGER.error("SkyBlockMod: API base URL is not configured. Cannot send ready signal.");
+            return;
+        }
+
+        // Ensure apiBaseUrl ends with a slash if it doesn't already, for robust URL joining
+        if (!apiBaseUrl.endsWith("/")) {
+            apiBaseUrl += "/";
+        }
+
+        String endpointUrl = apiBaseUrl + "islands/" + creatorUuid + "/ready";
+        LOGGER.info("SkyBlockMod: Sending 'island ready for players' signal to: {}", endpointUrl);
+
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(endpointUrl))
+                    .timeout(Duration.ofSeconds(Config.getApiRequestTimeoutSeconds()))
+                    .POST(HttpRequest.BodyPublishers.noBody()) // No body needed for this request
+                    .header("Content-Type", "application/json") // Standard header, even with no body
+                    .build();
+
+            // Using the shared HTTP_CLIENT
+            HTTP_CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(response -> {
+                        int statusCode = response.statusCode();
+                        if (statusCode >= 200 && statusCode < 300) {
+                            LOGGER.info("SkyBlockMod: Successfully sent 'island ready' signal to API (status: {}).", statusCode);
+                        } else {
+                            LOGGER.error("SkyBlockMod: Failed to send 'island ready' signal to API. Status: {}, Body: {}", statusCode, response.body());
+                        }
+                    })
+                    .exceptionally(ex -> {
+                        LOGGER.error("SkyBlockMod: Exception while sending 'island ready' signal to API: {}", ex.getMessage(), ex);
+                        return null;
+                    });
+
+        } catch (Exception e) {
+            LOGGER.error("SkyBlockMod: Could not create or send 'island ready' signal HTTP request: {}", e.getMessage(), e);
         }
     }
 

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLAlchemyEnum, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLAlchemyEnum, ForeignKey, Text, Boolean
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
@@ -22,6 +22,7 @@ class Island(Base):
     external_port = Column(Integer, unique=True, nullable=True) # If direct host port mapping
 
     world_seed = Column(String(255), nullable=True)
+    minecraft_ready = Column(Boolean, default=False, nullable=False, server_default='0') # Added field
     
     # Timestamps
     # For MySQL, server_default=func.now() and onupdate=func.now() are common.
