@@ -9,6 +9,8 @@ import uuid
 import asyncio
 from datetime import datetime, timezone
 import logging
+import pathlib # Added for path manipulation
+# import random - already added in the previous change for this method, ensure it's there
 
 logger = logging.getLogger(__name__)
 
@@ -92,42 +94,82 @@ class IslandService:
                 )
                 logger.info(f"Service (background): Container '{container_name}' cloned successfully.")
 
-                # Inject skyblock_island_data.toml
+                # Inject skyblock_island_data.toml (assuming this is still required)
+                # This part remains in _perform_lxd_clone_and_update_status as it's part of initial setup
                 logger.info(f"Service (background): Attempting to inject skyblock_island_data.toml into {container_name} for player {player_uuid}")
-                config_file_target_path = "/opt/minecraft/world/serverconfig/skyblock_island_data.toml"
-                toml_content = f"is_island_server = true\ncreator_uuid = \"{player_uuid}\"\n"
-                
+                skyblock_config_file_target_path = "/opt/minecraft/world/serverconfig/skyblock_island_data.toml"
+                skyblock_toml_content = f"is_island_server = true\ncreator_uuid = \"{player_uuid}\"\n"
+
                 try:
                     await lxd_service.push_file_to_container(
                         container_name=container_name,
-                        target_path=config_file_target_path,
-                        content=toml_content.encode('utf-8'),
+                        target_path=skyblock_config_file_target_path,
+                        content=skyblock_toml_content.encode('utf-8'),
                         mode=0o644,
                         uid=0,
                         gid=0
                     )
                     logger.info(f"Service (background): Successfully injected skyblock_island_data.toml into {container_name}")
                 except lxd_service.LXDServiceError as push_error:
-                    logger.error(f"Service (background): LXDServiceError while pushing config file to {container_name} for {player_uuid}: {push_error}")
-                    # Update island status to ERROR_CREATE and re-raise to be caught by the outer try-except
+                    logger.error(f"Service (background): LXDServiceError while pushing skyblock_island_data.toml to {container_name} for {player_uuid}: {push_error}")
                     await crud_island.update_status(
                         db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE
                     )
-                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_CREATE due to config file push failure.")
-                    raise # Re-raise to be handled by the main cloning exception block
+                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_CREATE due to skyblock_island_data.toml push failure.")
+                    raise
                 except Exception as e_push:
-                    logger.error(f"Service (background): Generic error while pushing config file to {container_name} for {player_uuid}: {e_push}", exc_info=True)
+                    logger.error(f"Service (background): Generic error while pushing skyblock_island_data.toml to {container_name} for {player_uuid}: {e_push}", exc_info=True)
                     await crud_island.update_status(
                         db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE
                     )
-                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_CREATE due to generic config file push failure.")
-                    raise # Re-raise to be handled by the main cloning exception block
+                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_CREATE due to generic skyblock_island_data.toml push failure.")
+                    raise
+                
+                # Server_id configuration is now moved to _perform_lxd_start_and_update_status.
+                # The main task here is to prepare the playersync-common.toml from template.
+                
+                template_path = pathlib.Path(__file__).parent.parent / "templates" / "playersync-common.template.toml"
+                target_playersync_path = "/opt/minecraft/config/playersync-common.toml"
+                
+                try:
+                    logger.info(f"Service (background): Reading playersync template from {template_path}")
+                    template_content = template_path.read_text()
+                    
+                    import random
+                    generated_server_id = random.randint(100000, 999999)
+                    
+                    final_playersync_content = template_content.replace("{{SERVER_ID}}", str(generated_server_id))
+                    
+                    logger.info(f"Service (background): Pushing generated playersync-common.toml to {container_name}:{target_playersync_path} with Server_id {generated_server_id}")
+                    await lxd_service.push_file_to_container(
+                        container_name=container_name,
+                        target_path=target_playersync_path,
+                        content=final_playersync_content.encode('utf-8'),
+                        mode=0o644,
+                        uid=0,
+                        gid=0
+                    )
+                    logger.info(f"Service (background): Successfully pushed playersync-common.toml to {container_name}")
 
-                # After cloning and file injection, the container is created but not started. Its status in DB should be STOPPED.
+                except FileNotFoundError:
+                    logger.error(f"Service (background): CRITICAL - playersync-common.template.toml not found at {template_path}")
+                    await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE)
+                    raise # Re-raise to be caught by the outer exception handler for clone process
+                except lxd_service.LXDServiceError as playersync_push_error:
+                    logger.error(f"Service (background): LXDServiceError pushing playersync-common.toml to {container_name}: {playersync_push_error}")
+                    await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE)
+                    raise
+                except Exception as e_playersync:
+                    logger.error(f"Service (background): Generic error processing playersync-common.toml for {container_name}: {e_playersync}", exc_info=True)
+                    await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE)
+                    raise
+
+                # After cloning and all file injections, the container is created but not started.
+                # Its status in DB should be STOPPED.
                 await crud_island.update_status(
                     db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.STOPPED
                 )
-                logger.info(f"Service (background): Island {player_uuid} status updated to STOPPED in DB post-cloning and config injection.")
+                logger.info(f"Service (background): Island {player_uuid} status updated to STOPPED in DB post-cloning and all initial configurations.")
 
             except lxd_service.LXDServiceError as lxd_e: # More specific error handling
                 logger.error(f"Service (background): LXD Error during LXD clone for {player_uuid}: {lxd_e}")
@@ -200,16 +242,31 @@ class IslandService:
         from app.db.session import AsyncSessionLocal
 
         async with AsyncSessionLocal() as db_session_bg:
+            # island_db_model_bg = await crud_island.get_by_player_uuid(db_session_bg, player_uuid=uuid.UUID(player_uuid))
+            # if not island_db_model_bg:
+            #     logger.error(f"Service (background): Island not found for player_uuid {player_uuid} at start of _perform_lxd_start_and_update_status. Aborting.")
+            #     return
+            # The above is removed as is_server_id_configured is no longer used.
+            
             try:
                 logger.info(f"Service (background): Starting LXD operations for {player_uuid}, container {container_name}")
+
+                # Start/Unfreeze container first
                 if was_frozen:
                     logger.info(f"Service (background): Container {container_name} was frozen. Unfreezing...")
                     await lxd_service.unfreeze_container(container_name)
                     logger.info(f"Service (background): Container {container_name} unfrozen.")
                 
-                logger.info(f"Service (background): Attempting to start container {container_name}...")
-                await lxd_service.start_container(container_name)
-                logger.info(f"Service (background): Container {container_name} started successfully via LXDService.")
+                container_state_before_start_attempt = await lxd_service.get_container_state(container_name)
+                if not container_state_before_start_attempt or container_state_before_start_attempt.get('status', '').lower() != 'running':
+                    logger.info(f"Service (background): Attempting to start container {container_name} (current status: {container_state_before_start_attempt.get('status') if container_state_before_start_attempt else 'N/A'})...")
+                    await lxd_service.start_container(container_name)
+                    logger.info(f"Service (background): Container {container_name} start command issued.")
+                else:
+                    logger.info(f"Service (background): Container {container_name} is already running.")
+
+                # Server_id configuration was done during _perform_lxd_clone_and_update_status using the template.
+                # No need for specific Server_id logic here anymore.
 
                 # Retrieve IP address using the dedicated method with retries
                 ip_address = await lxd_service.get_container_ip(container_name)
@@ -229,7 +286,9 @@ class IslandService:
                     "internal_port": internal_port, # Default Minecraft port inside container
                     "external_port": None, # External port will be managed by Velocity or another proxy mechanism, not directly known here unless LXD proxy device is used.
                     "last_seen_at": datetime.now(timezone.utc)
+                    # is_server_id_configured is no longer managed here / in this way
                 }
+                
                 await crud_island.update_status(
                     db_session_bg,
                     player_uuid=uuid.UUID(player_uuid),

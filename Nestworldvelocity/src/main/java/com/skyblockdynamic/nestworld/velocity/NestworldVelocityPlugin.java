@@ -61,7 +61,7 @@ public class NestworldVelocityPlugin {
         
         // Реєстрація команди /myisland
         CommandMeta myIslandCommandMeta = commandManager.metaBuilder("myisland")
-            .aliases("island")
+            //.aliases("island")
             .plugin(this)
             .build();
         

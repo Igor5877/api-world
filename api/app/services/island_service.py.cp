@@ -92,11 +92,42 @@ class IslandService:
                 )
                 logger.info(f"Service (background): Container '{container_name}' cloned successfully.")
 
-                # After cloning, the container is created but not started. Its status in DB should be STOPPED.
+                # Inject skyblock_island_data.toml
+                logger.info(f"Service (background): Attempting to inject skyblock_island_data.toml into {container_name} for player {player_uuid}")
+                config_file_target_path = "/opt/minecraft/world/serverconfig/skyblock_island_data.toml"
+                toml_content = f"is_island_server = true\ncreator_uuid = \"{player_uuid}\"\n"
+                
+                try:
+                    await lxd_service.push_file_to_container(
+                        container_name=container_name,
+                        target_path=config_file_target_path,
+                        content=toml_content.encode('utf-8'),
+                        mode=0o644,
+                        uid=0,
+                        gid=0
+                    )
+                    logger.info(f"Service (background): Successfully injected skyblock_island_data.toml into {container_name}")
+                except lxd_service.LXDServiceError as push_error:
+                    logger.error(f"Service (background): LXDServiceError while pushing config file to {container_name} for {player_uuid}: {push_error}")
+                    # Update island status to ERROR_CREATE and re-raise to be caught by the outer try-except
+                    await crud_island.update_status(
+                        db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE
+                    )
+                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_CREATE due to config file push failure.")
+                    raise # Re-raise to be handled by the main cloning exception block
+                except Exception as e_push:
+                    logger.error(f"Service (background): Generic error while pushing config file to {container_name} for {player_uuid}: {e_push}", exc_info=True)
+                    await crud_island.update_status(
+                        db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE
+                    )
+                    logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_CREATE due to generic config file push failure.")
+                    raise # Re-raise to be handled by the main cloning exception block
+
+                # After cloning and file injection, the container is created but not started. Its status in DB should be STOPPED.
                 await crud_island.update_status(
                     db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.STOPPED
                 )
-                logger.info(f"Service (background): Island {player_uuid} status updated to STOPPED in DB post-cloning.")
+                logger.info(f"Service (background): Island {player_uuid} status updated to STOPPED in DB post-cloning and config injection.")
 
             except lxd_service.LXDServiceError as lxd_e: # More specific error handling
                 logger.error(f"Service (background): LXD Error during LXD clone for {player_uuid}: {lxd_e}")
@@ -118,7 +149,6 @@ class IslandService:
                     logger.critical(f"Service (background): CRITICAL - Failed to update island {player_uuid} status to ERROR: {db_e}")
             finally:
                 await db_session_bg.close()
-
     async def start_island_instance(self, db_session: AsyncSession, *, player_uuid: uuid.UUID, background_tasks: BackgroundTasks) -> IslandResponse:
         """
         Handles the business logic for starting an island using CRUD.
