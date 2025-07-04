@@ -80,19 +80,48 @@ public class PlayerConnectionListener {
             }
             JsonObject islandData = JsonParser.parseString(detailsResponse.body()).getAsJsonObject();
             String status = islandData.get("status").getAsString();
+            boolean minecraftReady = islandData.has("minecraft_ready") && islandData.get("minecraft_ready").getAsBoolean();
+
             if ("RUNNING".equalsIgnoreCase(status)) {
-                String ip = islandData.get("internal_ip_address").getAsString();
-                int port = islandData.get("internal_port").getAsInt();
-                attemptSingleConnection(player, ip, port); // FIX 1: Використовуємо новий метод
-                return CompletableFuture.completedFuture(null);
-            } else if (status.startsWith("STOPPED") || status.startsWith("FROZEN") || status.startsWith("ERROR")) {
-                return apiClient.requestIslandStart(player.getUniqueId());
-            } else {
+                if (minecraftReady) {
+                    String ip = islandData.get("internal_ip_address").getAsString();
+                    int port = islandData.get("internal_port").getAsInt();
+                    logger.info("Player {}'s island is RUNNING and minecraft_ready. Attempting connection to {}:{}", player.getUsername(), ip, port);
+                    attemptSingleConnection(player, ip, port);
+                    return CompletableFuture.completedFuture(null); // Stop polling
+                } else {
+                    logger.info("Player {}'s island is RUNNING but minecraft_ready is false. Will continue polling. Attempt: {}", player.getUsername(), attempt + 1);
+                    player.sendMessage(Component.text("Your island is running, but Minecraft is still loading. Please wait...", NamedTextColor.AQUA));
+                    scheduleNextPoll(player, attempt + 1);
+                    return CompletableFuture.completedFuture(null); // Continue polling
+                }
+            } else if (status.startsWith("STOPPED") || status.startsWith("FROZEN") || status.startsWith("ERROR_START") || status.startsWith("ERROR_CREATE") || status.startsWith("ERROR")) {
+                logger.info("Player {}'s island is {}. Requesting start. Attempt: {}", player.getUsername(), status, attempt + 1);
+                player.sendMessage(Component.text("Your island is " + status.toLowerCase() + ". Attempting to start it...", NamedTextColor.YELLOW));
+                return apiClient.requestIslandStart(player.getUniqueId()); // This returns a CF, which will be handled by thenAccept
+            } else if (status.startsWith("PENDING_")) { // PENDING_START, PENDING_CREATION, PENDING_STOP, PENDING_FREEZE
+                 logger.info("Player {}'s island is {}. Waiting. Attempt: {}", player.getUsername(), status, attempt + 1);
+                 player.sendMessage(Component.text("Your island is currently " + status.toLowerCase() + ". Please wait...", NamedTextColor.GRAY));
+                 scheduleNextPoll(player, attempt + 1);
+                 return CompletableFuture.completedFuture(null); // Continue polling
+            }
+             else {
+                // Default case if status is unknown or not handled above
+                logger.warn("Player {}'s island has an unhandled status: {}. Will continue polling. Attempt: {}", player.getUsername(), status, attempt + 1);
+                player.sendMessage(Component.text("Your island is in an unexpected state ("+ status +"). Trying again...", NamedTextColor.GOLD));
                 scheduleNextPoll(player, attempt + 1);
                 return CompletableFuture.completedFuture(null);
             }
         }).thenAccept(startResponse -> {
-            if (startResponse != null) {
+            // This block is reached if apiClient.requestIslandStart was called.
+            // If startResponse is not null, it means a start request was made.
+            // We then need to schedule the next poll.
+            if (startResponse != null) { // apiClient.requestIslandStart was called
+                if (startResponse.isSuccess()) {
+                    logger.info("Player {}'s island start request was accepted by API (Status {}). Scheduling next poll.", player.getUsername(), startResponse.statusCode());
+                } else {
+                     logger.warn("Player {}'s island start request failed or was not successful (Status {}). Scheduling next poll anyway. Body: {}", player.getUsername(), startResponse.statusCode(), startResponse.body());
+                }
                 scheduleNextPoll(player, attempt + 1);
             }
         });
