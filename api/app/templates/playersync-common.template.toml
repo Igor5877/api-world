@@ -21,7 +21,7 @@
 	#Whether to sync advancements between servers
 	sync_advancements = true
 	#Whether synchronize chat
-	sync_chat = true
+	sync_chat = false
 	#Whether recieve messages from other servers as host
 	IsChatServer = true
 	ChatServerIP = "localhost"

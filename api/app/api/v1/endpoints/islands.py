@@ -197,3 +197,83 @@ async def mark_island_ready_endpoint(
     except Exception as e:
         logger.error(f"Endpoint Error: Unexpected error marking island ready for {player_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while marking the island ready.")
+
+@router.post("/update-all", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+async def update_all_islands_endpoint(
+    background_tasks: BackgroundTasks,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Endpoint to queue all existing islands for an update.
+    """
+    logger.info("Endpoint: Received request to update all islands.")
+    try:
+        count = await island_service.queue_all_islands_for_update(db_session=db_session)
+        return MessageResponse(message=f"Successfully queued {count} islands for update.")
+    except Exception as e:
+        logger.error(f"Endpoint Error: Unexpected error while queueing all islands for update: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred.")
+
+@router.post("/{player_uuid}/update", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+async def update_island_endpoint(
+    player_uuid: uuid.UUID,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Endpoint to queue a specific island for an update.
+    """
+    logger.info(f"Endpoint: Received request to update island for player UUID: {player_uuid}")
+    try:
+        await island_service.queue_island_for_update(db_session=db_session, player_uuid=player_uuid)
+        return MessageResponse(message=f"Island for player {player_uuid} has been queued for update.")
+    except ValueError as e:
+        logger.warning(f"Endpoint: ValueError during island update queue for {player_uuid}: {e}")
+        if "not found" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        elif "already in queue" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Endpoint Error: Unexpected error queueing island for update {player_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred.")
+
+@router.post("/rollback-all", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+async def rollback_all_islands_endpoint(
+    background_tasks: BackgroundTasks,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Endpoint to trigger a rollback for all islands that have a snapshot available.
+    """
+    logger.info("Endpoint: Received request to rollback all possible islands.")
+    try:
+        # This service function would need to be implemented
+        count = await island_service.rollback_all_islands_from_snapshot(db_session=db_session, background_tasks=background_tasks)
+        return MessageResponse(message=f"Initiated rollback for {count} islands.")
+    except Exception as e:
+        logger.error(f"Endpoint Error: Unexpected error during rollback-all request: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred.")
+
+@router.post("/{player_uuid}/rollback", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+async def rollback_island_endpoint(
+    player_uuid: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Endpoint to trigger a rollback for a specific island from its snapshot.
+    """
+    logger.info(f"Endpoint: Received request to rollback island for player UUID: {player_uuid}")
+    try:
+        await island_service.rollback_island_from_snapshot(db_session=db_session, player_uuid=player_uuid, background_tasks=background_tasks)
+        return MessageResponse(message=f"Rollback initiated for island {player_uuid}.")
+    except ValueError as e:
+        logger.warning(f"Endpoint: ValueError during island rollback for {player_uuid}: {e}")
+        if "not found" in str(e).lower() or "no snapshot" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Endpoint Error: Unexpected error during island rollback for {player_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred.")

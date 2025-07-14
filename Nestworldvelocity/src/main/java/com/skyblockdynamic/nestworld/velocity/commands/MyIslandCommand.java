@@ -2,7 +2,6 @@ package com.skyblockdynamic.nestworld.velocity.commands;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.google.gson.JsonSyntaxException;
 import com.skyblockdynamic.nestworld.velocity.NestworldVelocityPlugin;
 import com.skyblockdynamic.nestworld.velocity.config.PluginConfig;
 import com.skyblockdynamic.nestworld.velocity.network.ApiClient;
@@ -18,7 +17,6 @@ import net.kyori.adventure.text.serializer.plain.PlainComponentSerializer;
 import org.slf4j.Logger;
 
 import java.net.InetSocketAddress;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -50,7 +48,6 @@ public class MyIslandCommand implements SimpleCommand {
         UUID playerUuid = player.getUniqueId();
         String islandServerName = "island-" + playerUuid.toString();
 
-        // FIX 2: Перевіряємо, чи гравець вже на своєму острові.
         if (player.getCurrentServer().isPresent() && player.getCurrentServer().get().getServerInfo().getName().equals(islandServerName)) {
             player.sendMessage(Component.text("You are already on your island.", NamedTextColor.YELLOW));
             return;
@@ -60,115 +57,255 @@ public class MyIslandCommand implements SimpleCommand {
         apiClient.getIslandDetails(playerUuid)
             .thenCompose(apiResponse -> {
                 if (!apiResponse.isSuccess()) {
-                    player.sendMessage(Component.text("Could not retrieve your island information.", NamedTextColor.RED));
+                    player.sendMessage(Component.text("Could not retrieve your island information. API Status: " + apiResponse.statusCode(), NamedTextColor.RED));
+                    logger.warn("API failed to get island details for {}: Status {}, Body: {}", playerUuid, apiResponse.statusCode(), apiResponse.body());
                     return CompletableFuture.completedFuture(null);
                 }
                 try {
                     JsonObject islandData = JsonParser.parseString(apiResponse.body()).getAsJsonObject();
                     String status = islandData.get("status").getAsString();
-                    if ("STOPPED".equalsIgnoreCase(status) || "FROZEN".equalsIgnoreCase(status) || status.startsWith("PENDING") || status.startsWith("ERROR")) {
-                        player.sendMessage(Component.text("Your island is currently " + status.toLowerCase() + ". Starting it up...", NamedTextColor.YELLOW));
-                        return startAndPollForRunning(player);
-                    } else if ("RUNNING".equalsIgnoreCase(status)) {
-                        player.sendMessage(Component.text("Your island's container is running. Attempting to connect...", NamedTextColor.AQUA));
-                        String ip = islandData.get("internal_ip_address").getAsString();
-                        int port = islandData.get("internal_port").getAsInt();
-                        return attemptSingleConnection(player, ip, port); // FIX 1: Використовуємо новий метод
-                    } else {
+                    boolean minecraftReady = islandData.has("minecraft_ready") && islandData.get("minecraft_ready").getAsBoolean();
+
+                    logger.info("Island status for {}: {}, minecraft_ready: {}", playerUuid, status, minecraftReady);
+
+                    // States that require starting the server
+                    if ("STOPPED".equalsIgnoreCase(status) || 
+                        "FROZEN".equalsIgnoreCase(status) || // Keep FROZEN for now, API might still return it if not fully updated
+                        status.startsWith("ERROR_CREATE") || // If creation failed, try to start (might fix or re-trigger creation)
+                        status.startsWith("ERROR_START") ||
+                        status.startsWith("ERROR_STOP") || // If errored during stop, might need a fresh start
+                        status.startsWith("ERROR")) { // Generic error
+                        player.sendMessage(Component.text("Your island is currently " + status.toLowerCase() + ". Attempting to start it...", NamedTextColor.YELLOW));
+                        return startAndPollForRunning(player); // This will then poll for minecraft_ready
+                    } 
+                    // States that imply it's in a process of starting or stopping, so we should poll
+                    else if (status.startsWith("PENDING_CREATE") || 
+                               status.startsWith("PENDING_START") || 
+                               status.startsWith("PENDING_STOP") ||
+                               status.startsWith("PENDING_FREEZE")) { // Keep PENDING_FREEZE for now
+                        player.sendMessage(Component.text("Your island is currently " + status.toLowerCase() + ". Please wait, checking status...", NamedTextColor.YELLOW));
+                        return pollForRunning(player, 0); // Start polling loop
+                    } 
+                    // Container is running, check if Minecraft is ready
+                    else if ("RUNNING".equalsIgnoreCase(status)) {
+                        if (minecraftReady) {
+                            player.sendMessage(Component.text("Your island is running and ready! Attempting to connect...", NamedTextColor.GREEN));
+                            String ip = islandData.get("internal_ip_address").getAsString();
+                            int port = islandData.get("internal_port").getAsInt();
+                            return attemptSingleConnection(player, ip, port);
+                        } else {
+                            player.sendMessage(Component.text("Island container is running, but Minecraft is still starting. Waiting...", NamedTextColor.YELLOW));
+                            return pollForMinecraftReady(player, 0); // Poll specifically for minecraft_ready
+                        }
+                    } 
+                    // Unknown or other states
+                    else {
                         player.sendMessage(Component.text("Your island is in an unknown state: " + status, NamedTextColor.RED));
+                        logger.warn("Player {} island in unknown state: {}", player.getUsername(), status);
                         return CompletableFuture.completedFuture(null);
                     }
+                } catch (JsonSyntaxException e) {
+                    player.sendMessage(Component.text("Error reading island data from API.", NamedTextColor.RED));
+                    logger.error("JsonSyntaxException parsing island details for {}: {}. Body: {}", playerUuid, e.getMessage(), apiResponse.body());
+                    return CompletableFuture.completedFuture(null);
                 } catch (Exception e) {
-                    player.sendMessage(Component.text("An error occurred while reading your island's data.", NamedTextColor.RED));
+                    player.sendMessage(Component.text("An unexpected error occurred while checking your island's data.", NamedTextColor.RED));
+                    logger.error("Unexpected exception processing island details for {}: {}", playerUuid, e.getMessage(), e);
                     return CompletableFuture.completedFuture(null);
                 }
+            })
+            .exceptionally(ex -> {
+                player.sendMessage(Component.text("An error occurred while communicating with the island service.", NamedTextColor.RED));
+                logger.error("Exception in getIslandDetails chain for {}: {}", player.getUsername(), ex.getMessage(), ex);
+                return null;
             });
     }
 
     private CompletableFuture<Void> startAndPollForRunning(Player player) {
         return apiClient.requestIslandStart(player.getUniqueId())
             .thenCompose(startResponse -> {
-                if (startResponse.isSuccess() || startResponse.statusCode() == 409) {
-                    player.sendMessage(Component.text("Start request accepted. Waiting for container to be ready...", NamedTextColor.AQUA));
+                // 202 (Accepted) or 409 (Conflict - e.g. already starting or running) are acceptable to proceed to polling
+                if (startResponse.isSuccess() || startResponse.statusCode() == 409) { 
+                    player.sendMessage(Component.text("Island start request " + (startResponse.statusCode() == 409 ? "noted (already in process or running)" : "accepted") + ". Waiting for container to be ready...", NamedTextColor.AQUA));
                     return pollForRunning(player, 0);
                 } else {
-                    player.sendMessage(Component.text("Failed to start your island.", NamedTextColor.RED));
+                    player.sendMessage(Component.text("Failed to send start request to your island. API Status: " + startResponse.statusCode(), NamedTextColor.RED));
+                    logger.warn("API failed to start island for {}: Status {}, Body: {}", player.getUniqueId(), startResponse.statusCode(), startResponse.body());
                     return CompletableFuture.completedFuture(null);
                 }
+            })
+            .exceptionally(ex -> {
+                player.sendMessage(Component.text("Error requesting island start.", NamedTextColor.RED));
+                logger.error("Exception in requestIslandStart chain for {}: {}", player.getUsername(), ex.getMessage(), ex);
+                return null;
             });
     }
 
     private CompletableFuture<Void> pollForRunning(Player player, int attempt) {
-        if (attempt >= config.getMaxPollingAttempts()) {
-            player.sendMessage(Component.text("Your island took too long to start its container.", NamedTextColor.RED));
+        if (attempt >= config.getMaxPollingAttempts()) { // Timeout for container to reach RUNNING
+            player.sendMessage(Component.text("Your island's container took too long to start/become running.", NamedTextColor.RED));
+            logger.warn("Polling timeout for container RUNNING state for player {}", player.getUsername());
             return CompletableFuture.completedFuture(null);
         }
+
         return apiClient.getIslandDetails(player.getUniqueId())
             .thenCompose(detailsResponse -> {
                 if (!detailsResponse.isSuccess()) {
-                    return scheduleNextPoll(player, attempt + 1);
+                    player.sendMessage(Component.text("Waiting for container... (status check failed, retrying)", NamedTextColor.GRAY));
+                    logger.warn("getIslandDetails failed during pollForRunning for {}, attempt {}. Status: {}", player.getUsername(), attempt, detailsResponse.statusCode());
+                    return schedulePollTask(player, attempt + 1, true); // true = isPollingForContainerRunning
                 }
                 try {
                     JsonObject islandData = JsonParser.parseString(detailsResponse.body()).getAsJsonObject();
                     String status = islandData.get("status").getAsString();
+                    logger.debug("Polling for RUNNING for {}: attempt {}, status: {}", player.getUsername(), attempt, status);
+
                     if ("RUNNING".equalsIgnoreCase(status)) {
-                        player.sendMessage(Component.text("Container is ready! Now connecting to Minecraft...", NamedTextColor.GREEN));
-                        String ip = islandData.get("internal_ip_address").getAsString();
-                        int port = islandData.get("internal_port").getAsInt();
-                        return attemptSingleConnection(player, ip, port); // FIX 1: Використовуємо новий метод
-                    } else {
-                        return scheduleNextPoll(player, attempt + 1);
+                        player.sendMessage(Component.text("Island container is RUNNING. Now checking if Minecraft server is ready...", NamedTextColor.AQUA));
+                        return pollForMinecraftReady(player, 0); // Transition to polling for Minecraft readiness
+                    } else if (status.startsWith("PENDING_")) {
+                         player.sendMessage(Component.text("Island status: " + status.toLowerCase() + ". Waiting for container...", NamedTextColor.YELLOW));
+                         return schedulePollTask(player, attempt + 1, true);
+                    } else if (status.startsWith("ERROR_")){
+                        player.sendMessage(Component.text("Island encountered an error: " + status.toLowerCase() + ". Please contact support.", NamedTextColor.RED));
+                        logger.error("Island for {} entered error state {} during pollForRunning.", player.getUsername(), status);
+                        return CompletableFuture.completedFuture(null);
+                    }
+                     else { // STOPPED or other unexpected states
+                        player.sendMessage(Component.text("Island container is " + status.toLowerCase() + ". Trying to start it...", NamedTextColor.YELLOW));
+                        return startAndPollForRunning(player); // Re-initiate start sequence if it's unexpectedly stopped
                     }
                 } catch (Exception e) {
-                    return scheduleNextPoll(player, attempt + 1);
+                    logger.warn("Exception during pollForRunning for player {}: {}", player.getUsername(), e.getMessage(), e);
+                    player.sendMessage(Component.text("Error checking island status. Retrying...", NamedTextColor.GRAY));
+                    return schedulePollTask(player, attempt + 1, true);
                 }
+            })
+            .exceptionally(ex -> {
+                player.sendMessage(Component.text("An error occurred while polling for container status.", NamedTextColor.RED));
+                logger.error("Exception in pollForRunning chain for {}: {}", player.getUsername(), ex.getMessage(), ex);
+                return null;
             });
     }
 
-    private CompletableFuture<Void> scheduleNextPoll(Player player, int nextAttempt) {
+    private CompletableFuture<Void> pollForMinecraftReady(Player player, int attempt) {
+        // Using a potentially different or same timeout for Minecraft readiness phase
+        if (attempt >= config.getMaxMinecraftReadyPollingAttempts()) { 
+            player.sendMessage(Component.text("Your island's Minecraft server took too long to become ready after the container started.", NamedTextColor.RED));
+            logger.warn("Polling timeout for Minecraft READY state for player {}", player.getUsername());
+            return CompletableFuture.completedFuture(null);
+        }
+
+        return apiClient.getIslandDetails(player.getUniqueId())
+            .thenCompose(detailsResponse -> {
+                if (!detailsResponse.isSuccess()) {
+                    player.sendMessage(Component.text("Waiting for Minecraft server... (status check failed, retrying)", NamedTextColor.GRAY));
+                    logger.warn("getIslandDetails failed during pollForMinecraftReady for {}, attempt {}. Status: {}", player.getUsername(), attempt, detailsResponse.statusCode());
+                    return schedulePollTask(player, attempt + 1, false); // false = isPollingForMinecraftReady
+                }
+                try {
+                    JsonObject islandData = JsonParser.parseString(detailsResponse.body()).getAsJsonObject();
+                    String status = islandData.get("status").getAsString();
+                    boolean minecraftReady = islandData.has("minecraft_ready") && islandData.get("minecraft_ready").getAsBoolean();
+                    logger.debug("Polling for Minecraft READY for {}: attempt {}, status: {}, mc_ready: {}", player.getUsername(), attempt, status, minecraftReady);
+
+                    if ("RUNNING".equalsIgnoreCase(status) && minecraftReady) {
+                        player.sendMessage(Component.text("Minecraft server is ready! Connecting...", NamedTextColor.GREEN));
+                        String ip = islandData.get("internal_ip_address").getAsString();
+                        int port = islandData.get("internal_port").getAsInt();
+                        return attemptSingleConnection(player, ip, port);
+                    } else if ("RUNNING".equalsIgnoreCase(status) && !minecraftReady) {
+                        player.sendMessage(Component.text("Container is running, but Minecraft server is still starting. Waiting...", NamedTextColor.YELLOW));
+                        return schedulePollTask(player, attempt + 1, false);
+                    } else { // If status is no longer RUNNING (e.g., STOPPED, ERROR during Minecraft startup)
+                        player.sendMessage(Component.text("Island is no longer running (status: " + status + ") while waiting for Minecraft server.", NamedTextColor.RED));
+                        logger.warn("Island for {} changed status from RUNNING to {} while waiting for minecraft_ready.", player.getUsername(), status);
+                        return CompletableFuture.completedFuture(null);
+                    }
+                } catch (Exception e) {
+                    logger.warn("Exception during pollForMinecraftReady for player {}: {}", player.getUsername(), e.getMessage(), e);
+                    player.sendMessage(Component.text("Error checking Minecraft readiness. Retrying...", NamedTextColor.GRAY));
+                    return schedulePollTask(player, attempt + 1, false);
+                }
+            })
+            .exceptionally(ex -> {
+                player.sendMessage(Component.text("An error occurred while polling for Minecraft readiness.", NamedTextColor.RED));
+                logger.error("Exception in pollForMinecraftReady chain for {}: {}", player.getUsername(), ex.getMessage(), ex);
+                return null;
+            });
+    }
+
+    // Combined scheduler method
+    private CompletableFuture<Void> schedulePollTask(Player player, int nextAttempt, boolean isPollingForContainerRunning) {
         CompletableFuture<Void> future = new CompletableFuture<>();
         proxyServer.getScheduler()
-            .buildTask(plugin, () -> pollForRunning(player, nextAttempt).thenAccept(future::complete))
+            .buildTask(plugin, () -> {
+                CompletableFuture<Void> nextPollFuture;
+                if (isPollingForContainerRunning) {
+                    nextPollFuture = pollForRunning(player, nextAttempt);
+                } else {
+                    nextPollFuture = pollForMinecraftReady(player, nextAttempt);
+                }
+                // Chain the completion of the next poll to this scheduled task's future
+                if (nextPollFuture != null) {
+                    nextPollFuture.thenAccept(v -> future.complete(null))
+                                  .exceptionally(ex -> {
+                                      future.completeExceptionally(ex);
+                                      return null;
+                                  });
+                } else {
+                    future.complete(null); // Should not happen if poll methods return valid futures
+                }
+            })
             .delay(config.getPollingIntervalMillis(), TimeUnit.MILLISECONDS)
             .schedule();
         return future;
     }
     
-    // FIX 1: Нова логіка з єдиною спробою підключення
     private CompletableFuture<Void> attemptSingleConnection(Player player, String ip, int port) {
         String serverName = "island-" + player.getUniqueId();
+        // Ensure the server is registered or updated if IP/port could change, though unlikely for internal.
         ServerInfo serverInfo = new ServerInfo(serverName, new InetSocketAddress(ip, port));
-        RegisteredServer serverToConnect = proxyServer.getServer(serverName).orElseGet(() -> proxyServer.registerServer(serverInfo));
+        proxyServer.unregisterServer(serverInfo); // Unregister first to ensure fresh info if it existed
+        RegisteredServer serverToConnect = proxyServer.registerServer(serverInfo);
+        
+        logger.info("Attempting to connect player {} to server {} ({}:{})", player.getUsername(), serverName, ip, port);
 
         return player.createConnectionRequest(serverToConnect).connect()
-            .thenAccept(result -> {
+            .thenApply(result -> { // Using thenApply to potentially return a value or rethrow for better chaining
                 if (result.isSuccessful()) {
                     player.sendMessage(Component.text("Successfully connected to your island!", NamedTextColor.GREEN));
-                    return;
-                }
-
-                String reasonString = result.getReasonComponent()
-                    .map(c -> PlainComponentSerializer.plain().serialize(c).toLowerCase())
-                    .orElse("unknown reason");
-
-                // Перевіряємо, чи сервер все ще запускається
-                if (reasonString.contains("still starting")) {
-                    player.sendMessage(Component.text("Your island is still loading. Please wait 1-2 minutes and try the command again.", NamedTextColor.YELLOW));
+                    logger.info("Player {} successfully connected to {}", player.getUsername(), serverName);
                 } else {
-                    player.sendMessage(Component.text("Failed to connect: " + reasonString, NamedTextColor.RED));
+                    String reasonString = result.getReasonComponent()
+                        .map(c -> PlainComponentSerializer.plain().serialize(c).toLowerCase())
+                        .orElse("unknown reason");
+                    logger.warn("Player {} failed to connect to {}: {}", player.getUsername(), serverName, reasonString);
+
+                    if (reasonString.contains("still starting") || reasonString.contains("connection refused") || reasonString.contains("timed out")) {
+                        player.sendMessage(Component.text("Your island server is still loading or couldn't be reached. Please wait a moment and try the command `/myisland` again.", NamedTextColor.YELLOW));
+                    } else {
+                        player.sendMessage(Component.text("Failed to connect: " + reasonString, NamedTextColor.RED));
+                    }
+                    // Unregister server if connection failed to prevent issues with stale entries if IP could change
+                    // or if it was a temporary registration.
+                    proxyServer.unregisterServer(serverInfo);
+                    // Optionally, throw an exception here if you want the CompletableFuture chain to be exceptional
+                    // throw new RuntimeException("Connection failed: " + reasonString);
                 }
+                return null; // Required for thenApply if not transforming to a new value for the CF
+            })
+             .exceptionally(ex -> {
+                player.sendMessage(Component.text("An error occurred during connection attempt.", NamedTextColor.RED));
+                logger.error("Exception during attemptSingleConnection for {}: {}", player.getUsername(), ex.getMessage(), ex);
+                proxyServer.unregisterServer(serverInfo); // Clean up
+                return null;
             });
     }
     
-    /*
-    // Закоментована логіка автоматичних спроб, як ви просили
-    private CompletableFuture<Void> connectWithRetries(Player player, String ip, int port, int retryAttempt) {
-        // ...
-    }
-    */
-    
     @Override
     public boolean hasPermission(Invocation invocation) {
+        // Implement actual permission checking if needed
         return true;
     }
 }
