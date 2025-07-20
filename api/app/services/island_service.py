@@ -89,6 +89,8 @@ class IslandService:
         This method MUST acquire its own database session.
         """
         from app.db.session import AsyncSessionLocal
+        from app.services.creation_worker import trigger_creation_worker
+        from app.services.start_worker import trigger_start_worker
 
         async with AsyncSessionLocal() as db_session_bg:
             try:
@@ -224,12 +226,19 @@ class IslandService:
         if current_status == IslandStatusEnum.RUNNING:
             logger.info(f"Service: Island {container_name} is already RUNNING.")
         elif current_status in [IslandStatusEnum.STOPPED, IslandStatusEnum.FROZEN]:
+            running_islands_count = await crud_island.get_running_islands_count(db_session)
+            if running_islands_count >= settings.MAX_RUNNING_SERVERS:
+                logger.info(f"Service: Max running servers limit reached ({settings.MAX_RUNNING_SERVERS}). Queuing island start for player_uuid: {player_uuid}")
+                from app.crud.crud_island_start_queue import crud_island_start_queue
+                await crud_island_start_queue.add_to_queue(db_session, player_uuid=player_uuid, player_name=island_db_model.player_name)
+                raise ValueError("Max running servers limit reached. Island start queued.")
+
             logger.info(f"Service: Starting island {container_name} from status {current_status.value}...")
 
             # Ensure minecraft_ready is set to False when initiating a start
             updated_island_db_model = await crud_island.update_status(
-                db_session, 
-                player_uuid=player_uuid, 
+                db_session,
+                player_uuid=player_uuid,
                 status=IslandStatusEnum.PENDING_START,
                 extra_fields={"minecraft_ready": False}
             )
@@ -504,6 +513,8 @@ class IslandService:
                     extra_fields=update_fields
                 )
                 logger.info(f"Service (background): Island {player_uuid} status updated to STOPPED, network info cleared, and minecraft_ready set to False.")
+                await trigger_creation_worker()
+                await trigger_start_worker()
 
             except lxd_service.LXDContainerNotFoundError:
                 # If container not found, it might have been deleted or failed creation.

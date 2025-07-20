@@ -68,7 +68,12 @@ class IslandQueue(Base):
     __tablename__ = "island_queue"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    player_uuid = Column(String(36), ForeignKey("islands.player_uuid", ondelete="CASCADE"), unique=True, nullable=False)
+    player_uuid = Column(String(36), unique=True, nullable=False, index=True)
+    player_name = Column(String(16), nullable=True)
+    status = Column(SQLAlchemyEnum(QueueItemStatusEnum, name="queue_item_status_enum", create_constraint=True, validate_strings=True),
+                    nullable=False,
+                    default=QueueItemStatusEnum.PENDING,
+                    index=True)
     requested_at = Column(DateTime, server_default=func.now(), index=True)
 
     # Relationship to Island (optional)

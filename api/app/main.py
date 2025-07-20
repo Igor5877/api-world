@@ -200,6 +200,7 @@ async def reconcile_island_states():
             logger.info("Reconciliation: Database session closed.")
 
 from app.services.creation_worker import start_creation_worker
+from app.services.start_worker import start_start_worker
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -213,6 +214,7 @@ async def lifespan(app: FastAPI):
     # Perform island state reconciliation
     await reconcile_island_states()
     await start_creation_worker()
+    await start_start_worker()
     yield
     # Code to run on shutdown
     logger.info("Shutting down SkyBlock LXD Manager API...") # Changed from print to logger
