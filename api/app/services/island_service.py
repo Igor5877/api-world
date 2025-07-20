@@ -3,6 +3,7 @@ from fastapi import BackgroundTasks
 from app.core.config import settings
 from app.services.lxd_service import lxd_service
 from app.crud.crud_island import crud_island
+from app.crud.crud_island_queue_ops import crud_main_island_queue
 from app.schemas.island import IslandCreate, IslandResponse, IslandUpdate, IslandStatusEnum
 from app.models.island import Island as IslandModel
 import uuid
@@ -43,6 +44,12 @@ class IslandService:
         if existing_island:
             logger.warning(f"Service: Island creation conflict for player_uuid: {island_create_data.player_uuid}")
             raise ValueError("Island already exists for this player.")
+
+        running_islands_count = await crud_island.get_running_islands_count(db_session)
+        if running_islands_count >= settings.MAX_RUNNING_SERVERS:
+            logger.info(f"Service: Max running servers limit reached ({settings.MAX_RUNNING_SERVERS}). Queuing island creation for player_uuid: {island_create_data.player_uuid}")
+            await crud_main_island_queue.add_to_queue(db_session, player_uuid=island_create_data.player_uuid, player_name=island_create_data.player_name)
+            raise ValueError("Max running servers limit reached. Island creation queued.")
 
         # Sanitize player_name for use in container name (simple sanitization)
         # Replace spaces and other potentially problematic characters with underscores
@@ -551,105 +558,6 @@ class IslandService:
             logger.error(f"Service: Error updating island {player_uuid} to mark as ready for players: {e}", exc_info=True)
             # This could be a more specific DB error or validation error if obj_in was complex.
             raise ValueError(f"Failed to update island to ready state: {e}")
-    async def queue_island_for_update(self, db_session: AsyncSession, *, player_uuid: uuid.UUID):
-        logger.info(f"Service: Queuing island for update for player_uuid: {player_uuid}")
-        island = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
-        if not island:
-            raise ValueError("Island not found.")
-        
-        await crud_update_queue.add_island_to_queue(db_session, island=island)
-
-    async def queue_all_islands_for_update(self, db_session: AsyncSession) -> int:
-        logger.info("Service: Queuing all islands for update.")
-        all_islands = await crud_island.get_multi(db_session, limit=10000) # Adjust limit as needed
-        count = 0
-        for island in all_islands:
-            try:
-                await crud_update_queue.add_island_to_queue(db_session, island=island)
-                count += 1
-            except ValueError as e:
-                logger.warning(f"Could not queue island {island.id} for update: {e}")
-        return count
-
-    async def perform_island_update(self, db_session: AsyncSession, *, queue_entry):
-        island = await crud_island.get(db_session, island_id=queue_entry.island_id)
-        if not island:
-            raise ValueError("Island to update not found in main table.")
-
-        snapshot_name = f"update-snapshot-{island.id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
-        
-        try:
-            await crud_island.update_status(db_session, player_uuid=uuid.UUID(island.player_uuid), status=IslandStatusEnum.UPDATING)
-            logger.info(f"Creating snapshot {snapshot_name} for island {island.container_name}")
-            await lxd_service.create_snapshot(island.container_name, snapshot_name)
-
-            original_status = island.status
-            if original_status != IslandStatusEnum.STOPPED:
-                await self._ensure_island_stopped(db_session, island)
-
-            logger.info(f"Performing file operations for {island.container_name}")
-            # Placeholder for actual file update logic
-            # await lxd_service.backup_and_update_files(island.container_name)
-
-            if original_status == IslandStatusEnum.RUNNING:
-                await self._restart_and_wait_for_ready(db_session, island)
-
-            await crud_island.update_status(db_session, player_uuid=uuid.UUID(island.player_uuid), status=original_status)
-            logger.info(f"Update successful, deleting snapshot {snapshot_name}")
-            await lxd_service.delete_snapshot(island.container_name, snapshot_name)
-
-        except Exception as e:
-            logger.error(f"Update failed for island {island.id}. Rolling back. Error: {e}")
-            await self._rollback_and_cleanup(db_session, island, snapshot_name)
-            raise
-
-    async def _ensure_island_stopped(self, db_session: AsyncSession, island: IslandModel):
-        logger.info(f"Stopping island {island.container_name}")
-        await self.stop_island_instance(db_session, player_uuid=uuid.UUID(island.player_uuid), background_tasks=BackgroundTasks())
-        for _ in range(30):
-            await asyncio.sleep(1)
-            reloaded_island = await crud_island.get(db_session, island_id=island.id)
-            if reloaded_island.status == IslandStatusEnum.STOPPED:
-                return
-        raise Exception("Island did not stop in time.")
-
-    async def _restart_and_wait_for_ready(self, db_session: AsyncSession, island: IslandModel):
-        logger.info(f"Restarting island {island.container_name}")
-        await self.start_island_instance(db_session, player_uuid=uuid.UUID(island.player_uuid), background_tasks=BackgroundTasks())
-        for _ in range(60): # 60 seconds timeout for server to become ready
-            await asyncio.sleep(1)
-            reloaded_island = await crud_island.get(db_session, island_id=island.id)
-            if reloaded_island.minecraft_ready:
-                logger.info(f"Island {island.id} is ready.")
-                return
-        raise Exception("Island did not become ready in time.")
-
-    async def _rollback_and_cleanup(self, db_session: AsyncSession, island: IslandModel, snapshot_name: str):
-        logger.info(f"Restoring snapshot {snapshot_name} for {island.container_name}")
-        await lxd_service.restore_snapshot(island.container_name, snapshot_name)
-        await crud_island.update_status(db_session, player_uuid=uuid.UUID(island.player_uuid), status=IslandStatusEnum.UPDATE_FAILED)
-        # Optionally, you might want to restart the island after rollback
-        # await self.start_island_instance(db_session, player_uuid=uuid.UUID(island.player_uuid), background_tasks=BackgroundTasks())
-        await lxd_service.delete_snapshot(island.container_name, snapshot_name)
-
-    async def rollback_island_from_snapshot(self, db_session: AsyncSession, *, player_uuid: uuid.UUID, background_tasks: BackgroundTasks):
-        # This is a simplified rollback, assuming a snapshot name convention
-        # A more robust implementation would store the snapshot name in the DB
-        island = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
-        if not island:
-            raise ValueError("Island not found for rollback.")
-        
-        # This logic needs to be more robust, i.e., finding the correct snapshot.
-        # For now, we assume a naming convention or a single snapshot.
-        # snapshot_name = "latest_update_snapshot_for_" + str(island.id)
-        # await lxd_service.restore_snapshot(island.container_name, snapshot_name)
-        logger.warning("Rollback logic is placeholder and needs a robust way to find snapshots.")
-
-
-    async def rollback_all_islands_from_snapshot(self, db_session: AsyncSession, background_tasks: BackgroundTasks) -> int:
-        # Placeholder for mass rollback
-        logger.warning("Mass rollback logic is a placeholder.")
-        return 0
 
 # Instantiate the service
 island_service = IslandService()

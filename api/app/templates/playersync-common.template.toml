@@ -2,18 +2,18 @@
 #General settings
 [general]
 	#The host of the database
-	host = "109.207.193.71"
+	host = ""
 	#database port
 	#Range: 0 ~ 65535
 	db_port = 3306
 	#whether use SSL
 	use_ssl = false
 	#username
-	user_name = "player_inventory"
+	user_name = ""
 	#password
-	password = "gd7)FmOQ564RMX17"
+	password = ""
 	#database name
-	db_name = "player_inventory"
+	db_name = ""
 	#the server id should be unique
 	Server_id = {{SERVER_ID}}
 	#The worlds that will be synchronized. If running on a server, leave array empty.

@@ -12,69 +12,75 @@ logger = logging.getLogger(__name__)
 # to prevent multiple workers from running concurrently.
 _worker_running = False
 _worker_task = None
+_queue_event = asyncio.Event()
+
+def signal_new_task_in_queue():
+    """Signals the worker that there's a new task."""
+    _queue_event.set()
 
 async def update_worker_loop():
     """
     The main loop for the update worker.
-    Continuously checks the queue and processes one island at a time.
+    Waits for a signal and then processes the entire queue.
     """
     global _worker_running
     _worker_running = True
-    logger.info("Update worker loop started.")
+    logger.info("Update worker loop started and is waiting for tasks.")
 
     while _worker_running:
+        await _queue_event.wait() # Wait here until signaled
+        
+        if not _worker_running: # Check again after waking up
+            break
+
+        logger.info("Worker awakened. Processing queue...")
         try:
             async with AsyncSessionLocal() as db_session:
-                await process_next_in_queue(db_session)
+                # Process all items currently in the queue
+                while True:
+                    processed_item = await process_next_in_queue(db_session)
+                    if not processed_item:
+                        break # Queue is empty
         except Exception as e:
             logger.error(f"Worker loop encountered an unhandled exception: {e}", exc_info=True)
         
-        await asyncio.sleep(10) # Wait for 10 seconds before checking the queue again
+        _queue_event.clear() # Reset the event, wait for new signal
+        logger.info("Queue processing finished. Worker is now idle.")
 
     logger.info("Update worker loop stopped.")
 
-async def process_next_in_queue(db_session: AsyncSession):
+async def process_next_in_queue(db_session: AsyncSession) -> bool:
     """
-    Fetches and processes the next pending island from the update queue.
+    Fetches and processes the next pending island. Returns True if an item was processed, False otherwise.
     """
-    logger.info("Checking for pending updates...")
-    
-    # Check if an item is already being processed to ensure only one at a time
-    # This is a simple lock mechanism; a more robust one might use a DB field
-    # if multiple worker instances could run.
-    # For now, we assume a single worker process.
-    
     next_item = await crud_update_queue.get_next_pending_island(db_session)
     
-    if next_item:
-        logger.info(f"Found pending update for island ID: {next_item.island_id}. Starting processing.")
+    if not next_item:
+        return False # No items to process
+
+    logger.info(f"Found pending update for island ID: {next_item.island_id}. Starting processing.")
+    
+    try:
+        await crud_update_queue.set_status_processing(db_session, queue_entry_id=next_item.id)
         
-        try:
-            # Mark as processing to prevent other workers from picking it up
-            await crud_update_queue.set_status_processing(db_session, queue_entry_id=next_item.id)
-            
-            # Here you would call the main update logic from island_service
-            # This logic needs to be created in island_service.py
-            await island_service.perform_island_update(
-                db_session=db_session, 
-                queue_entry=next_item
-            )
+        await island_service.perform_island_update(
+            db_session=db_session, 
+            queue_entry=next_item
+        )
 
-            # If the update is successful, mark as completed
-            await crud_update_queue.set_status_completed(db_session, queue_entry_id=next_item.id)
-            logger.info(f"Successfully processed update for island ID: {next_item.island_id}.")
+        await crud_update_queue.set_status_completed(db_session, queue_entry_id=next_item.id)
+        logger.info(f"Successfully processed update for island ID: {next_item.island_id}.")
 
-        except Exception as e:
-            logger.error(f"Failed to process update for island ID {next_item.island_id}: {e}", exc_info=True)
-            # Mark as failed
-            await crud_update_queue.set_status_failed(
-                db_session,
-                queue_entry_id=next_item.id,
-                error_message=str(e),
-                retry_count=next_item.retry_count + 1
-            )
-    else:
-        logger.info("No pending updates found.")
+    except Exception as e:
+        logger.error(f"Failed to process update for island ID {next_item.island_id}: {e}", exc_info=True)
+        await crud_update_queue.set_status_failed(
+            db_session,
+            queue_entry_id=next_item.id,
+            error_message=str(e),
+            retry_count=next_item.retry_count + 1
+        )
+    
+    return True # An item was processed
 
 def start_update_worker():
     """

@@ -3,6 +3,30 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 from app.schemas.island import IslandStatusEnum # Use the same Enum for consistency
+import enum
+
+class IslandStatusEnum(str, enum.Enum):
+    CREATING = "CREATING"
+    STOPPED = "STOPPED"
+    RUNNING = "RUNNING"
+    FROZEN = "FROZEN"
+    DELETING = "DELETING"
+    ARCHIVED = "ARCHIVED"
+    ERROR = "ERROR"
+    ERROR_CREATE = "ERROR_CREATE"
+    ERROR_START = "ERROR_START"
+    PENDING_START = "PENDING_START"
+    PENDING_CREATION = "PENDING_CREATION"
+    PENDING_STOP = "PENDING_STOP"
+    PENDING_FREEZE = "PENDING_FREEZE"
+    PENDING_UPDATE = "PENDING_UPDATE"
+    UPDATING = "UPDATING"
+    UPDATE_FAILED = "UPDATE_FAILED"
+
+class QueueItemStatusEnum(str, enum.Enum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    FAILED = "FAILED"
 
 class Island(Base):
     __tablename__ = "islands"
@@ -50,20 +74,6 @@ class IslandQueue(Base):
     # Relationship to Island (optional)
     # island = relationship("Island", back_populates="queue_entry")
 
-class UpdateQueue(Base):
-    __tablename__ = "update_queue"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    island_id = Column(Integer, ForeignKey("islands.id", ondelete="CASCADE"), unique=True, nullable=False)
-    player_uuid = Column(String(36), nullable=False)
-    status = Column(String(50), default='PENDING', nullable=False) # PENDING, PROCESSING, FAILED, COMPLETED
-    added_to_queue_at = Column(DateTime, server_default=func.now())
-    processing_started_at = Column(DateTime, nullable=True)
-    completed_at = Column(DateTime, nullable=True)
-    retry_count = Column(Integer, default=0)
-    error_message = Column(Text, nullable=True)
-
-    island = relationship("Island")
 
 class IslandSetting(Base):
     __tablename__ = "island_settings"

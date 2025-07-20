@@ -19,9 +19,6 @@ class IslandStatusEnum(str, enum.Enum):
     PENDING_CREATION = "PENDING_CREATION"
     PENDING_STOP = "PENDING_STOP"
     PENDING_FREEZE = "PENDING_FREEZE"
-    PENDING_UPDATE = "PENDING_UPDATE"
-    UPDATING = "UPDATING"
-    UPDATE_FAILED = "UPDATE_FAILED"
 # Base model for common island attributes
 class IslandBase(BaseModel):
     player_name: Optional[str] = Field(None, max_length=16, description="Minecraft player name")

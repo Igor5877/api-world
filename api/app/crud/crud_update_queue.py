@@ -4,8 +4,7 @@ from sqlalchemy.future import select
 from sqlalchemy import update as sqlalchemy_update
 from datetime import datetime
 
-from app.models.island import UpdateQueue as UpdateQueueModel
-from app.models.island import Island as IslandModel
+from app.db.base import UpdateQueue as UpdateQueueModel, Island as IslandModel
 
 
 class CRUDUpdateQueue:

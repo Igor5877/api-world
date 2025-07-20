@@ -3,7 +3,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update as sqlalchemy_update, delete as sqlalchemy_delete
+from sqlalchemy import update as sqlalchemy_update, delete as sqlalchemy_delete, func
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 
@@ -227,6 +227,19 @@ class CRUDisland:
             return result.scalars().all()
         except SQLAlchemyError as e:
             logger.error(f"Database error in CRUDisland.get_islands_by_statuses for statuses {statuses}: {e}")
+            raise
+
+    async def get_running_islands_count(self, db_session: AsyncSession) -> int:
+        """
+        Get the number of islands that are currently running.
+        """
+        try:
+            result = await db_session.execute(
+                select(func.count(IslandModel.id)).filter(IslandModel.status == IslandStatusEnum.RUNNING)
+            )
+            return result.scalar_one()
+        except SQLAlchemyError as e:
+            logger.error(f"Database error in CRUDisland.get_running_islands_count: {e}")
             raise
 
 # Instantiate the CRUD object for islands

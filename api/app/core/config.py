@@ -21,14 +21,13 @@ class Settings(BaseSettings):
     LXD_IP_RETRY_DELAY: int = int(os.getenv("LXD_IP_RETRY_DELAY", "3")) # Delay in seconds between IP fetch attempts
     LXD_DEFAULT_PROFILES: list[str] = os.getenv("LXD_DEFAULT_PROFILES", "default,skyblock").split(',') # Comma-separated list e.g., "default,skyblock"
     # Server resource management
-    MAX_RUNNING_SERVERS: int = int(os.getenv("MAX_RUNNING_SERVERS", "10")) # Max concurrent running islands
-    
+    MAX_RUNNING_SERVERS: int = int(os.getenv("MAX_RUNNING_SERVERS", "10")) # Max concurrent running island
     # Timers (in seconds)
     FREEZE_TIMER_SECONDS: int = int(os.getenv("FREEZE_TIMER_SECONDS", str(5 * 60)))      # 5 minutes
     STOP_TIMER_SECONDS: int = int(os.getenv("STOP_TIMER_SECONDS", str(15 * 60)))    # 15 minutes
     CLEANUP_INTERVAL_HOURS: int = int(os.getenv("CLEANUP_INTERVAL_HOURS", "24")) # Check for old islands once a day
     MAX_ISLAND_INACTIVITY_DAYS: int = int(os.getenv("MAX_ISLAND_INACTIVITY_DAYS", "30")) # Delete islands inactive for this many days
-
+    CREATION_QUEUE_WORKER_INTERVAL: int = int(os.getenv("CREATION_QUEUE_WORKER_INTERVAL", "10")) # Seconds between creation queue checks
     # Default Minecraft server settings (can be overridden per island if needed)
     DEFAULT_MC_PORT_INTERNAL: int = 25565
 
