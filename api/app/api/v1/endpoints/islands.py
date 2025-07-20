@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks, Response
 from typing import Any
 import uuid # For player_uuid
 from sqlalchemy.ext.asyncio import AsyncSession # Added for DB session type hint
@@ -15,6 +15,7 @@ router = APIRouter()
 async def create_island_endpoint(
     island_in: IslandCreate,
     background_tasks: BackgroundTasks,
+    response: Response,
     db_session: AsyncSession = Depends(get_db_session) # Added DB session dependency
 ):
     """
@@ -27,13 +28,20 @@ async def create_island_endpoint(
         initial_island_response = await island_service.create_new_island(
             db_session=db_session, # Pass the session
             island_create_data=island_in,
-            background_tasks=background_tasks 
+            background_tasks=background_tasks
         )
         return initial_island_response
     except ValueError as e:
         logger.warning(f"Endpoint: ValueError during island creation for {island_in.player_uuid}: {e}")
         if "already exists" in str(e):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        elif "Max running servers limit reached" in str(e):
+            response.status_code = status.HTTP_203_NON_AUTHORITATIVE_INFORMATION
+            return IslandResponse(
+                player_uuid=island_in.player_uuid,
+                status=IslandStatusEnum.PENDING_CREATION,
+                message="Island creation has been queued due to high server load. It will be created shortly."
+            )
         else:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) # Or 500 if it's unexpected
     except Exception as e:

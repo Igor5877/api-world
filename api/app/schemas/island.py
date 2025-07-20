@@ -40,7 +40,7 @@ class IslandUpdate(IslandBase):
 class IslandResponse(IslandBase):
     id: Optional[int] = Field(None, description="Island's unique ID in the database")
     player_uuid: uuid.UUID
-    container_name: str
+    container_name: Optional[str] = None
     status: IslandStatusEnum
     internal_ip_address: Optional[str] = Field(None, pattern=r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
     internal_port: Optional[int] = Field(None, gt=0, le=65535)
@@ -50,6 +50,7 @@ class IslandResponse(IslandBase):
     updated_at: Optional[datetime] = None
     last_seen_at: Optional[datetime] = None
     minecraft_ready: bool = Field(False, description="Indicates if the Minecraft server itself is fully loaded and ready for players")
+    message: Optional[str] = None
 
     # FIX: model_config is now a direct attribute of the class
     model_config = ConfigDict(from_attributes=True)
