@@ -20,13 +20,16 @@ class CRUDIslandStartQueue:
                 logger.info(f"Player {player_uuid_str} already in start queue with PENDING status.")
                 return existing_entry
             else:
-                existing_entry.status = QueueItemStatusEnum.PENDING
-                existing_entry.requested_at = func.now()
-                existing_entry.player_name = player_name
+                stmt = (
+                    update(IslandStartQueue)
+                    .where(IslandStartQueue.player_uuid == player_uuid_str)
+                    .values(status=QueueItemStatusEnum.PENDING, requested_at=func.now(), player_name=player_name)
+                )
+                await db_session.execute(stmt)
                 await db_session.commit()
-                await db_session.refresh(existing_entry)
+                updated_entry = await self.get_by_player_uuid(db_session, player_uuid=player_uuid)
                 logger.info(f"Re-queued player {player_uuid_str} for start with status PENDING.")
-                return existing_entry
+                return updated_entry
 
         new_queue_item = IslandStartQueue(
             player_uuid=player_uuid_str,
@@ -68,18 +71,17 @@ class CRUDIslandStartQueue:
             update(IslandStartQueue)
             .where(IslandStartQueue.player_uuid == player_uuid_str)
             .values(status=status)
-            .returning(IslandStartQueue)
         )
-        result = await db_session.execute(stmt)
-        updated_item = result.scalars().first()
+        await db_session.execute(stmt)
+        await db_session.commit()
+
+        updated_item = await self.get_by_player_uuid(db_session, player_uuid=player_uuid)
 
         if updated_item:
-            await db_session.commit()
             logger.info(f"Updated island_start_queue status for player {player_uuid_str} to {status.value}.")
             return updated_item
         else:
             logger.warning(f"Could not find player {player_uuid_str} in island_start_queue to update status to {status.value}.")
-            await db_session.rollback()
             return None
 
     async def get_by_player_uuid(self, db_session: AsyncSession, *, player_uuid: pyUUID) -> Optional[IslandStartQueue]:

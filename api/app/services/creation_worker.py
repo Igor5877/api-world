@@ -4,7 +4,6 @@ from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.crud.crud_island import crud_island
 from app.crud.crud_island_queue_ops import crud_main_island_queue
-from app.services.island_service import island_service
 from app.schemas.island import IslandCreate, IslandStatusEnum
 from app.models.island import QueueItemStatusEnum
 
@@ -15,6 +14,7 @@ async def trigger_creation_worker():
     """
     Processes the island creation queue.
     """
+    from app.services.island_service import island_service
     logger.info("Creation queue worker started.")
     try:
         async with AsyncSessionLocal() as db_session:

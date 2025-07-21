@@ -4,7 +4,6 @@ from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.crud.crud_island import crud_island
 from app.crud.crud_island_start_queue import crud_island_start_queue
-from app.services.island_service import island_service
 from app.schemas.island import IslandStatusEnum
 from app.models.island import QueueItemStatusEnum
 
@@ -15,6 +14,7 @@ async def trigger_start_worker():
     """
     Processes the island start queue.
     """
+    from app.services.island_service import island_service
     logger.info("Start queue worker started.")
     try:
         async with AsyncSessionLocal() as db_session:
@@ -33,19 +33,25 @@ async def trigger_start_worker():
                     )
 
                     try:
-                        from fastapi import BackgroundTasks
-                        background_tasks = BackgroundTasks()
+                        island = await crud_island.get_by_player_uuid(db_session, player_uuid=next_in_queue.player_uuid)
+                        if island:
+                            await island_service._perform_lxd_start_and_update_status(
+                                player_uuid=str(island.player_uuid),
+                                container_name=island.container_name,
+                                was_frozen=(island.status == IslandStatusEnum.FROZEN)
+                            )
 
-                        await island_service.start_island_instance(
-                            db_session=db_session,
-                            player_uuid=next_in_queue.player_uuid,
-                            background_tasks=background_tasks,
-                        )
-
-                        await crud_island_start_queue.remove_from_queue(
-                            db_session, player_uuid=next_in_queue.player_uuid
-                        )
-                        logger.info(f"Successfully processed start queue item for player {next_in_queue.player_uuid}")
+                            await crud_island_start_queue.remove_from_queue(
+                                db_session, player_uuid=next_in_queue.player_uuid
+                            )
+                            logger.info(f"Successfully processed start queue item for player {next_in_queue.player_uuid}")
+                        else:
+                            logger.error(f"Island not found for player {next_in_queue.player_uuid} in start queue.")
+                            await crud_island_start_queue.update_queue_item_status(
+                                db_session,
+                                player_uuid=next_in_queue.player_uuid,
+                                status=QueueItemStatusEnum.FAILED,
+                            )
 
                     except Exception as e:
                         logger.error(f"Error processing start queue item for player {next_in_queue.player_uuid}: {e}")

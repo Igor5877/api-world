@@ -6,6 +6,8 @@ from app.crud.crud_island import crud_island
 from app.crud.crud_island_queue_ops import crud_main_island_queue
 from app.schemas.island import IslandCreate, IslandResponse, IslandUpdate, IslandStatusEnum
 from app.models.island import Island as IslandModel
+from app.services.creation_worker import trigger_creation_worker
+from app.services.start_worker import trigger_start_worker
 import uuid
 import asyncio
 from datetime import datetime, timezone
@@ -89,8 +91,6 @@ class IslandService:
         This method MUST acquire its own database session.
         """
         from app.db.session import AsyncSessionLocal
-        from app.services.creation_worker import trigger_creation_worker
-        from app.services.start_worker import trigger_start_worker
 
         async with AsyncSessionLocal() as db_session_bg:
             try:

@@ -26,13 +26,16 @@ class CRUDMainIslandQueue: # Renamed class to reflect it's for the main IslandQu
                 logger.info(f"Player {player_uuid_str} already in queue with PENDING status.")
                 return existing_entry
             else:  # e.g., was PROCESSING and failed, or some other state, re-queue as PENDING
-                existing_entry.status = QueueItemStatusEnum.PENDING
-                existing_entry.requested_at = func.now()
-                existing_entry.player_name = player_name
+                stmt = (
+                    update(IslandQueue)
+                    .where(IslandQueue.player_uuid == player_uuid_str)
+                    .values(status=QueueItemStatusEnum.PENDING, requested_at=func.now(), player_name=player_name)
+                )
+                await db_session.execute(stmt)
                 await db_session.commit()
-                await db_session.refresh(existing_entry)
+                updated_entry = await self.get_by_player_uuid(db_session, player_uuid=player_uuid)
                 logger.info(f"Re-queued player {player_uuid_str} with status PENDING.")
-                return existing_entry
+                return updated_entry
 
         # If no existing entry, or if update somehow failed to return an entry
         new_queue_item = IslandQueue(
@@ -86,20 +89,17 @@ class CRUDMainIslandQueue: # Renamed class to reflect it's for the main IslandQu
             update(IslandQueue)
             .where(IslandQueue.player_uuid == player_uuid_str)
             .values(status=status)
-            .returning(IslandQueue) 
         )
-        result = await db_session.execute(stmt)
-        updated_item = result.scalars().first() # Use first() as there should be at most one
+        await db_session.execute(stmt)
+        await db_session.commit()
+        
+        updated_item = await self.get_by_player_uuid(db_session, player_uuid=player_uuid)
         
         if updated_item:
-            await db_session.commit()
-            # No need to refresh updated_item, .returning() gives the updated state
             logger.info(f"Updated island_queue status for player {player_uuid_str} to {status.value}.")
             return updated_item
         else:
             logger.warning(f"Could not find player {player_uuid_str} in island_queue to update status to {status.value}.")
-            # Explicitly rollback if no update occurred but an attempt was made, to be safe, though not strictly needed if no changes made.
-            await db_session.rollback() 
             return None
 
     async def get_queue_size(self, db_session: AsyncSession, status: Optional[QueueItemStatusEnum] = None) -> int:
