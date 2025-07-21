@@ -33,8 +33,11 @@ class LXDService:
             # Initialize client synchronously here, as pylxd.Client() is cheap
             # and doesn't do I/O until methods are called.
             try:
-                self.client = pylxd.Client(endpoint=settings.LXD_SOCKET_PATH)
-                logger.info(f"LXDService: pylxd.Client initialized for socket {settings.LXD_SOCKET_PATH}.")
+                self.client = pylxd.Client(
+                    endpoint=settings.LXD_SOCKET_PATH,
+                    project=settings.LXD_PROJECT
+                )
+                logger.info(f"LXDService: pylxd.Client initialized for project '{settings.LXD_PROJECT}' on socket {settings.LXD_SOCKET_PATH}.")
                 # You can test connectivity if necessary, e.g., by listing profiles
                 # self.client.profiles.all() # This would be a blocking call
             except Exception as e:
