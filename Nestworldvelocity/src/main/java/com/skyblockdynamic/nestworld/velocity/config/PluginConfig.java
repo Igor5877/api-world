@@ -16,15 +16,17 @@ public class PluginConfig {
     private final int pollingIntervalMillis;
     private final int maxPollingAttempts;
     private final boolean autoRedirectToIslandEnabled; // ADDED: Нове поле
+    private final boolean useWebsockets;
 
     // ADDED: Оновлений конструктор
-    private PluginConfig(String apiUrl, String fallbackServerName, int apiRequestTimeoutSeconds, int pollingIntervalMillis, int maxPollingAttempts, boolean autoRedirectToIslandEnabled) {
+    private PluginConfig(String apiUrl, String fallbackServerName, int apiRequestTimeoutSeconds, int pollingIntervalMillis, int maxPollingAttempts, boolean autoRedirectToIslandEnabled, boolean useWebsockets) {
         this.apiUrl = apiUrl;
         this.fallbackServerName = fallbackServerName;
         this.apiRequestTimeoutSeconds = apiRequestTimeoutSeconds;
         this.pollingIntervalMillis = pollingIntervalMillis;
         this.maxPollingAttempts = maxPollingAttempts;
         this.autoRedirectToIslandEnabled = autoRedirectToIslandEnabled; // ADDED: Ініціалізація нового поля
+        this.useWebsockets = useWebsockets;
     }
 
     // ... гетери для існуючих полів ...
@@ -37,6 +39,10 @@ public class PluginConfig {
     // ADDED: Гетер для нового поля
     public boolean isAutoRedirectToIslandEnabled() {
         return autoRedirectToIslandEnabled;
+    }
+
+    public boolean isUseWebsockets() {
+        return useWebsockets;
     }
 
     public static PluginConfig load(Path dataDirectory, Logger logger) {
@@ -63,6 +69,7 @@ public class PluginConfig {
             String fallbackServer = toml.getString("general.fallback_server", "hub");
             // ADDED: Читаємо новий параметр з файлу. За замовчуванням - true.
             boolean autoRedirect = toml.getBoolean("general.auto_redirect_to_island_on_login", true);
+            boolean useWebsockets = toml.getBoolean("general.use_websockets", false);
             
             long timeout = toml.getLong("api.request_timeout_seconds", 10L);
             long interval = toml.getLong("api.polling_interval_millis", 5000L); // Змінив на 5с для прикладу
@@ -72,12 +79,13 @@ public class PluginConfig {
             logger.info("API URL: {}", apiUrl);
             logger.info("Fallback Server: {}", fallbackServer);
             logger.info("Auto-redirect to island on login: {}", autoRedirect); // ADDED: Логуємо новий параметр
+            logger.info("Use WebSockets: {}", useWebsockets);
             logger.info("API Request Timeout: {}s", timeout);
             logger.info("Polling Interval: {}ms, Max Attempts: {}", interval, attempts);
 
 
             // ADDED: Передаємо новий параметр в конструктор
-            return new PluginConfig(apiUrl, fallbackServer, (int)timeout, (int)interval, (int)attempts, autoRedirect);
+            return new PluginConfig(apiUrl, fallbackServer, (int)timeout, (int)interval, (int)attempts, autoRedirect, useWebsockets);
 
         } catch (Exception e) {
             logger.error("Error loading NestworldVelocityPlugin configuration: ", e);
@@ -90,6 +98,7 @@ public class PluginConfig {
         String defaultApiUrl = "http://127.0.0.1:8000/api/v1";
         String defaultFallback = "hub";
         boolean defaultAutoRedirect = false; // ADDED
+        boolean defaultUseWebsockets = false;
         int defaultTimeout = 10;
         int defaultInterval = 5000;
         int defaultAttempts = 120;
@@ -99,13 +108,14 @@ public class PluginConfig {
             String content = String.format(
                 "[general]\n" +
                 "fallback_server = \"%s\"\n" +
-                "auto_redirect_to_island_on_login = %b\n\n" + // ADDED
+                "auto_redirect_to_island_on_login = %b\n" + // ADDED
+                "use_websockets = %b\n\n" +
                 "[api]\n" +
                 "base_url = \"%s\"\n" +
                 "request_timeout_seconds = %d\n" +
                 "polling_interval_millis = %d\n" +
                 "max_polling_attempts = %d\n",
-                defaultFallback, defaultAutoRedirect, defaultApiUrl, defaultTimeout, defaultInterval, defaultAttempts
+                defaultFallback, defaultAutoRedirect, defaultUseWebsockets, defaultApiUrl, defaultTimeout, defaultInterval, defaultAttempts
             );
             Files.writeString(configPath, content);
             logger.info("Created a minimal configuration file at: " + configPath);
@@ -113,12 +123,12 @@ public class PluginConfig {
             logger.error("Failed to write minimal configuration file: ", ex);
         }
         // ADDED: Передаємо новий параметр в конструктор
-        return new PluginConfig(defaultApiUrl, defaultFallback, defaultTimeout, defaultInterval, defaultAttempts, defaultAutoRedirect);
+        return new PluginConfig(defaultApiUrl, defaultFallback, defaultTimeout, defaultInterval, defaultAttempts, defaultAutoRedirect, defaultUseWebsockets);
     }
 
     private static PluginConfig createMinimalHardcodedConfig(Logger logger) {
         logger.warn("Creating a minimal hardcoded config due to previous errors.");
         // ADDED: Передаємо новий параметр в конструктор
-        return new PluginConfig("http://127.0.0.1:8000/api/v1", "hub", 10, 5000, 120, true);
+        return new PluginConfig("http://127.0.0.1:8000/api/v1", "hub", 10, 5000, 120, true, false);
     }
 }
