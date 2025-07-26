@@ -1,0 +1,17 @@
+{
+  "command.island.notcomand.island": "This command is not available on the island server.",
+  "command.island.command-error": "An unexpected error occurred. Please contact the project administration!",
+  "command.island.create": "Island creation request received.",
+  "command.island.exists": "You already have an island!",
+  "command.island.create-error": "An error occurred while requesting island creation. Please contact the project administration!",
+  "command.island.error-network": "Connection error with the island service. Please try again later.",
+  "command.island.status.time": "Island creation is taking longer than expected.",
+  "command.island.status.stopped": "Your island has been created!",
+  "command.island.status.error-create": "An error occurred while creating your island on the server (status: %s). Please contact the administration.",
+  "command.island.status.error-error": "Unknown island status: %s. Please contact the administration.",
+  "command.island.status.parse_error": "Error processing the response from the island service.",
+  "command.island.status.weexpect": "Waiting for island information from the island server...",
+  "command.island.status.error-status": "Error checking island status. Code: %s",
+  "command.island.status.error-network": "Connection error while checking status. Retrying...",
+  "command.island.status.network-stop": "Failed to check island status after several attempts."
+}

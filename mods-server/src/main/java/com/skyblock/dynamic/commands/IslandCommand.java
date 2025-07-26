@@ -1,14 +1,5 @@
 package com.skyblock.dynamic.commands;
 
-import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.StringArgumentType;
-import com.mojang.brigadier.exceptions.CommandSyntaxException;
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.commands.Commands;
-import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerPlayer;
-
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -20,13 +11,20 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.slf4j.Logger;
+
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.skyblock.dynamic.SkyBlockMod;
-import com.skyblock.dynamic.Config; 
-
-import org.slf4j.Logger;
+import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.logging.LogUtils;
+import com.skyblock.dynamic.Config;
+import com.skyblock.dynamic.SkyBlockMod;
+
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 
 public class IslandCommand {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -68,14 +66,14 @@ public class IslandCommand {
                 .executes(context -> {
                     // Check context before executing
                     if (SkyBlockMod.isIslandServer()) {
-                        context.getSource().sendFailure(Component.literal("Ця команда недоступна на сервері острова."));
+                        context.getSource().sendFailure(Component.translatable("command.island.notcomand.island"));
                         return 0; // Command failed or is disallowed
                     }
                     try {
                         return createIsland(context.getSource());
                     } catch (Exception e) {
                         LOGGER.error("Error executing /island create command", e);
-                        context.getSource().sendFailure(Component.literal("Виникла неочікувана помилка. Перевірте логи сервера."));
+                        context.getSource().sendFailure(Component.translatable("command.island.command-error"));
                         return 0;
                     }
                 })
@@ -104,8 +102,6 @@ public class IslandCommand {
                 .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(jsonPayload)))
                 .build();
         
-        source.sendSuccess(() -> Component.literal("Запит на створення острова прийнято. Перевіряємо статус..."), true);
-
         HTTP_CLIENT.sendAsync(createRequest, HttpResponse.BodyHandlers.ofString())
             .thenAcceptAsync(response -> {
                 int statusCode = response.statusCode();
@@ -114,17 +110,18 @@ public class IslandCommand {
 
                 if (statusCode == 202 || statusCode == 200 || statusCode == 201) { // Accepted, OK, Created
                     // Start polling for island status
+                    player.sendSystemMessage(Component.translatable("command.island.create"));
                     pollIslandStatus(player, playerUuid, new AtomicInteger(0));
                 } else if (statusCode == 409) { // Conflict - island already exists
-                     player.sendSystemMessage(Component.literal("У тебе вже є острів!"));
-                     LOGGER.warn("Конфлікт викликів API для гравця {} (острів, ймовірно, вже існує): {} - {}", playerName, statusCode, responseBody);
+                    player.sendSystemMessage(Component.translatable("command.island.exists"));
+                    LOGGER.warn("Конфлікт викликів API для гравця {} (острів, ймовірно, вже існує): {} - {}", playerName, statusCode, responseBody);
                 } else {
-                    player.sendSystemMessage(Component.literal("Помилка під час запиту на створення острова. Код: " + statusCode));
+                    player.sendSystemMessage(Component.translatable("command.island.create-error"));
                     LOGGER.error("Помилка API під час запиту на створення острова для {}. Статус: {}. Відповідь: {}", playerName, statusCode, responseBody);
                 }
             }, POLLING_EXECUTOR) // Ensure response handling is off the Netty threads
             .exceptionally(e -> {
-                player.sendSystemMessage(Component.literal("Помилка зв'язку з сервісом островів. Спробуйте пізніше."));
+                player.sendSystemMessage(Component.translatable("command.island.error-network"));
                 LOGGER.error("Виняток під час запиту на створення острова для {}: {}", playerName, e.getMessage(), e);
                 return null;
             });
@@ -134,7 +131,7 @@ public class IslandCommand {
 
     private static void pollIslandStatus(ServerPlayer player, UUID playerUuid, AtomicInteger attempts) {
         if (attempts.getAndIncrement() >= MAX_POLLING_ATTEMPTS) {
-            player.sendSystemMessage(Component.literal("Створення острова займає більше часу, ніж очікувалося.")); // TODO: Add /island status command
+            player.sendSystemMessage(Component.translatable("command.island.status.time")); // TODO: Add /island status command
             LOGGER.warn("Max polling attempts reached for player {}", playerUuid);
             return;
         }
@@ -161,7 +158,7 @@ public class IslandCommand {
 
                         switch (status.toUpperCase()) {
                             case "STOPPED":
-                                player.sendSystemMessage(Component.literal("Ваший острів створений!"));
+                                player.sendSystemMessage(Component.translatable("command.island.status.stopped"));
                                 LOGGER.info("Острів для {} успішно створений та зупинений (status: STOPPED).", player.getName().getString());
                                 break;
                             case "PENDING_CREATION":
@@ -172,17 +169,17 @@ public class IslandCommand {
                                 break;
                             case "ERROR_CREATE":
                             case "ERROR":
-                                player.sendSystemMessage(Component.literal("Помилка під час створення вашого острова на сервері (status: " + status + "). Зверніться до адміністрації."));
+                                player.sendSystemMessage(Component.translatable("command.island.status.error-create", status));
                                 LOGGER.error("Помилка створення острова для {} (status: {}). Відповідь API: {}", player.getName().getString(), status, responseBody);
                                 break;
                             default:
-                                player.sendSystemMessage(Component.literal("Невідомий статус острова: " + status + ". Спробуйте пізніше."));
+                                player.sendSystemMessage(Component.translatable("command.island.status.error-error", status));
                                 LOGGER.warn("Невідомий статус острова '{}' для гравця {}. Відповідь API: {}", status, player.getName().getString(), responseBody);
                                 POLLING_EXECUTOR.schedule(() -> pollIslandStatus(player, playerUuid, attempts), POLLING_INTERVAL_SECONDS, TimeUnit.SECONDS); // Retry on unknown status as well
                                 break;
                         }
                     } catch (Exception e) {
-                        player.sendSystemMessage(Component.literal("Помилка обробки відповіді від сервісу островів."));
+                        player.sendSystemMessage(Component.translatable("command.island.status.parse_error"));
                         LOGGER.error("Помилка парсингу JSON відповіді статусу для {}: {}", player.getName().getString(), responseBody, e);
                         // Optionally retry or stop
                         POLLING_EXECUTOR.schedule(() -> pollIslandStatus(player, playerUuid, attempts), POLLING_INTERVAL_SECONDS, TimeUnit.SECONDS);
@@ -191,11 +188,11 @@ public class IslandCommand {
                     LOGGER.warn("Острів для {} ще не знайдено (404). Можливо, ще не створений в API. Повторна перевірка через {} сек. (Attempt {})", player.getName().getString(), POLLING_INTERVAL_SECONDS, attempts.get());
                      // Send a less alarming message for 404 during polling as it might just be eventual consistency
                     if (attempts.get() == 1) { // Only send on first 404 after initial request
-                        player.sendSystemMessage(Component.literal("Очікуємо на інформацію про острів від API..."));
+                        player.sendSystemMessage(Component.translatable("command.island.status.weexpect"));
                     }
                     POLLING_EXECUTOR.schedule(() -> pollIslandStatus(player, playerUuid, attempts), POLLING_INTERVAL_SECONDS, TimeUnit.SECONDS);
                 } else {
-                    player.sendSystemMessage(Component.literal("Помилка перевірки статусу острова. Код: " + statusCode));
+                    player.sendSystemMessage(Component.translatable("command.island.status.error-status", statusCode));
                     LOGGER.error("Помилка API під час перевірки статусу острова для {}. Статус: {}. Відповідь: {}", player.getName().getString(), statusCode, responseBody);
                     // Decide if to retry or stop based on status code
                     if (statusCode >= 500 && statusCode < 600) { // Server-side errors
@@ -211,10 +208,10 @@ public class IslandCommand {
                 LOGGER.error("Виняток під час перевірки статусу острова для {}: {}", player.getName().getString(), e.getMessage(), e);
                 // Decide if to retry or inform player
                 if (attempts.get() < MAX_POLLING_ATTEMPTS) {
-                     player.sendSystemMessage(Component.literal("Помилка зв'язку під час перевірки статусу. Повторна спроба..."));
+                     player.sendSystemMessage(Component.translatable("command.island.status.error-network"));
                     POLLING_EXECUTOR.schedule(() -> pollIslandStatus(player, playerUuid, attempts), POLLING_INTERVAL_SECONDS, TimeUnit.SECONDS);
                 } else {
-                    player.sendSystemMessage(Component.literal("Не вдалося перевірити статус острова після кількох спроб."));
+                    player.sendSystemMessage(Component.translatable("command.island.status.network-stop"));
                 }
                 return null;
             });

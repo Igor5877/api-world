@@ -1,0 +1,17 @@
+{
+  "command.island.notcomand.island": "Ця команда недоступна на сервері островів.",
+  "command.island.command-error": "Виникла неочікувана помилка. Зверніться до адміністрації проєкту!",
+  "command.island.create": "Запит на створення острова прийнято.",
+  "command.island.exists": "У вас уже є острів!",
+  "command.island.create-error": "Помилка під час запиту на створення острова. Зверніться до адміністрації проєкту!",
+  "command.island.error-network": "Помилка зв'язку з сервісом островів. Спробуйте пізніше.",
+  "command.island.status.time": "Створення острова займає більше часу, ніж очікувалося.",
+  "command.island.status.stopped": "Ваш острів створено!",
+  "command.island.status.error-create": "Помилка під час створення вашого острова на сервері (статус: %s). Зверніться до адміністрації.",
+  "command.island.status.error-error": "Невідомий статус острова: %s. Зверніться до адміністрації.",
+  "command.island.status.parse_error": "Помилка обробки відповіді від сервісу островів.",
+  "command.island.status.weexpect": "Очікуємо на інформацію про острів від сервера островів...",
+  "command.island.status.error-status": "Помилка перевірки статусу острова. Код: %s",
+  "command.island.status.error-network": "Помилка зв'язку під час перевірки статусу. Повторна спроба...",
+  "command.island.status.network-stop": "Не вдалося перевірити статус острова після кількох спроб."
+}
