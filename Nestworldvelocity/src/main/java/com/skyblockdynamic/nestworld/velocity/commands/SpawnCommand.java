@@ -1,6 +1,7 @@
 package com.skyblockdynamic.nestworld.velocity.commands;
 
 import com.skyblockdynamic.nestworld.velocity.config.PluginConfig;
+import com.skyblockdynamic.nestworld.velocity.network.WebSocketManager;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
@@ -10,7 +11,9 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.slf4j.Logger;
 
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 public class SpawnCommand implements SimpleCommand {
 
@@ -66,4 +69,5 @@ public class SpawnCommand implements SimpleCommand {
         // Дозволяємо всім гравцям використовувати цю команду
         return true; 
     }
+
 }

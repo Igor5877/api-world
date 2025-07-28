@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import BackgroundTasks
 from app.core.config import settings
+from app.services.websocket_manager import manager as websocket_manager
 from app.services.lxd_service import lxd_service
 from app.crud.crud_island import crud_island
 from app.schemas.island import IslandCreate, IslandResponse, IslandUpdate, IslandStatusEnum
@@ -62,6 +63,7 @@ class IslandService:
                 container_name=container_name,
                 initial_status=IslandStatusEnum.PENDING_CREATION
             )
+            await websocket_manager.send_personal_message(IslandResponse.model_validate(island_db_model).model_dump_json(), str(island_db_model.player_uuid))
             logger.info(f"Service: Island record created in DB for {island_db_model.player_uuid}, status PENDING_CREATION. ID: {island_db_model.id}")
         except Exception as e:
             logger.error(f"Service: DB error during initial island record creation for {island_create_data.player_uuid}: {e}")
@@ -112,16 +114,20 @@ class IslandService:
                     logger.info(f"Service (background): Successfully injected skyblock_island_data.toml into {container_name}")
                 except lxd_service.LXDServiceError as push_error:
                     logger.error(f"Service (background): LXDServiceError while pushing skyblock_island_data.toml to {container_name} for {player_uuid}: {push_error}")
-                    await crud_island.update_status(
+                    updated_island = await crud_island.update_status(
                         db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE
                     )
+                    if updated_island:
+                        await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                     logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_CREATE due to skyblock_island_data.toml push failure.")
                     raise
                 except Exception as e_push:
                     logger.error(f"Service (background): Generic error while pushing skyblock_island_data.toml to {container_name} for {player_uuid}: {e_push}", exc_info=True)
-                    await crud_island.update_status(
+                    updated_island = await crud_island.update_status(
                         db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE
                     )
+                    if updated_island:
+                        await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                     logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_CREATE due to generic skyblock_island_data.toml push failure.")
                     raise
                 
@@ -153,48 +159,60 @@ class IslandService:
 
                 except FileNotFoundError:
                     logger.error(f"Service (background): CRITICAL - playersync-common.template.toml not found at {template_path}")
-                    await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE)
+                    updated_island = await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE)
+                    if updated_island:
+                        await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                     raise # Re-raise to be caught by the outer exception handler for clone process
                 except lxd_service.LXDServiceError as playersync_push_error:
                     logger.error(f"Service (background): LXDServiceError pushing playersync-common.toml to {container_name}: {playersync_push_error}")
-                    await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE)
+                    updated_island = await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE)
+                    if updated_island:
+                        await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                     raise
                 except Exception as e_playersync:
                     logger.error(f"Service (background): Generic error processing playersync-common.toml for {container_name}: {e_playersync}", exc_info=True)
-                    await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE)
+                    updated_island = await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE)
+                    if updated_island:
+                        await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                     raise
 
                 # After cloning and all file injections, the container is created but not started.
                 # Its status in DB should be STOPPED.
-                await crud_island.update_status(
-                    db_session_bg, 
-                    player_uuid=uuid.UUID(player_uuid), 
+                updated_island = await crud_island.update_status(
+                    db_session_bg,
+                    player_uuid=uuid.UUID(player_uuid),
                     status=IslandStatusEnum.STOPPED,
                     extra_fields={"minecraft_ready": False} # Ensure minecraft_ready is False for a newly cloned, stopped island
                 )
+                if updated_island:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                 logger.info(f"Service (background): Island {player_uuid} status updated to STOPPED and minecraft_ready=False in DB post-cloning and all initial configurations.")
 
             except lxd_service.LXDServiceError as lxd_e: # More specific error handling
                 logger.error(f"Service (background): LXD Error during LXD clone for {player_uuid}: {lxd_e}")
                 try:
-                    await crud_island.update_status(
-                        db_session_bg, 
-                        player_uuid=uuid.UUID(player_uuid), 
+                    updated_island = await crud_island.update_status(
+                        db_session_bg,
+                        player_uuid=uuid.UUID(player_uuid),
                         status=IslandStatusEnum.ERROR_CREATE,
                         extra_fields={"minecraft_ready": False}
                     )
+                    if updated_island:
+                        await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                     logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_CREATE and minecraft_ready=False in DB due to LXD clone failure.")
                 except Exception as db_e:
                     logger.critical(f"Service (background): CRITICAL - Failed to update island {player_uuid} status to ERROR_CREATE: {db_e}")
             except Exception as e: # Catch other potential errors
                 logger.error(f"Service (background): Generic error during LXD clone or DB update for {player_uuid}: {e}", exc_info=True)
                 try:
-                    await crud_island.update_status(
-                        db_session_bg, 
-                        player_uuid=uuid.UUID(player_uuid), 
+                    updated_island = await crud_island.update_status(
+                        db_session_bg,
+                        player_uuid=uuid.UUID(player_uuid),
                         status=IslandStatusEnum.ERROR,
                         extra_fields={"minecraft_ready": False}
                     )
+                    if updated_island:
+                        await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                     logger.info(f"Service (background): Island {player_uuid} status updated to ERROR and minecraft_ready=False in DB due to generic failure.")
                 except Exception as db_e:
                     logger.critical(f"Service (background): CRITICAL - Failed to update island {player_uuid} status to ERROR: {db_e}")
@@ -221,14 +239,16 @@ class IslandService:
 
             # Ensure minecraft_ready is set to False when initiating a start
             updated_island_db_model = await crud_island.update_status(
-                db_session, 
-                player_uuid=player_uuid, 
+                db_session,
+                player_uuid=player_uuid,
                 status=IslandStatusEnum.PENDING_START,
-                extra_fields={"minecraft_ready": False}
+                # extra_fields={"minecraft_ready": False}
             )
             if not updated_island_db_model:
                 logger.error(f"Service: Failed to update island {player_uuid} to PENDING_START and minecraft_ready=False, not found during update.")
                 raise ValueError("Island disappeared during status update to PENDING_START.")
+            
+            await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island_db_model).model_dump_json(), str(player_uuid))
             island_db_model = updated_island_db_model
 
             background_tasks.add_task(
@@ -285,12 +305,14 @@ class IslandService:
                 ip_address = await lxd_service.get_container_ip(container_name)
                 if not ip_address:
                     logger.error(f"Service (background): Failed to get IP address for container {container_name} after starting.")
-                    await crud_island.update_status(
-                        db_session_bg, 
-                        player_uuid=uuid.UUID(player_uuid), 
+                    updated_island = await crud_island.update_status(
+                        db_session_bg,
+                        player_uuid=uuid.UUID(player_uuid),
                         status=IslandStatusEnum.ERROR_START,
                         extra_fields={"minecraft_ready": False, "internal_ip_address": None} # Ensure minecraft_ready is False and clear IP
                     )
+                    if updated_island:
+                        await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                     logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_START (no IP) and minecraft_ready set to False.")
                     return # Exit the task
 
@@ -298,49 +320,57 @@ class IslandService:
 
                 update_fields = {
                     "internal_ip_address": ip_address,
-                    "internal_port": internal_port, 
-                    "external_port": None, 
-                    "minecraft_ready": False, # Explicitly set to False, server mod will signal when ready
+                    "internal_port": internal_port,
+                    "external_port": None,
+                   # "minecraft_ready": False, # Explicitly set to False, server mod will signal when ready
                     "last_seen_at": datetime.now(timezone.utc)
                 }
-                
-                await crud_island.update_status(
+
+                updated_island = await crud_island.update_status(
                     db_session_bg,
                     player_uuid=uuid.UUID(player_uuid),
                     status=IslandStatusEnum.RUNNING, # LXD container is running
                     extra_fields=update_fields
                 )
+                if updated_island:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                 logger.info(f"Service (background): Island {player_uuid} status updated to RUNNING (LXD up). Internal IP: {ip_address}:{internal_port}. minecraft_ready set to False, awaiting signal from mod.")
 
             except lxd_service.LXDContainerNotFoundError:
                 logger.error(f"Service (background): Container {container_name} not found during start operations for {player_uuid}.")
-                await crud_island.update_status(
-                    db_session_bg, 
-                    player_uuid=uuid.UUID(player_uuid), 
+                updated_island = await crud_island.update_status(
+                    db_session_bg,
+                    player_uuid=uuid.UUID(player_uuid),
                     status=IslandStatusEnum.ERROR_START,
                     extra_fields={"minecraft_ready": False}
                 )
+                if updated_island:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
             except lxd_service.LXDServiceError as lxd_e:
                 logger.error(f"Service (background): LXD Error during LXD start for {player_uuid}: {lxd_e}")
                 try:
-                    await crud_island.update_status(
-                        db_session_bg, 
-                        player_uuid=uuid.UUID(player_uuid), 
+                    updated_island = await crud_island.update_status(
+                        db_session_bg,
+                        player_uuid=uuid.UUID(player_uuid),
                         status=IslandStatusEnum.ERROR_START,
                         extra_fields={"minecraft_ready": False}
                     )
+                    if updated_island:
+                        await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                     logger.info(f"Service (background): Island {player_uuid} status updated to ERROR_START in DB due to LXD start failure, minecraft_ready set to False.")
                 except Exception as db_e:
                     logger.critical(f"Service (background): CRITICAL - Failed to update island {player_uuid} status to ERROR_START: {db_e}")
             except Exception as e:
                 logger.error(f"Service (background): Generic error during LXD start or DB update for {player_uuid}: {e}", exc_info=True)
                 try:
-                    await crud_island.update_status(
-                        db_session_bg, 
-                        player_uuid=uuid.UUID(player_uuid), 
+                    updated_island = await crud_island.update_status(
+                        db_session_bg,
+                        player_uuid=uuid.UUID(player_uuid),
                         status=IslandStatusEnum.ERROR,
                         extra_fields={"minecraft_ready": False}
                     )
+                    if updated_island:
+                        await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                     logger.info(f"Service (background): Island {player_uuid} status updated to ERROR in DB due to generic start failure, minecraft_ready set to False.")
                 except Exception as db_e:
                     logger.critical(f"Service (background): CRITICAL - Failed to update island {player_uuid} status to ERROR: {db_e}")
@@ -371,6 +401,8 @@ class IslandService:
             if not updated_island_db_model:
                 logger.error(f"Service: Failed to update island {player_uuid} to PENDING_FREEZE, not found during update.")
                 raise ValueError("Island disappeared during status update to PENDING_FREEZE.")
+            
+            await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island_db_model).model_dump_json(), str(player_uuid))
             island_db_model = updated_island_db_model
 
             background_tasks.add_task(
@@ -400,24 +432,32 @@ class IslandService:
                 await lxd_service.freeze_container(container_name)
                 logger.info(f"Service (background): Container {container_name} frozen successfully via LXDService.")
 
-                await crud_island.update_status(
+                updated_island = await crud_island.update_status(
                     db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.FROZEN,
                     extra_fields={
                         "last_seen_at": datetime.now(timezone.utc), # Update last_seen_at on freeze
-                        "minecraft_ready": False # Explicitly set minecraft_ready to False on freeze
+                        "minecraft_ready": True # Explicitly set minecraft_ready to False on freeze
                     }
                 )
+                if updated_island:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                 logger.info(f"Service (background): Island {player_uuid} status updated to FROZEN and minecraft_ready set to False.")
 
             except lxd_service.LXDContainerNotFoundError:
                 logger.error(f"Service (background): Container {container_name} not found during freeze for {player_uuid}.")
-                await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR, extra_fields={"minecraft_ready": False}) # Or a more specific error
+                updated_island = await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR, extra_fields={"minecraft_ready": False}) # Or a more specific error
+                if updated_island:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
             except lxd_service.LXDServiceError as lxd_e:
                 logger.error(f"Service (background): LXD Error during LXD freeze for {player_uuid}: {lxd_e}")
-                await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR, extra_fields={"minecraft_ready": False})
+                updated_island = await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR, extra_fields={"minecraft_ready": False})
+                if updated_island:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
             except Exception as e:
                 logger.error(f"Service (background): Generic error during LXD freeze or DB update for {player_uuid}: {e}", exc_info=True)
-                await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR, extra_fields={"minecraft_ready": False})
+                updated_island = await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR, extra_fields={"minecraft_ready": False})
+                if updated_island:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
             finally:
                 await db_session_bg.close()
 
@@ -451,6 +491,8 @@ class IslandService:
             if not updated_island_db_model:
                 logger.error(f"Service: Failed to update island {player_uuid} to PENDING_STOP, not found during update.")
                 raise ValueError("Island disappeared during status update to PENDING_STOP.")
+            
+            await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island_db_model).model_dump_json(), str(player_uuid))
             island_db_model = updated_island_db_model
 
             background_tasks.add_task(
@@ -492,27 +534,35 @@ class IslandService:
                     "minecraft_ready": False, # Explicitly set minecraft_ready to False on stop
                     "last_seen_at": datetime.now(timezone.utc) # Update last_seen_at on stop
                 }
-                await crud_island.update_status(
+                updated_island = await crud_island.update_status(
                     db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.STOPPED,
                     extra_fields=update_fields
                 )
+                if updated_island:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
                 logger.info(f"Service (background): Island {player_uuid} status updated to STOPPED, network info cleared, and minecraft_ready set to False.")
 
             except lxd_service.LXDContainerNotFoundError:
                 # If container not found, it might have been deleted or failed creation.
                 # Consider it stopped or error state.
                 logger.warning(f"Service (background): Container {container_name} not found during stop operation for {player_uuid}. Assuming effectively stopped.")
-                await crud_island.update_status(
+                updated_island = await crud_island.update_status(
                     db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.STOPPED,
                     extra_fields={"internal_ip_address": None, "internal_port": None, "external_port": None, "minecraft_ready": False} # Ensure fields are cleared
                 )
+                if updated_island:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
             except lxd_service.LXDServiceError as lxd_e:
                 logger.error(f"Service (background): LXD Error during LXD stop for {player_uuid}: {lxd_e}")
                 # Potentially set to ERROR or ERROR_STOP if we add such a state
-                await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR, extra_fields={"minecraft_ready": False})
+                updated_island = await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR, extra_fields={"minecraft_ready": False})
+                if updated_island:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
             except Exception as e:
                 logger.error(f"Service (background): Generic error during LXD stop or DB update for {player_uuid}: {e}", exc_info=True)
-                await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR, extra_fields={"minecraft_ready": False})
+                updated_island = await crud_island.update_status(db_session_bg, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR, extra_fields={"minecraft_ready": False})
+                if updated_island:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
             finally:
                 await db_session_bg.close()
     async def mark_island_as_ready_for_players(self, db_session: AsyncSession, *, player_uuid: uuid.UUID):
@@ -546,6 +596,7 @@ class IslandService:
                 db_obj=island_db_model,
                 obj_in={"minecraft_ready": True, "last_seen_at": datetime.now(timezone.utc)} # Also update last_seen_at
             )
+            await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), str(player_uuid))
             logger.info(f"Service: Island {updated_island.container_name} for {player_uuid} successfully marked as ready for players (minecraft_ready=True).")
         except Exception as e: # Catch potential errors from CRUD or DB
             logger.error(f"Service: Error updating island {player_uuid} to mark as ready for players: {e}", exc_info=True)
@@ -653,3 +704,4 @@ class IslandService:
 
 # Instantiate the service
 island_service = IslandService()
+

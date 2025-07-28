@@ -1,6 +1,6 @@
-
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uuid # Required for UUID conversion if player_uuid is handled as str in some parts
 
@@ -12,6 +12,7 @@ from app.services.lxd_service import lxd_service, LXDContainerNotFoundError, LXD
 from app.crud.crud_island import crud_island
 from app.models.island import Island as IslandModel # For type hinting if needed directly
 from app.schemas.island import IslandStatusEnum
+from app.services.websocket_manager import manager as websocket_manager
 
 logger = logging.getLogger(__name__) # Get logger for main module
 
@@ -199,9 +200,8 @@ async def reconcile_island_states():
             await db_session.close()
             logger.info("Reconciliation: Database session closed.")
 
-
-from app.services.update_worker import start_update_worker, stop_update_worker
-
+from app.services.creation_worker import start_creation_worker
+from app.services.start_worker import start_start_worker
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -214,15 +214,11 @@ async def lifespan(app: FastAPI):
     
     # Perform island state reconciliation
     await reconcile_island_states()
-
-    # Start the background worker
-    start_update_worker()
-
+    await start_creation_worker()
+    await start_start_worker()
     yield
     # Code to run on shutdown
     logger.info("Shutting down SkyBlock LXD Manager API...") # Changed from print to logger
-    # Stop the background worker
-    stop_update_worker()
     # Example: Disconnect from LXD (if lxd_service had explicit connect/close)
     # logger.info("Disconnecting from LXD...")
     # await lxd_service.close()
@@ -233,6 +229,23 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.websocket("/ws/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    await websocket_manager.connect(websocket, client_id)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        websocket_manager.disconnect(client_id)
 
 @app.get("/")
 async def read_root():
