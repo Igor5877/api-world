@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -63,19 +64,43 @@ public class MyIslandCommand implements SimpleCommand {
     }
 
     private void handleWebSocketConnection(Player player, UUID playerUuid) {
-        player.sendMessage(Component.text("Connecting to island service via WebSocket...", NamedTextColor.YELLOW));
-        String wsUrl = config.getApiUrl().replaceFirst("http", "ws") + "ws/" + playerUuid.toString();
-        try {
-            WebSocketManager client = new WebSocketManager(new URI(wsUrl), logger, player, proxyServer, (islandData) -> {
-                String ip = islandData.get("internal_ip_address").getAsString();
-                int port = islandData.get("internal_port").getAsInt();
-                attemptSingleConnection(player, ip, port);
+        player.sendMessage(Component.text("Requesting island start...", NamedTextColor.YELLOW));
+
+        // First, send the start request via HTTP
+        apiClient.requestIslandStart(playerUuid)
+            .thenAccept(startResponse -> {
+                // Check if the start request was accepted or if the island is already starting/running
+                if (startResponse.isSuccess() || startResponse.statusCode() == 409) {
+                    player.sendMessage(Component.text("Island start request accepted. Listening for status updates...", NamedTextColor.AQUA));
+                    
+                    // Now, connect to WebSocket to listen for the result
+                    String httpUrl = config.getApiUrl();
+                    String baseUrl = httpUrl.substring(0, httpUrl.indexOf("/api/v1"));
+                    String wsUrl = baseUrl.replaceFirst("http", "ws") + "/ws/" + playerUuid.toString();
+                    
+                    try {
+                        WebSocketManager client = new WebSocketManager(new URI(wsUrl), logger, player, proxyServer, (islandData) -> {
+                            String ip = islandData.get("internal_ip_address").getAsString();
+                            int port = islandData.get("internal_port").getAsInt();
+                            attemptSingleConnection(player, ip, port);
+                        });
+                        client.connect();
+                    } catch (Exception e) {
+                        logger.error("Failed to create WebSocket client for player {}: {}", player.getUsername(), e.getMessage(), e);
+                        player.sendMessage(Component.text("Failed to listen for island status updates.", NamedTextColor.RED));
+                    }
+
+                } else {
+                    // If the start request itself fails
+                    player.sendMessage(Component.text("Failed to send start request to your island. API Status: " + startResponse.statusCode(), NamedTextColor.RED));
+                    logger.warn("API failed to start island for {}: Status {}, Body: {}", playerUuid, startResponse.statusCode(), startResponse.body());
+                }
+            })
+            .exceptionally(ex -> {
+                player.sendMessage(Component.text("Error requesting island start.", NamedTextColor.RED));
+                logger.error("Exception in requestIslandStart chain for {}: {}", player.getUsername(), ex.getMessage(), ex);
+                return null;
             });
-            client.connect();
-        } catch (Exception e) {
-            logger.error("Failed to create WebSocket client for player {}: {}", player.getUsername(), e.getMessage(), e);
-            player.sendMessage(Component.text("Failed to connect to island service.", NamedTextColor.RED));
-        }
     }
 
     private void handleHttpPolling(Player player, UUID playerUuid) {
@@ -85,8 +110,7 @@ public class MyIslandCommand implements SimpleCommand {
                     if (!apiResponse.isSuccess()) {
                         player.sendMessage(Component.text("Could not retrieve your island information. API Status: " + apiResponse.statusCode(), NamedTextColor.RED));
                         logger.warn("API failed to get island details for {}: Status {}, Body: {}", playerUuid, apiResponse.statusCode(), apiResponse.body());
-                       return CompletableFuture.completedFuture( null);
-
+                        return CompletableFuture.completedFuture(null);
                     }
                     try {
                         JsonObject islandData = JsonParser.parseString(apiResponse.body()).getAsJsonObject();
@@ -129,20 +153,18 @@ public class MyIslandCommand implements SimpleCommand {
                         else {
                             player.sendMessage(Component.text("Your island is in an unknown state: " + status, NamedTextColor.RED));
                             logger.warn("Player {} island in unknown state: {}", player.getUsername(), status);
-                           return CompletableFuture.completedFuture( null);
-
+                            return CompletableFuture.completedFuture(null);
                         }
                     } catch (Exception e) {
                         player.sendMessage(Component.text("An unexpected error occurred while checking your island's data.", NamedTextColor.RED));
                         logger.error("Unexpected exception processing island details for {}: {}", playerUuid, e.getMessage(), e);
-                        return CompletableFuture.completedFuture( null);
-
+                        return CompletableFuture.completedFuture(null);
                     }
                 })
                 .exceptionally(ex -> {
                     player.sendMessage(Component.text("An error occurred while communicating with the island service.", NamedTextColor.RED));
                     logger.error("Exception in getIslandDetails chain for {}: {}", player.getUsername(), ex.getMessage(), ex);
-                    return null;
+                    return (Void) null;
                 });
     }
 
@@ -157,13 +179,12 @@ public class MyIslandCommand implements SimpleCommand {
                     player.sendMessage(Component.text("Failed to send start request to your island. API Status: " + startResponse.statusCode(), NamedTextColor.RED));
                     logger.warn("API failed to start island for {}: Status {}, Body: {}", player.getUniqueId(), startResponse.statusCode(), startResponse.body());
                     return CompletableFuture.completedFuture(null);
-
                 }
             })
             .exceptionally(ex -> {
                 player.sendMessage(Component.text("Error requesting island start.", NamedTextColor.RED));
                 logger.error("Exception in requestIslandStart chain for {}: {}", player.getUsername(), ex.getMessage(), ex);
-                return null;
+                return (Void) null;
             });
     }
 
@@ -171,8 +192,7 @@ public class MyIslandCommand implements SimpleCommand {
         if (attempt >= config.getMaxPollingAttempts()) { // Timeout for container to reach RUNNING
             player.sendMessage(Component.text("Your island's container took too long to start/become running.", NamedTextColor.RED));
             logger.warn("Polling timeout for container RUNNING state for player {}", player.getUsername());
-            return CompletableFuture.completedFuture( null);
-
+            return CompletableFuture.completedFuture(null);
         }
 
         return apiClient.getIslandDetails(player.getUniqueId())
@@ -197,7 +217,6 @@ public class MyIslandCommand implements SimpleCommand {
                         player.sendMessage(Component.text("Island encountered an error: " + status.toLowerCase() + ". Please contact support.", NamedTextColor.RED));
                         logger.error("Island for {} entered error state {} during pollForRunning.", player.getUsername(), status);
                         return CompletableFuture.completedFuture(null);
-
                     }
                      else { // STOPPED or other unexpected states
                         player.sendMessage(Component.text("Island container is " + status.toLowerCase() + ". Trying to start it...", NamedTextColor.YELLOW));
@@ -212,7 +231,7 @@ public class MyIslandCommand implements SimpleCommand {
             .exceptionally(ex -> {
                 player.sendMessage(Component.text("An error occurred while polling for container status.", NamedTextColor.RED));
                 logger.error("Exception in pollForRunning chain for {}: {}", player.getUsername(), ex.getMessage(), ex);
-                 return null;
+                 return (Void) null;
             });
     }
 
@@ -221,8 +240,7 @@ public class MyIslandCommand implements SimpleCommand {
         if (attempt >= config.getMaxPollingAttempts()) { 
             player.sendMessage(Component.text("Your island's Minecraft server took too long to become ready after the container started.", NamedTextColor.RED));
             logger.warn("Polling timeout for Minecraft READY state for player {}", player.getUsername());
-            return CompletableFuture.completedFuture( null);
-
+            return CompletableFuture.completedFuture(null);
         }
 
         return apiClient.getIslandDetails(player.getUniqueId())
@@ -249,8 +267,7 @@ public class MyIslandCommand implements SimpleCommand {
                     } else { // If status is no longer RUNNING (e.g., STOPPED, ERROR during Minecraft startup)
                         player.sendMessage(Component.text("Island is no longer running (status: " + status + ") while waiting for Minecraft server.", NamedTextColor.RED));
                         logger.warn("Island for {} changed status from RUNNING to {} while waiting for minecraft_ready.", player.getUsername(), status);
-                       return CompletableFuture.completedFuture(null);
-
+                        return CompletableFuture.completedFuture(null);
                     }
                 } catch (Exception e) {
                     logger.warn("Exception during pollForMinecraftReady for player {}: {}", player.getUsername(), e.getMessage(), e);
@@ -261,7 +278,7 @@ public class MyIslandCommand implements SimpleCommand {
             .exceptionally(ex -> {
                 player.sendMessage(Component.text("An error occurred while polling for Minecraft readiness.", NamedTextColor.RED));
                 logger.error("Exception in pollForMinecraftReady chain for {}: {}", player.getUsername(), ex.getMessage(), ex);
-                return null;
+                return (Void) null;
             });
     }
 
@@ -281,7 +298,7 @@ public class MyIslandCommand implements SimpleCommand {
                     nextPollFuture.thenAccept(v -> future.complete(null))
                                   .exceptionally(ex -> {
                                       future.completeExceptionally(ex);
-                                      return null;
+                                      return (Void) null;
                                   });
                 } else {
                     future.complete(null); // Should not happen if poll methods return valid futures
@@ -294,15 +311,18 @@ public class MyIslandCommand implements SimpleCommand {
     
     private CompletableFuture<Void> attemptSingleConnection(Player player, String ip, int port) {
         String serverName = "island-" + player.getUniqueId();
-        // Ensure the server is registered or updated if IP/port could change, though unlikely for internal.
         ServerInfo serverInfo = new ServerInfo(serverName, new InetSocketAddress(ip, port));
-        proxyServer.unregisterServer(serverInfo); // Unregister first to ensure fresh info if it existed
+
+        // Check if the server is already registered. If so, unregister it to update its info.
+        Optional<RegisteredServer> existingServer = proxyServer.getServer(serverName);
+        existingServer.ifPresent(registeredServer -> proxyServer.unregisterServer(registeredServer.getServerInfo()));
+
         RegisteredServer serverToConnect = proxyServer.registerServer(serverInfo);
         
         logger.info("Attempting to connect player {} to server {} ({}:{})", player.getUsername(), serverName, ip, port);
 
         return player.createConnectionRequest(serverToConnect).connect()
-            .thenApply(result -> { // Using thenApply to potentially return a value or rethrow for better chaining
+            .thenApply(result -> {
                 if (result.isSuccessful()) {
                     player.sendMessage(Component.text("Successfully connected to your island!", NamedTextColor.GREEN));
                     logger.info("Player {} successfully connected to {}", player.getUsername(), serverName);
@@ -317,19 +337,15 @@ public class MyIslandCommand implements SimpleCommand {
                     } else {
                         player.sendMessage(Component.text("Failed to connect: " + reasonString, NamedTextColor.RED));
                     }
-                    // Unregister server if connection failed to prevent issues with stale entries if IP could change
-                    // or if it was a temporary registration.
                     proxyServer.unregisterServer(serverInfo);
-                    // Optionally, throw an exception here if you want the CompletableFuture chain to be exceptional
-                    // throw new RuntimeException("Connection failed: " + reasonString);
                 }
-                return null; // Required for thenApply if not transforming to a new value for the CF
+                return (Void) null;
             })
              .exceptionally(ex -> {
                 player.sendMessage(Component.text("An error occurred during connection attempt.", NamedTextColor.RED));
                 logger.error("Exception during attemptSingleConnection for {}: {}", player.getUsername(), ex.getMessage(), ex);
                 proxyServer.unregisterServer(serverInfo); // Clean up
-                return null;
+                return (Void) null;
             });
     }
     
