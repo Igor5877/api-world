@@ -62,3 +62,6 @@ sourceSets.main.java {
 project.idea.project.settings.taskTriggers.afterSync generateTemplates
 project.eclipse.synchronizationTasks(generateTemplates)
 
+shadowJar {
+    archiveClassifier.set('') // щоб jar був без "-all"
+}

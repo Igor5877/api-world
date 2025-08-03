@@ -15,6 +15,10 @@ import com.skyblockdynamic.nestworld.velocity.network.ApiClient;
 import com.skyblockdynamic.nestworld.velocity.config.PluginConfig;
 import static com.mojang.brigadier.arguments.StringArgumentType.string;
 import com.velocitypowered.api.proxy.Player;
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import java.util.Map;
 
 public class IslandAdminCommand {
 
@@ -52,7 +56,28 @@ public class IslandAdminCommand {
         proxy.getPlayer(playerName).ifPresentOrElse(player -> {
             apiClient.getIslandDetails(player.getUniqueId()).thenAccept(apiResponse -> {
                 if (apiResponse.isSuccess()) {
-                    source.sendMessage(Component.text("Island details for " + playerName + ":\n" + apiResponse.body(), NamedTextColor.GREEN));
+                    String jsonBody = apiResponse.body();
+                    Gson gson = new Gson();
+                    JsonObject jsonObject = gson.fromJson(jsonBody, JsonObject.class);
+
+                    Component message = Component.text("Island details for " + playerName + ":\n", NamedTextColor.GREEN);
+
+                    for (Map.Entry<String, JsonElement> entry : jsonObject.entrySet()) {
+                        String key = entry.getKey();
+                        JsonElement value = entry.getValue();
+                        String valueStr = value.isJsonNull() ? "null" : value.getAsString();
+
+                        Component line = Component.text()
+                            .append(Component.text(key, NamedTextColor.YELLOW))
+                            .append(Component.text(": ", NamedTextColor.WHITE))
+                            .append(Component.text(valueStr, NamedTextColor.GREEN))
+                            .append(Component.text("\n"))
+                            .build();
+                        
+                        message = message.append(line);
+                    }
+
+                    source.sendMessage(message);
                 } else {
                     source.sendMessage(Component.text("Failed to get island details for " + playerName + ". Status: " + apiResponse.statusCode(), NamedTextColor.RED));
                 }

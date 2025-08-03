@@ -14,16 +14,17 @@ import java.nio.file.Path;
 import com.skyblockdynamic.nestworld.velocity.network.ApiClient;
 import com.skyblockdynamic.nestworld.velocity.config.PluginConfig;
 import com.skyblockdynamic.nestworld.velocity.listener.PlayerConnectionListener;
-import com.skyblockdynamic.nestworld.velocity.commands.MyIslandCommand; // Added import
+import com.skyblockdynamic.nestworld.velocity.commands.MyIslandCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.SpawnCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.IslandAdminCommand;
+import com.skyblockdynamic.nestworld.velocity.commands.TpaCommand;
 
 @Plugin(
     id = "nestworldvelocity",
     name = "NestworldVelocity",
     version = "1.0.0",
     description = "Velocity plugin for Nestworld Dynamic SkyBlock to manage player connections to their islands.",
-    authors = {"YourName/Team"} // Replace with your name
+    authors = {"YourName/Team"}
 )
 public class NestworldVelocityPlugin {
 
@@ -31,10 +32,8 @@ public class NestworldVelocityPlugin {
     private final Logger logger;
     private final Path dataDirectory;
 
-    // Config and API client will be initialized here
     private PluginConfig pluginConfig;
     private ApiClient apiClient;
-
 
     @Inject
     public NestworldVelocityPlugin(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
@@ -48,51 +47,40 @@ public class NestworldVelocityPlugin {
    @Subscribe
     public void onProxyInitialization(ProxyInitializeEvent event) {
         logger.info("NestworldVelocityPlugin onProxyInitialization started...");
-        // Load configuration
         this.pluginConfig = PluginConfig.load(dataDirectory, logger);
-        // PluginConfig.load handles logging errors and returning a fallback, so pluginConfig should not be null.
-        
         this.apiClient = new ApiClient(logger, pluginConfig);
 
-        // Register event listeners
         server.getEventManager().register(this, new PlayerConnectionListener(this, server, logger, apiClient, pluginConfig));
 
-        // Register commands
         CommandManager commandManager = server.getCommandManager();
         
-         MyIslandCommand myIslandCommand = new MyIslandCommand(this, server, logger, this.apiClient, this.pluginConfig);
-        // Реєстрація команди /myisland
-        CommandMeta myIslandCommandMeta = commandManager.metaBuilder("myisland")
-            //.aliases("island")
-            .plugin(this)
-            .build();
-
-        commandManager.register(myIslandCommandMeta, myIslandCommand);
-        
-        commandManager.register(myIslandCommandMeta, new MyIslandCommand(this, server, logger, this.apiClient, this.pluginConfig));
-        logger.info("Registered /myisland command.");
-
+        MyIslandCommand myIslandCommand = new MyIslandCommand(this, server, logger, this.apiClient, this.pluginConfig);
         IslandAdminCommand islandAdminCommand = new IslandAdminCommand(this, server, logger, this.apiClient, this.pluginConfig, myIslandCommand);
+        TpaCommand tpaCommand = new TpaCommand(this, server, logger, this.pluginConfig, myIslandCommand);
+
         commandManager.register(islandAdminCommand.createBrigadierCommand());
         logger.info("Registered /islandadmin command.");
-        // ================================================================
-        // ===== ДОДАЙТЕ ЦЕЙ БЛОК КОДУ ДЛЯ РЕЄСТРАЦІЇ КОМАНДИ /SPAWN =====
-        CommandMeta spawnCommandMeta = commandManager.metaBuilder("spawn")
-            .plugin(this)
-            .build();
-            
+
+        CommandMeta spawnCommandMeta = commandManager.metaBuilder("spawn").plugin(this).build();
         commandManager.register(spawnCommandMeta, new SpawnCommand(server, logger, this.pluginConfig));
         logger.info("Registered /spawn command.");
-        // ================================================================
+
+        // Register top-level TPA commands
+        commandManager.register(tpaCommand.createTpaCommand());
+        commandManager.register(tpaCommand.createTpAcceptCommand());
+        commandManager.register(tpaCommand.createTpDenyCommand());
+        logger.info("Registered top-level TPA commands (/tpa, /tpaccept, /tpdeny).");
+
+        // Register /myisland command
+        CommandMeta myIslandCommandMeta = commandManager.metaBuilder("myisland").plugin(this).build();
+        commandManager.register(myIslandCommandMeta, myIslandCommand);
+        logger.info("Registered /myisland command.");
         
         logger.info("NestworldVelocityPlugin initialized successfully with listeners, config, and commands!");
         logger.info("API URL configured to: {}", pluginConfig.getApiUrl());
         logger.info("Fallback server configured to: {}", pluginConfig.getFallbackServerName());
     }
     
-
-    // Getter methods if other classes need them
-    // Added getter for pluginConfig and apiClient as they might be useful for the command or other components
     public PluginConfig getPluginConfig() {
         return pluginConfig;
     }
@@ -108,12 +96,4 @@ public class NestworldVelocityPlugin {
     public Logger getLogger() {
         return logger;
     }
-
-    // public PluginConfig getConfig() { // This was named config, but field is pluginConfig
-    //    return pluginConfig; 
-    // }
-
-    // public ApiClient getApiClient() { // Already added above
-    //    return apiClient;
-    // }
 }
