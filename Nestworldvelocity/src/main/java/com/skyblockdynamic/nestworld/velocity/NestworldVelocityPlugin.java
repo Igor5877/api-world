@@ -16,6 +16,7 @@ import com.skyblockdynamic.nestworld.velocity.config.PluginConfig;
 import com.skyblockdynamic.nestworld.velocity.listener.PlayerConnectionListener;
 import com.skyblockdynamic.nestworld.velocity.commands.MyIslandCommand; // Added import
 import com.skyblockdynamic.nestworld.velocity.commands.SpawnCommand;
+import com.skyblockdynamic.nestworld.velocity.commands.IslandAdminCommand;
 
 @Plugin(
     id = "nestworldvelocity",
@@ -59,15 +60,21 @@ public class NestworldVelocityPlugin {
         // Register commands
         CommandManager commandManager = server.getCommandManager();
         
+         MyIslandCommand myIslandCommand = new MyIslandCommand(this, server, logger, this.apiClient, this.pluginConfig);
         // Реєстрація команди /myisland
         CommandMeta myIslandCommandMeta = commandManager.metaBuilder("myisland")
             //.aliases("island")
             .plugin(this)
             .build();
+
+        commandManager.register(myIslandCommandMeta, myIslandCommand);
         
         commandManager.register(myIslandCommandMeta, new MyIslandCommand(this, server, logger, this.apiClient, this.pluginConfig));
         logger.info("Registered /myisland command.");
 
+        IslandAdminCommand islandAdminCommand = new IslandAdminCommand(this, server, logger, this.apiClient, this.pluginConfig, myIslandCommand);
+        commandManager.register(islandAdminCommand.createBrigadierCommand());
+        logger.info("Registered /islandadmin command.");
         // ================================================================
         // ===== ДОДАЙТЕ ЦЕЙ БЛОК КОДУ ДЛЯ РЕЄСТРАЦІЇ КОМАНДИ /SPAWN =====
         CommandMeta spawnCommandMeta = commandManager.metaBuilder("spawn")
