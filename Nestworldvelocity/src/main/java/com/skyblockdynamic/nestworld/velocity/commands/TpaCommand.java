@@ -126,7 +126,7 @@ public class TpaCommand {
         }
 
         proxy.getPlayer(request.requester).ifPresentOrElse(requester -> {
-            myIslandCommand.teleportToIsland(requester, target.getUsername());
+            myIslandCommand.teleportToIsland(requester, target);
             requester.sendMessage(Component.text(target.getUsername() + " has accepted your TPA request.", NamedTextColor.GREEN));
             target.sendMessage(Component.text("You have accepted the TPA request from " + requester.getUsername() + ".", NamedTextColor.GREEN));
             pendingRequests.remove(target.getUniqueId());
