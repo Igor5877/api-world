@@ -138,10 +138,9 @@ public class IslandAdminCommand {
 
         Player admin = (Player) source;
 
-        proxy.getPlayer(playerName).ifPresentOrElse(player -> {
-            // TODO: Замінити на правильний метод з MyIslandCommand
-            // myIslandCommand.teleportToIsland(player); // можливий варіант
-            admin.sendMessage(Component.text("Teleporting to " + playerName + "'s island...", NamedTextColor.GREEN));
+        proxy.getPlayer(playerName).ifPresentOrElse(targetPlayer -> {
+            myIslandCommand.teleportToIsland(admin, targetPlayer);
+            admin.sendMessage(Component.text("Teleporting you to " + targetPlayer.getUsername() + "'s island...", NamedTextColor.GREEN));
         }, () -> {
             admin.sendMessage(Component.text("Player " + playerName + " not found.", NamedTextColor.RED));
         });
