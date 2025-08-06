@@ -8,7 +8,10 @@ import com.skyblockdynamic.nestworld.velocity.config.PluginConfig;
 import com.skyblockdynamic.nestworld.velocity.network.ApiClient;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
+import com.velocitypowered.api.event.connection.LoginEvent; // Змінено
 import com.velocitypowered.api.event.player.PlayerChooseInitialServerEvent;
+import com.velocitypowered.api.event.player.ServerPostConnectEvent; // Додано
+import com.velocitypowered.api.event.player.ServerLoginPluginMessageEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
@@ -158,10 +161,44 @@ public class PlayerConnectionListener {
             });
     }
     
+     @Subscribe
+    public void onLogin(LoginEvent event) {
+        Player player = event.getPlayer();
+        Component joinMessage = Component.text()
+            .append(Component.text(player.getUsername(), NamedTextColor.GREEN))
+            .append(Component.text(" has joined the network.", NamedTextColor.GRAY))
+            .build();
+        proxyServer.getAllPlayers().forEach(p -> p.sendMessage(joinMessage));
+    }
+
+    @Subscribe
+    public void onServerConnect(ServerPostConnectEvent event) {
+        Player player = event.getPlayer();
+        if (event.getPreviousServer() != null) { // Це переключення, а не перший вхід
+            String serverName = event.getPlayer().getCurrentServer().get().getServerInfo().getName();
+            if (serverName.startsWith("island-")) {
+                Component switchMessage = Component.text()
+                    .append(Component.text(player.getUsername(), NamedTextColor.AQUA))
+                    .append(Component.text(" has connected to their island.", NamedTextColor.GRAY))
+                    .build();
+                proxyServer.getAllPlayers().forEach(p -> p.sendMessage(switchMessage));
+            }
+        }
+    }
+
     @Subscribe
     public void onPlayerDisconnect(DisconnectEvent event) {
         Player player = event.getPlayer();
         UUID playerUuid = player.getUniqueId();
+
+        // Додаємо повідомлення про вихід
+        Component leaveMessage = Component.text()
+                .append(Component.text(player.getUsername(), NamedTextColor.RED))
+                .append(Component.text(" has left the network.", NamedTextColor.GRAY))
+                .build();
+        proxyServer.getAllPlayers().forEach(p -> p.sendMessage(leaveMessage));
+
+        // Ваша існуюча логіка зупинки острова
         logger.info("Player {} disconnected. Scheduling island stop in 5 minutes.", player.getUsername());
         Runnable stopTaskRunnable = () -> {
             pendingStopTasks.remove(playerUuid);

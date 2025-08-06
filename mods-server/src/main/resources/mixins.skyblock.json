@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.skyblock.dynamic.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "mixins.skyblock.refmap.json",
+  "mixins": [
+    "PlayerListMixin"
+  ],
+  "client": [
+  ],
+  "server": [
+  ]
+}

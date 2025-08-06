@@ -43,6 +43,8 @@ displayTest="MATCH_VERSION" # Default and appropriate for this mod
 
 # The description text for the mod (multi line!) (#mandatory)
 description='''A mod to manage dynamic SkyBlock islands using LXD containers.'''
+# Mixin configuration location
+mixin="mixins.skyblock.json"
 # A dependency - use the . to indicate dependency for a specific modid. Dependencies are optional.
 [[dependencies.skyblock]] #optional
     # the modid of the dependency
