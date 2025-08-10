@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks, Response
+from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 from typing import Any
 import uuid # For player_uuid
 from sqlalchemy.ext.asyncio import AsyncSession # Added for DB session type hint
@@ -15,7 +15,6 @@ router = APIRouter()
 async def create_island_endpoint(
     island_in: IslandCreate,
     background_tasks: BackgroundTasks,
-    response: Response,
     db_session: AsyncSession = Depends(get_db_session) # Added DB session dependency
 ):
     """
@@ -28,20 +27,13 @@ async def create_island_endpoint(
         initial_island_response = await island_service.create_new_island(
             db_session=db_session, # Pass the session
             island_create_data=island_in,
-            background_tasks=background_tasks
+            background_tasks=background_tasks 
         )
         return initial_island_response
     except ValueError as e:
         logger.warning(f"Endpoint: ValueError during island creation for {island_in.player_uuid}: {e}")
         if "already exists" in str(e):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-        elif "Max running servers limit reached" in str(e):
-            response.status_code = status.HTTP_203_NON_AUTHORITATIVE_INFORMATION
-            return IslandResponse(
-                player_uuid=island_in.player_uuid,
-                status=IslandStatusEnum.PENDING_CREATION,
-                message="Island creation has been queued due to high server load. It will be created shortly."
-            )
         else:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) # Or 500 if it's unexpected
     except Exception as e:
@@ -164,16 +156,6 @@ async def freeze_island_endpoint(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while freezing the island.")
 
 
-# TODO: Add more endpoints from Stage 1 & 2:
-# POST /islands/{uuid}/freeze
-# POST /islands/{uuid}/stop
-# DELETE /islands/{uuid}
-
-# Note: The `player_uuid` in the path is typically a string representation of a UUID.
-# FastAPI will automatically validate it if you type hint it as `uuid.UUID`.
-# For example: `player_uuid: uuid.UUID` in function parameters.
-# For this initial setup, string is fine.
-
 @router.post("/{player_uuid}/ready", response_model=MessageResponse, status_code=status.HTTP_200_OK)
 async def mark_island_ready_endpoint(
     player_uuid: uuid.UUID,
@@ -188,8 +170,6 @@ async def mark_island_ready_endpoint(
         await island_service.mark_island_as_ready_for_players(
             db_session=db_session,
             player_uuid=player_uuid
-            # background_tasks argument is not strictly needed by the service method itself for this action,
-            # but kept for consistency or future use if background tasks become relevant here.
         )
         return MessageResponse(message="Island marked as ready for players.")
     except ValueError as e:
@@ -197,11 +177,88 @@ async def mark_island_ready_endpoint(
         if "not found" in str(e).lower():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
         elif "not in a state to be marked ready" in str(e).lower() or "already marked as ready" in str(e).lower():
-            # Using 409 Conflict if the state is not appropriate for this action
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
         else:
-            # Generic bad request or internal error depending on expected exceptions
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.error(f"Endpoint Error: Unexpected error marking island ready for {player_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while marking the island ready.")
+
+@router.post("/update-all", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+async def update_all_islands_endpoint(
+    background_tasks: BackgroundTasks,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Endpoint to queue all existing islands for an update.
+    """
+    logger.info("Endpoint: Received request to update all islands.")
+    try:
+        count = await island_service.queue_all_islands_for_update(db_session=db_session)
+        return MessageResponse(message=f"Successfully queued {count} islands for update.")
+    except Exception as e:
+        logger.error(f"Endpoint Error: Unexpected error while queueing all islands for update: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred.")
+
+@router.post("/{player_uuid}/update", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+async def update_island_endpoint(
+    player_uuid: uuid.UUID,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Endpoint to queue a specific island for an update.
+    """
+    logger.info(f"Endpoint: Received request to update island for player UUID: {player_uuid}")
+    try:
+        await island_service.queue_island_for_update(db_session=db_session, player_uuid=player_uuid)
+        return MessageResponse(message=f"Island for player {player_uuid} has been queued for update.")
+    except ValueError as e:
+        logger.warning(f"Endpoint: ValueError during island update queue for {player_uuid}: {e}")
+        if "not found" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        elif "already in queue" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Endpoint Error: Unexpected error queueing island for update {player_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred.")
+
+@router.post("/rollback-all", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+async def rollback_all_islands_endpoint(
+    background_tasks: BackgroundTasks,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Endpoint to trigger a rollback for all islands that have a snapshot available.
+    """
+    logger.info("Endpoint: Received request to rollback all possible islands.")
+    try:
+        count = await island_service.rollback_all_islands_from_snapshot(db_session=db_session, background_tasks=background_tasks)
+        return MessageResponse(message=f"Initiated rollback for {count} islands.")
+    except Exception as e:
+        logger.error(f"Endpoint Error: Unexpected error during rollback-all request: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred.")
+
+@router.post("/{player_uuid}/rollback", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+async def rollback_island_endpoint(
+    player_uuid: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """
+    Endpoint to trigger a rollback for a specific island from its snapshot.
+    """
+    logger.info(f"Endpoint: Received request to rollback island for player UUID: {player_uuid}")
+    try:
+        await island_service.rollback_island_from_snapshot(db_session=db_session, player_uuid=player_uuid, background_tasks=background_tasks)
+        return MessageResponse(message=f"Rollback initiated for island {player_uuid}.")
+    except ValueError as e:
+        logger.warning(f"Endpoint: ValueError during island rollback for {player_uuid}: {e}")
+        if "not found" in str(e).lower() or "no snapshot" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Endpoint Error: Unexpected error during island rollback for {player_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred.")
