@@ -1,1 +1,3 @@
 playersync-common.template.toml
+.env
+venv

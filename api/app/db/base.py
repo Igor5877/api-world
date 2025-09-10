@@ -6,6 +6,7 @@
 
 from app.db.base_class import Base
 from app.models.island import Island, IslandQueue, IslandSetting, IslandBackup # noqa F401 - All models from island.py, including the corrected IslandQueue
+from app.models.team import Team, TeamMember # noqa F401
 
 # You would import other models here as you create them, e.g.:
 # from app.models.user import User # noqa F401

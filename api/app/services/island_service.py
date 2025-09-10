@@ -1,200 +1,396 @@
-import asyncio
-import logging
-import os
-import pathlib
-import random
-import shutil
-import tarfile
-import uuid
-from datetime import datetime, timezone
 from typing import Optional
-
-from fastapi import BackgroundTasks
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy.orm import selectinload
+from fastapi import BackgroundTasks
 from app.core.config import settings
-from app.crud.crud_island import crud_island
-from app.crud.crud_update_queue import crud_update_queue
-from app.models.island import Island as IslandModel
-from app.schemas.island import (IslandCreate, IslandResponse, IslandStatusEnum)
-from app.services.lxd_service import LXDServiceError, lxd_service
 from app.services.websocket_manager import manager as websocket_manager
+from app.services.lxd_service import lxd_service, LXDServiceError
+from app.crud.crud_island import crud_island
+from app.crud import crud_team
+from app.schemas.island import IslandCreate, IslandResponse, IslandUpdate, IslandStatusEnum
+from app.schemas.team import TeamCreate
+from app.models.island import Island as IslandModel
+from app.models.team import Team as TeamModel
+import uuid
+import asyncio
+from datetime import datetime, timezone
+import logging
+import pathlib
 
 logger = logging.getLogger(__name__)
 
 class IslandService:
     def __init__(self):
-        logger.info("IslandService: Initialized.")
+        logger.info("IslandService: Initialized to use CRUD operations with DB session.")
 
-    async def get_island_by_player_uuid(self, db_session: AsyncSession, *, player_uuid: uuid.UUID) -> Optional[IslandResponse]:
-        island = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
-        return IslandResponse.model_validate(island) if island else None
-
-    async def create_new_island(
-        self, db_session: AsyncSession, *, island_create_data: IslandCreate, background_tasks: BackgroundTasks
-    ) -> IslandResponse:
-        if await crud_island.get_by_player_uuid(db_session, player_uuid=island_create_data.player_uuid):
-            raise ValueError("Island already exists for this player.")
-        
-        safe_player_name = "".join(c if c.isalnum() or c in ['-'] else '_' for c in island_create_data.player_name)
-        container_name = f"skyblock-{safe_player_name or 'player'}-{str(island_create_data.player_uuid)}"
-        
-        island_db_model = await crud_island.create(
-            db_session=db_session, island_in=island_create_data, container_name=container_name,
-            initial_status=IslandStatusEnum.PENDING_CREATION
-        )
-        await websocket_manager.send_personal_message(IslandResponse.model_validate(island_db_model).model_dump_json(), str(island_db_model.player_uuid))
-        
-        background_tasks.add_task(self._perform_lxd_clone_and_update_status, str(island_db_model.player_uuid), container_name)
+    async def get_island_by_player_uuid(self, db_session: AsyncSession, *, player_uuid: uuid.UUID) -> IslandResponse | None:
+        logger.debug(f"Service: Fetching island for player_uuid: {player_uuid}")
+        island_db_model = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
+        if not island_db_model:
+            logger.info(f"Service: Island not found for player_uuid: {player_uuid}")
+            return None
+        logger.info(f"Service: Island found for player_uuid: {player_uuid}, id: {island_db_model.id}")
         return IslandResponse.model_validate(island_db_model)
 
-    async def _perform_lxd_clone_and_update_status(self, player_uuid: str, container_name: str):
+    async def create_new_solo_island(self, db_session: AsyncSession, *, player_uuid: uuid.UUID, player_name: str, background_tasks: BackgroundTasks) -> TeamModel:
+        logger.info(f"Service: Explicitly creating a new solo island for player {player_uuid}.")
+        if await crud_team.get_team_by_player(db=db_session, player_uuid=player_uuid):
+            raise ValueError("Player is already in a team.")
+        if await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid):
+            raise ValueError("Player already has a legacy solo island.")
+
+        safe_player_name = "".join(c if c.isalnum() else '_' for c in player_name)
+        team_name = f"island-of-{safe_player_name}-{player_uuid.hex[:8]}"
+        team_create_data = TeamCreate(name=team_name, owner_uuid=player_uuid)
+
+        team_db_model = await crud_team.create_team(db=db_session, team_in=team_create_data)
+        await db_session.flush()
+
+        container_name = f"skyblock-solo-{safe_player_name}-{player_uuid.hex[:8]}"
+        new_island = await crud_island.create(
+            db_session=db_session,
+            team_id=team_db_model.id,
+            container_name=container_name,
+            initial_status=IslandStatusEnum.PENDING_CREATION
+        )
+        team_db_model.island = new_island
+        db_session.add(team_db_model)
+        
+        await db_session.flush()
+        await db_session.refresh(team_db_model, attribute_names=['island', 'members'])
+        
+        background_tasks.add_task(self._perform_lxd_clone_and_update_status, team_id=team_db_model.id, container_name=container_name)
+        logger.info(f"Service: Background task scheduled for new solo island for player {player_uuid}.")
+        
+        return team_db_model
+
+    async def _perform_lxd_clone_and_update_status(self, team_id: int, container_name: str):
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
             try:
-                await lxd_service.clone_container(settings.LXD_BASE_IMAGE, container_name, profiles=settings.LXD_DEFAULT_PROFILES)
-                skyblock_toml = f"is_island_server = true\ncreator_uuid = \"{player_uuid}\"\n"
-                await lxd_service.push_file_to_container(container_name, "/opt/minecraft/world/serverconfig/skyblock_island_data.toml", skyblock_toml.encode('utf-8'))
-                template = (pathlib.Path(__file__).parent.parent / "templates" / "playersync-common.template.toml").read_text()
-                playersync_content = template.replace("{{SERVER_ID}}", str(random.randint(100000, 999999)))
-                await lxd_service.push_file_to_container(container_name, "/opt/minecraft/config/playersync-common.toml", playersync_content.encode('utf-8'))
-                updated_island = await crud_island.update_status(db, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.STOPPED, extra_fields={"minecraft_ready": False})
-                if updated_island:
-                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid)
-            except Exception as e:
-                logger.error(f"Error during LXD clone for {player_uuid}: {e}", exc_info=True)
-                await crud_island.update_status(db, player_uuid=uuid.UUID(player_uuid), status=IslandStatusEnum.ERROR_CREATE)
-    
-    async def queue_island_for_update(self, db_session: AsyncSession, *, player_uuid: uuid.UUID):
-        island = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
-        if not island:
-            raise ValueError("Island not found.")
-        await crud_update_queue.add_island_to_queue(db_session, island=island)
+                result = await db.execute(
+                    select(TeamModel)
+                    .where(TeamModel.id == team_id)
+                    .options(selectinload(TeamModel.island), selectinload(TeamModel.members))
+                )
+                team = result.scalars().first()
 
-    async def queue_all_islands_for_update(self, db_session: AsyncSession) -> int:
-        all_islands = await crud_island.get_multi(db_session, limit=10000)
-        count = 0
-        for island in all_islands:
-            try:
-                await crud_update_queue.add_island_to_queue(db_session, island=island)
-                count += 1
-            except ValueError as e:
-                logger.warning(f"Could not queue island {island.id} for update: {e}")
-        return count
-
-    async def _synchronous_stop(self, db_session: AsyncSession, island: "IslandModel"):
-        logger.info(f"Synchronously stopping island {island.container_name}...")
-        try:
-            state = await lxd_service.get_container_state(island.container_name)
-            if state and state.get('status', '').lower() in ['running', 'frozen']:
-                await lxd_service.stop_container(island.container_name, force=True)
-            await crud_island.update_status(db_session, player_uuid=uuid.UUID(island.player_uuid), status=IslandStatusEnum.STOPPED, extra_fields={"internal_ip_address": None, "minecraft_ready": False})
-        except Exception as e:
-            await crud_island.update_status(db_session, player_uuid=uuid.UUID(island.player_uuid), status=IslandStatusEnum.ERROR)
-            raise
-
-    async def _synchronous_start_and_wait(self, db_session: AsyncSession, island: "IslandModel"):
-        logger.info(f"Synchronously starting island {island.container_name}...")
-        try:
-            await lxd_service.start_container(island.container_name)
-            ip = await lxd_service.get_container_ip(island.container_name)
-            if not ip: raise LXDServiceError("Failed to get IP.")
-            await crud_island.update_status(db_session, player_uuid=uuid.UUID(island.player_uuid), status=IslandStatusEnum.RUNNING, extra_fields={"internal_ip_address": ip, "minecraft_ready": False})
-            for _ in range(180):
-                await asyncio.sleep(1)
-                reloaded = await crud_island.get(db_session, island_id=island.id)
-                if reloaded and reloaded.minecraft_ready:
-                    logger.info(f"Island {island.id} is ready.")
+                if not team or not team.island:
+                    logger.error(f"Clone task: Team {team_id} or its island not found.")
                     return
-            raise TimeoutError("Island did not become ready in 180 seconds.")
-        except Exception as e:
-            await crud_island.update_status(db_session, player_uuid=uuid.UUID(island.player_uuid), status=IslandStatusEnum.ERROR_START)
-            raise
 
-    async def _perform_file_based_update(self, db_session: AsyncSession, island: "IslandModel"):
-        logger.info(f"Starting FILE-BASED update for island {island.id}...")
-        was_running = island.status == IslandStatusEnum.RUNNING
-        snapshot_name = f"update-snapshot-{island.id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
-        try:
-            await lxd_service.create_snapshot(island.container_name, snapshot_name)
-            if island.status != IslandStatusEnum.STOPPED:
-                await self._synchronous_stop(db_session, island)
-            await lxd_service.push_file_from_host(
-                container_name=island.container_name,
-                source_path=settings.ISLAND_UPDATE_FILE_SOURCE_PATH,
-                target_path=settings.ISLAND_UPDATE_FILE_TARGET_PATH
-            )
-            if was_running:
-                await self._synchronous_start_and_wait(db_session, island)
-            await lxd_service.delete_snapshot(island.container_name, snapshot_name)
-        except Exception as e:
-            try:
-                await lxd_service.restore_snapshot(island.container_name, snapshot_name)
-                if was_running: await self._synchronous_start_and_wait(db_session, island)
-                else: await crud_island.update_status(db_session, player_uuid=uuid.UUID(island.player_uuid), status=IslandStatusEnum.STOPPED)
-            except Exception as rollback_e:
-                logger.critical(f"CRITICAL: Rollback for island {island.id} FAILED: {rollback_e}")
-                await crud_island.update_status(db_session, player_uuid=uuid.UUID(island.player_uuid), status=IslandStatusEnum.ERROR)
-            finally:
-                await lxd_service.delete_snapshot(island.container_name, snapshot_name)
-            raise e
+                logger.info(f"Clone task: Cloning '{settings.LXD_BASE_IMAGE}' to '{container_name}' for team {team_id}.")
+                await lxd_service.clone_container(
+                    source_image_alias=settings.LXD_BASE_IMAGE,
+                    new_container_name=container_name,
+                    profiles=settings.LXD_DEFAULT_PROFILES
+                )
 
-    async def _perform_image_based_update(self, db_session: AsyncSession, island: "IslandModel"):
-        logger.info(f"Starting IMAGE-BASED update for island {island.id} using host backup strategy.")
-        temp_dir = pathlib.Path(f"/tmp/skyblock-temp-{island.player_uuid}")
-        backup_archive_path = pathlib.Path(f"/tmp/skyblock-backup-{island.player_uuid}-{int(asyncio.get_running_loop().time())}.tar.gz")
-        data_path_in_container = "/opt/minecraft/world"
-        original_info = {"id": island.id, "player_uuid": island.player_uuid, "player_name": island.player_name, "container_name": island.container_name}
-        try:
-            if island.status != IslandStatusEnum.STOPPED:
-                await self._synchronous_stop(db_session, island)
-            if temp_dir.exists(): shutil.rmtree(temp_dir)
-            temp_dir.mkdir()
-            await lxd_service.pull_directory_to_host(original_info['container_name'], data_path_in_container, temp_dir)
-            with tarfile.open(backup_archive_path, "w:gz") as tar:
-                tar.add(str(temp_dir), arcname='.')
-        except Exception as e:
-            raise LXDServiceError(f"Backup failed for island {original_info['id']}: {e}")
-        finally:
-            if temp_dir.exists(): shutil.rmtree(temp_dir)
-        try:
-            await lxd_service.delete_container(original_info['container_name'])
-            await crud_island.remove_by_id(db_session, island_id=original_info['id'])
-        except Exception as e:
-            logger.critical(f"DESTRUCTION FAILED for island {original_info['id']}. Data is safe at {backup_archive_path}")
-            raise LXDServiceError(f"Destruction failed. Data at {backup_archive_path}. Error: {e}")
-        new_island = None
-        try:
-            create_schema = IslandCreate(player_uuid=uuid.UUID(original_info['player_uuid']), player_name=original_info['player_name'])
-            new_name = f"skyblock-{original_info['player_name']}-{uuid.uuid4().hex[:8]}"
-            new_island = await crud_island.create(db_session, island_in=create_schema, container_name=new_name, initial_status=IslandStatusEnum.UPDATING)
-            await lxd_service.clone_container(settings.LXD_NEW_BASE_IMAGE, new_name, profiles=settings.LXD_DEFAULT_PROFILES)
-            with open(backup_archive_path, "rb") as f:
-                backup_bytes = f.read()
-            await lxd_service.push_tar_to_directory(new_name, backup_bytes, data_path_in_container)
-            skyblock_toml = f"is_island_server = true\ncreator_uuid = \"{new_island.player_uuid}\"\n"
-            await lxd_service.push_file_to_container(new_name, "/opt/minecraft/world/serverconfig/skyblock_island_data.toml", skyblock_toml.encode('utf-8'))
-            await self._synchronous_start_and_wait(db_session, new_island)
-        except Exception as e:
-            logger.critical(f"REBUILD FAILED for player {original_info['player_uuid']}. Data is safe at {backup_archive_path}")
-            if new_island:
-                await crud_island.update_status(db_session, player_uuid=uuid.UUID(new_island.player_uuid), status=IslandStatusEnum.UPDATE_FAILED)
-            raise LXDServiceError(f"Rebuild failed. Data at {backup_archive_path}. Error: {e}")
-        finally:
-            if backup_archive_path.exists(): os.remove(backup_archive_path)
+                member_uuids = [member.player_uuid for member in team.members]
+                toml_content = f"is_island_server = true\n"
+                toml_content += f"team_id = {team.id}\n"
+                toml_content += f"owner_uuid = \"{team.owner_uuid}\"\n"
+                toml_content += f"member_uuids = {member_uuids}\n"
 
-    async def perform_island_update(self, db_session: AsyncSession, *, queue_entry):
-        island = await crud_island.get(db_session, island_id=queue_entry.island_id)
-        if not island: raise ValueError("Island to update not found.")
-        await crud_island.update_status(db_session, player_uuid=uuid.UUID(island.player_uuid), status=IslandStatusEnum.UPDATING)
-        try:
-            if settings.UPDATE_STRATEGY == 'image':
-                await self._perform_image_based_update(db_session, island)
+                config_path = "/opt/minecraft/world/serverconfig/skyblock_island_data.toml"
+                await lxd_service.push_file_to_container(container_name, config_path, toml_content.encode('utf-8'))
+                
+                updated_island = await crud_island.update(db, db_obj=team.island, obj_in={"status": IslandStatusEnum.STOPPED})
+                await db.commit() # Commit the update
+                for member_uuid in member_uuids:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member_uuid)
+                logger.info(f"Clone task: Island for team {team_id} successfully created and set to STOPPED.")
+
+            except Exception as e:
+                logger.error(f"Clone task for team {team_id} failed: {e}", exc_info=True)
+                async with AsyncSessionLocal() as error_db:
+                    island_to_update = await crud_island.get_by_team_id(error_db, team_id=team_id)
+                    if island_to_update:
+                        await crud_island.update(error_db, db_obj=island_to_update, obj_in={"status": IslandStatusEnum.ERROR_CREATE})
+                        await error_db.commit()
+
+    async def start_island_instance(self, db_session: AsyncSession, *, player_uuid: uuid.UUID, player_name: str, background_tasks: BackgroundTasks) -> IslandResponse:
+        logger.info(f"Service: Player {player_uuid} attempting to start an island.")
+        team = await crud_team.get_team_by_player(db=db_session, player_uuid=player_uuid)
+        if team and team.island:
+            return await self._start_existing_island(db_session, team.island, team, background_tasks)
+
+        solo_island = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
+        if solo_island:
+            return await self._start_existing_island(db_session, solo_island, None, background_tasks)
+
+        raise ValueError("No island found for this player. Please create one first.")
+
+    async def _start_existing_island(self, db_session: AsyncSession, island: IslandModel, team: Optional[TeamModel], background_tasks: BackgroundTasks) -> IslandResponse:
+        current_status = island.status
+        container_name = island.container_name
+
+        if current_status == IslandStatusEnum.RUNNING:
+            logger.info(f"Service: Island {container_name} is already RUNNING.")
+        elif current_status in [IslandStatusEnum.STOPPED, IslandStatusEnum.FROZEN]:
+            logger.info(f"Service: Starting island {container_name} from status {current_status.value}...")
+            updated_island = await crud_island.update(db_session, db_obj=island, obj_in={"status": IslandStatusEnum.PENDING_START})
+            await db_session.commit()
+            if team:
+                for member in team.members:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+                background_tasks.add_task(self._perform_lxd_start_and_update_status, team_id=team.id, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN))
             else:
-                await self._perform_file_based_update(db_session, island)
-            await crud_island.update_status(db_session, player_uuid=uuid.UUID(island.player_uuid), status=IslandStatusEnum.STOPPED)
-        except Exception as e:
-            await crud_island.update_status(db_session, player_uuid=uuid.UUID(island.player_uuid), status=IslandStatusEnum.UPDATE_FAILED)
-            raise
+                player_uuid_str = str(island.player_uuid)
+                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
+                background_tasks.add_task(self._perform_solo_lxd_start_and_update_status, player_uuid_str=player_uuid_str, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN))
+            return IslandResponse.model_validate(updated_island)
+        elif current_status == IslandStatusEnum.PENDING_START:
+            logger.info(f"Service: Island {container_name} is already PENDING_START.")
+        else:
+            raise ValueError(f"Island cannot be started from its current state: {current_status.value}")
+        return IslandResponse.model_validate(island)
+
+    async def _perform_solo_lxd_start_and_update_status(self, player_uuid_str: str, container_name: str, was_frozen: bool):
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            player_uuid = uuid.UUID(player_uuid_str)
+            island = await crud_island.get_by_player_uuid(db, player_uuid=player_uuid)
+            if not island: return
+
+            try:
+                if was_frozen: await lxd_service.unfreeze_container(container_name)
+                await lxd_service.start_container(container_name)
+                ip = await lxd_service.get_container_ip(container_name)
+                if not ip: raise LXDServiceError("Failed to get IP for solo island.")
+                
+                update_data = {"status": IslandStatusEnum.RUNNING, "internal_ip_address": ip}
+                updated_island = await crud_island.update(db, db_obj=island, obj_in=update_data)
+                await db.commit()
+                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
+            except Exception as e:
+                logger.error(f"Error starting solo island for {player_uuid_str}: {e}")
+                updated_island = await crud_island.update(db, db_obj=island, obj_in={"status": IslandStatusEnum.ERROR_START})
+                await db.commit()
+                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
+
+    async def _perform_lxd_start_and_update_status(self, team_id: int, container_name: str, was_frozen: bool):
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db_session_bg:
+            team = None
+            try:
+                result = await db_session_bg.execute(select(TeamModel).where(TeamModel.id == team_id).options(selectinload(TeamModel.island), selectinload(TeamModel.members)))
+                team = result.scalars().first()
+                if not team or not team.island:
+                    logger.error(f"Service (background): Team or island not found for team_id {team_id}. Aborting start task.")
+                    return
+
+                logger.info(f"Service (background): Starting LXD ops for team {team_id}, container {container_name}")
+                if was_frozen:
+                    await lxd_service.unfreeze_container(container_name)
+                if (await lxd_service.get_container_state(container_name)).get('status', '').lower() != 'running':
+                    await lxd_service.start_container(container_name)
+
+                ip_address = await lxd_service.get_container_ip(container_name)
+                if not ip_address:
+                    raise LXDServiceError("Failed to get IP address for container.")
+
+                update_fields = {"internal_ip_address": ip_address, "internal_port": settings.DEFAULT_MC_PORT_INTERNAL, "status": IslandStatusEnum.RUNNING, "last_seen_at": datetime.now(timezone.utc)}
+                updated_island = await crud_island.update(db_session_bg, db_obj=team.island, obj_in=update_fields)
+                await db_session_bg.commit()
+                for member in team.members:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+                logger.info(f"Service (background): Island for team {team_id} is RUNNING. Awaiting ready signal from mod.")
+
+            except Exception as e:
+                logger.error(f"Service (background): Error during LXD start for team {team_id}: {e}", exc_info=True)
+                if team and team.island:
+                    updated_island = await crud_island.update(db_session_bg, db_obj=team.island, obj_in={"status": IslandStatusEnum.ERROR_START})
+                    await db_session_bg.commit()
+                    for member in team.members:
+                         await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+
+    async def stop_island_instance(self, db_session: AsyncSession, *, player_uuid: uuid.UUID, background_tasks: BackgroundTasks) -> IslandResponse:
+        logger.info(f"Service: Player {player_uuid} attempting to stop an island.")
+        team = await crud_team.get_team_by_player(db=db_session, player_uuid=player_uuid)
+        if team and team.island:
+            logger.info(f"Player {player_uuid} is in team {team.id}. Stopping team island {team.island.id}.")
+            return await self._stop_existing_island(db_session, team.island, team, background_tasks)
+
+        solo_island = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
+        if solo_island:
+            logger.info(f"Player {player_uuid} has a legacy solo island {solo_island.id}. Stopping it.")
+            return await self._stop_existing_island(db_session, solo_island, None, background_tasks)
+        
+        raise ValueError("No island found for this player to stop.")
+
+    async def _stop_existing_island(self, db_session: AsyncSession, island: IslandModel, team: Optional[TeamModel], background_tasks: BackgroundTasks) -> IslandResponse:
+        if island.status in [IslandStatusEnum.RUNNING, IslandStatusEnum.FROZEN, IslandStatusEnum.ERROR_START]:
+            updated_island = await crud_island.update(db_session, db_obj=island, obj_in={"status": IslandStatusEnum.PENDING_STOP})
+            await db_session.commit()
+            if team:
+                for member in team.members:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+                background_tasks.add_task(self._perform_lxd_stop_and_update_status, team_id=team.id)
+            else:
+                player_uuid_str = str(island.player_uuid)
+                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
+                background_tasks.add_task(self._perform_solo_lxd_stop_and_update_status, player_uuid_str=player_uuid_str)
+            
+            return IslandResponse.model_validate(updated_island)
+        elif island.status == IslandStatusEnum.STOPPED:
+            logger.info(f"Island {island.container_name} is already stopped.")
+            return IslandResponse.model_validate(island)
+        else:
+            raise ValueError(f"Island cannot be stopped from its current state: {island.status.value}")
+
+    async def _perform_lxd_stop_and_update_status(self, team_id: int):
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(TeamModel).where(TeamModel.id == team_id).options(selectinload(TeamModel.island), selectinload(TeamModel.members)))
+            team = result.scalars().first()
+            if not team or not team.island: return
+            try:
+                await lxd_service.stop_container(team.island.container_name, force=True)
+                update_fields = {"status": IslandStatusEnum.STOPPED, "internal_ip_address": None, "minecraft_ready": False}
+                updated_island = await crud_island.update(db, db_obj=team.island, obj_in=update_fields)
+                await db.commit()
+                for member in team.members:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+            except Exception as e:
+                 logger.error(f"Error stopping team island for team {team_id}: {e}")
+
+    async def _perform_solo_lxd_stop_and_update_status(self, player_uuid_str: str):
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            player_uuid = uuid.UUID(player_uuid_str)
+            island = await crud_island.get_by_player_uuid(db, player_uuid=player_uuid)
+            if not island: return
+            try:
+                await lxd_service.stop_container(island.container_name, force=True)
+                update_fields = {"status": IslandStatusEnum.STOPPED, "internal_ip_address": None, "minecraft_ready": False}
+                updated_island = await crud_island.update(db, db_obj=island, obj_in=update_fields)
+                await db.commit()
+                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
+            except Exception as e:
+                logger.error(f"Error stopping solo island for {player_uuid_str}: {e}")
+
+    async def freeze_island_instance(self, db_session: AsyncSession, *, player_uuid: uuid.UUID, background_tasks: BackgroundTasks) -> IslandResponse:
+        logger.info(f"Service: Player {player_uuid} attempting to freeze an island.")
+        team = await crud_team.get_team_by_player(db=db_session, player_uuid=player_uuid)
+        if team and team.island:
+            return await self._freeze_existing_island(db_session, team.island, team, background_tasks)
+        solo_island = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
+        if solo_island:
+            return await self._freeze_existing_island(db_session, solo_island, None, background_tasks)
+        raise ValueError("No island found for this player to freeze.")
+
+    async def _freeze_existing_island(self, db_session: AsyncSession, island: IslandModel, team: Optional[TeamModel], background_tasks: BackgroundTasks) -> IslandResponse:
+        if island.status == IslandStatusEnum.RUNNING:
+            updated_island = await crud_island.update(db_session, db_obj=island, obj_in={"status": IslandStatusEnum.PENDING_FREEZE})
+            await db_session.commit()
+            if team:
+                for member in team.members:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+                background_tasks.add_task(self._perform_lxd_freeze_and_update_status, team_id=team.id)
+            else:
+                player_uuid_str = str(island.player_uuid)
+                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
+                background_tasks.add_task(self._perform_solo_lxd_freeze_and_update_status, player_uuid_str=player_uuid_str)
+            return IslandResponse.model_validate(updated_island)
+        elif island.status == IslandStatusEnum.FROZEN:
+            logger.info(f"Island {island.container_name} is already frozen.")
+            return IslandResponse.model_validate(island)
+        else:
+            raise ValueError(f"Island cannot be frozen from its current state: {island.status.value}")
+
+    async def _perform_lxd_freeze_and_update_status(self, team_id: int):
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(TeamModel).where(TeamModel.id == team_id).options(selectinload(TeamModel.island), selectinload(TeamModel.members)))
+            team = result.scalars().first()
+            if not team or not team.island: return
+            try:
+                await lxd_service.freeze_container(team.island.container_name)
+                updated_island = await crud_island.update(db, db_obj=team.island, obj_in={"status": IslandStatusEnum.FROZEN})
+                await db.commit()
+                for member in team.members:
+                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+            except Exception as e:
+                 logger.error(f"Error freezing island for team {team_id}: {e}")
+
+    async def _perform_solo_lxd_freeze_and_update_status(self, player_uuid_str: str):
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            player_uuid = uuid.UUID(player_uuid_str)
+            island = await crud_island.get_by_player_uuid(db, player_uuid=player_uuid)
+            if not island: return
+            try:
+                await lxd_service.freeze_container(island.container_name)
+                updated_island = await crud_island.update(db, db_obj=island, obj_in={"status": IslandStatusEnum.FROZEN})
+                await db.commit()
+                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
+            except Exception as e:
+                logger.error(f"Error freezing solo island for {player_uuid_str}: {e}")
+
+    async def rename_team(self, db: AsyncSession, *, team: TeamModel, new_name: str) -> TeamModel:
+        existing_name = await crud_team.get_team_by_name(db, name=new_name)
+        if existing_name and existing_name.id != team.id:
+            raise ValueError("A team with this name already exists.")
+        updated_team = await crud_team.rename_team(db, team=team, new_name=new_name)
+        return updated_team
+
+    async def mark_island_as_ready_for_players(self, db_session: AsyncSession, *, team_id: int):
+        logger.info(f"Service: Attempting to mark island as ready for team_id: {team_id}")
+        island_db_model = await crud_island.get_by_team_id(db_session, team_id=team_id)
+        if not island_db_model:
+            raise ValueError("Island not found for this team.")
+        if island_db_model.status != IslandStatusEnum.RUNNING:
+            raise ValueError("Island is not in RUNNING state.")
+        if island_db_model.minecraft_ready:
+            raise ValueError("Island already marked as ready.")
+
+        updated_island = await crud_island.update(db_session, db_obj=island_db_model, obj_in={"minecraft_ready": True})
+        await db_session.commit()
+        
+        result = await db_session.execute(select(TeamModel).where(TeamModel.id == team_id).options(selectinload(TeamModel.members)))
+        team = result.scalars().first()
+        if team:
+            for member in team.members:
+                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+        logger.info(f"Service: Island for team {team_id} marked as ready.")
+
+    async def handle_join_team(self, db_session: AsyncSession, *, player_to_join_uuid: uuid.UUID, team_to_join: TeamModel, background_tasks: BackgroundTasks):
+        for member in team_to_join.members:
+            if member.player_uuid == str(player_to_join_uuid):
+                raise ValueError("Player is already in this team.")
+
+        old_island = await crud_island.get_by_player_uuid(db_session, player_uuid=player_to_join_uuid)
+        await crud_team.add_member(db=db_session, team=team_to_join, player_uuid=player_to_join_uuid)
+        await db_session.commit()
+        logger.info(f"Service: Player {player_to_join_uuid} added to team {team_to_join.id}.")
+
+        if old_island:
+            logger.info(f"Service: Player {player_to_join_uuid} has an old island (ID: {old_island.id}) that will be deleted.")
+            background_tasks.add_task(self._perform_lxd_delete_and_cleanup, island_id=old_island.id)
+        
+        await db_session.refresh(team_to_join)
+        return team_to_join
+
+    async def _perform_lxd_delete_and_cleanup(self, island_id: int):
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db_session_bg:
+            try:
+                island = await crud_island.get(db_session_bg, island_id=island_id)
+                if not island:
+                    logger.warning(f"Service (background): Island {island_id} not found for deletion.")
+                    return
+
+                logger.info(f"Service (background): Deleting container {island.container_name} for island {island_id}")
+                await lxd_service.delete_container(island.container_name, force=True)
+
+                logger.info(f"Service (background): Deleting island record {island_id} from database.")
+                await crud_island.remove_by_id(db_session_bg, island_id=island_id)
+                await db_session_bg.commit()
+                logger.info(f"Service (background): Island {island_id} fully deleted.")
+
+            except Exception as e:
+                logger.error(f"Service (background): Error during island deletion for island_id {island_id}: {e}", exc_info=True)
 
 island_service = IslandService()

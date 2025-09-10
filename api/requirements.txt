@@ -1,0 +1,28 @@
+fastapi
+uvicorn[standard] # Includes websockets and http tools
+pydantic
+pydantic-settings
+
+# Database (choose one or more based on your DB)
+sqlalchemy[asyncio] # Core SQLAlchemy with asyncio support
+asyncpg # For PostgreSQL (if using)
+aiomysql # For MySQL (if using)
+# databases # Alternative to SQLAlchemy for async DB access; can use various backends
+
+# LXD interaction
+# pylxd # Synchronous LXD library
+#asyncio-lxd # Asynchronous LXD library (preferred for FastAPI)
+
+# Optional:
+# alembic # For database migrations with SQLAlchemy
+# python-dotenv # For loading .env files (though pydantic-settings can do this)
+# celery # For background task management (if more robust tasks needed than FastAPI's BackgroundTasks)
+# redis # If using Celery with Redis broker, or for caching/pub-sub
+
+# For development:
+# black # Code formatter
+# ruff # Linter
+# pytest # For testing
+# httpx # For testing FastAPI endpoints asynchronously
+# pytest-asyncio # For testing async code with pytest
+

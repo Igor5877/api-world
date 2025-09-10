@@ -69,12 +69,7 @@ async def get_db_session() -> AsyncSession:
     async with AsyncSessionLocal() as session:
         try:
             yield session
-            # The commit is typically handled at the end of a successful CRUD operation
-            # or service method that uses the session.
-            # If an operation completes without error, it should commit its own transaction.
-            # A blanket commit here might be too broad if multiple operations occurred.
-            # For now, let it be handled by the caller of the session.
-            # await session.commit() # This might be too aggressive here.
+            await session.commit()
         except Exception as e:
             logger.error(f"Exception during database session, rolling back: {e}")
             await session.rollback()
