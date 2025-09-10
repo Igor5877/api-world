@@ -14,14 +14,9 @@ import dev.ftb.mods.ftbquests.quest.reward.RewardTypes;
 import dev.ftb.mods.ftbquests.quest.task.Task;
 import dev.ftb.mods.ftbquests.quest.task.TaskType;
 import dev.ftb.mods.ftbquests.quest.task.TaskTypes;
+import com.skyblockdynamic.nestworld.mods.NestworldModsServer;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
 import dev.ftb.mods.ftbquests.util.FileUtils;
-import dev.ftb.mods.ftbteams.api.FTBTeamsAPI;
-import dev.ftb.mods.ftbteams.api.Team;
-import dev.ftb.mods.ftbteams.api.event.PlayerChangedTeamEvent;
-import dev.ftb.mods.ftbteams.api.event.PlayerLoggedInAfterTeamEvent;
-import dev.ftb.mods.ftbteams.api.event.TeamCreatedEvent;
-import dev.ftb.mods.ftbteams.data.PartyTeam;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
@@ -162,88 +157,11 @@ public class ServerQuestFile extends BaseQuestFile {
 		}
 	}
 
-	public void playerLoggedIn(PlayerLoggedInAfterTeamEvent event) {
-		ServerPlayer player = event.getPlayer();
-		TeamData data = getOrCreateTeamData(event.getTeam());
-
-		// Sync the quest book data
-		// - client will respond to this with a RequestTeamData message
-		// - server will only then send a SyncTeamData message to the client
-		new SyncQuestsMessage(this).sendTo(player);
-
-		new SyncEditorPermissionMessage(PermissionsHelper.hasEditorPermission(player, false)).sendTo(player);
-
-		player.inventoryMenu.addSlotListener(new FTBQuestsInventoryListener(player));
-
-		if (!data.isLocked()) {
-			withPlayerContext(player, () -> forAllQuests(quest -> {
-				if (!data.isCompleted(quest) && quest.isCompletedRaw(data)) {
-					// Handles possible situation where quest book has been modified to remove a task from a quest
-					// It can leave a player having completed all the other tasks, but unable to complete the quest
-					//   since quests are normally marked completed when the last task in that quest is completed
-					// https://github.com/FTBBeta/Beta-Testing-Issues/issues/755
-					quest.onCompleted(new QuestProgressEventData<>(new Date(), data, quest, data.getOnlineMembers(), Collections.singletonList(player)));
-				}
-
-				data.checkAutoCompletion(quest);
-
-				if (data.canStartTasks(quest)) {
-					quest.getTasks().stream().filter(Task::checkOnLogin).forEach(task -> task.submitTask(data, player));
-				}
-			}));
-		}
-	}
-
-	public void teamCreated(TeamCreatedEvent event) {
-		UUID id = event.getTeam().getId();
-
-		TeamData data = teamDataMap.computeIfAbsent(id, k -> {
-			TeamData newTeamData = new TeamData(id, this);
-			newTeamData.markDirty();
-			return newTeamData;
-		});
-
-		data.setName(event.getTeam().getShortName());
-
-		addData(data, false);
-
-		if (event.getTeam() instanceof PartyTeam) {
-			FTBTeamsAPI.api().getManager().getPlayerTeamForPlayerID(event.getCreator().getUUID()).ifPresent(playerTeam -> {
-				TeamData oldTeamData = getOrCreateTeamData(playerTeam);
-				data.copyData(oldTeamData);
-			});
-		}
-
-		TeamDataUpdate self = new TeamDataUpdate(data);
-
-		new CreateOtherTeamDataMessage(self).sendToAll(server);
-	}
-
-	public void playerChangedTeam(PlayerChangedTeamEvent event) {
-		event.getPreviousTeam().ifPresent(prevTeam -> {
-			Team curTeam = event.getTeam();
-			TeamData oldTeamData = getOrCreateTeamData(prevTeam);
-			TeamData newTeamData = getOrCreateTeamData(curTeam);
-
-			if (prevTeam.isPlayerTeam() && curTeam.isPartyTeam() && !curTeam.getOwner().equals(event.getPlayerId())) {
-				// player is joining an existing party team; merge all of their progress data into the party
-				newTeamData.mergeData(oldTeamData);
-			} else if (prevTeam.isPartyTeam() && curTeam.isPlayerTeam()) {
-				// player is leaving an existing party team; they get their old progress back
-				// EXCEPT any rewards they've already claimed stay claimed! no claiming the reward again
-				newTeamData.mergeClaimedRewards(oldTeamData);
-			}
-
-			new TeamDataChangedMessage(new TeamDataUpdate(oldTeamData), new TeamDataUpdate(newTeamData)).sendToAll(server);
-			new SyncTeamDataMessage(newTeamData, true).sendTo(curTeam.getOnlineMembers());
-		});
-	}
-
 	@Override
 	public boolean isPlayerOnTeam(Player player, TeamData teamData) {
-		return FTBTeamsAPI.api().getManager().getTeamForPlayerID(player.getUUID())
-				.map(team -> team.getTeamId().equals(teamData.getTeamId()))
-				.orElse(false);
+		// Replaced with call to our cached provider
+		UUID playerTeamId = NestworldModsServer.TEAM_PROVIDER.getCachedTeamId(player.getUUID());
+		return playerTeamId != null && playerTeamId.equals(teamData.getTeamId());
 	}
 
 	@Override

@@ -56,9 +56,9 @@ public enum FTBQuestsEventHandler {
 		FTBQuestsItems.register();
 		FTBQuestsBlockEntities.register();
 		ClearFileCacheEvent.EVENT.register(this::fileCacheClear);
-		TeamEvent.PLAYER_LOGGED_IN.register(this::playerLoggedIn);
-		TeamEvent.CREATED.register(this::teamCreated);
-		TeamEvent.PLAYER_CHANGED.register(this::playerChangedTeam);
+		// TeamEvent.PLAYER_LOGGED_IN.register(this::playerLoggedIn);
+		// TeamEvent.CREATED.register(this::teamCreated);
+		// TeamEvent.PLAYER_CHANGED.register(this::playerChangedTeam);
 		EntityEvent.LIVING_DEATH.register(this::playerKill);
 		TickEvent.PLAYER_POST.register(this::playerTick);
 		PlayerEvent.CRAFT_ITEM.register(this::itemCrafted);

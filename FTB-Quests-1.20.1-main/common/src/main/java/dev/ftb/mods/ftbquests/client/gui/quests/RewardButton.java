@@ -98,7 +98,7 @@ public class RewardButton extends Button {
 
 	@Override
 	public WidgetType getWidgetType() {
-		if (!ClientQuestFile.exists() || !ClientQuestFile.INSTANCE.selfTeamData.isCompleted(reward.getQuest())) {
+		if (!ClientQuestFile.exists() || ClientQuestFile.INSTANCE.isGuestMode || !ClientQuestFile.INSTANCE.selfTeamData.isCompleted(reward.getQuest())) {
 			return WidgetType.DISABLED;
 		}
 

@@ -38,6 +38,7 @@ public class ClientQuestFile extends BaseQuestFile {
 	public static ClientQuestFile INSTANCE;
 
 	public TeamData selfTeamData;  // TeamData for the player on this client
+	public boolean isGuestMode = false;
 
 	private QuestScreen questScreen;
 	private QuestScreen.PersistedData persistedData;
