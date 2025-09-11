@@ -1,5 +1,6 @@
 package dev.ftb.mods.ftbquests.net;
 
+import com.skyblock.dynamic.nestworld.mods.NestworldModsServer;
 import dev.architectury.networking.NetworkManager;
 import dev.architectury.networking.simple.BaseC2SMessage;
 import dev.architectury.networking.simple.MessageType;
@@ -36,13 +37,20 @@ public class SubmitTaskMessage extends BaseC2SMessage {
 	@Override
 	public void handle(NetworkManager.PacketContext context) {
 		ServerPlayer player = (ServerPlayer) context.getPlayer();
+		Task task = ServerQuestFile.INSTANCE.getTask(taskId);
+		if (task == null) {
+			return;
+		}
 
-		IslandData data = IslandData.get(player);
-		if (!data.isLocked()) {
-			Task task = data.getFile().getTask(taskId);
-			if (task != null && data.getFile() instanceof ServerQuestFile sqf && data.canStartTasks(task.getQuest())) {
-				sqf.withPlayerContext(player, () -> task.submitTask(data, player));
-			}
+		IslandData data = ServerQuestFile.INSTANCE.getOrCreateIslandData(player);
+
+		if (data != null && !data.isLocked() && data.canStartTasks(task.getQuest())) {
+			NestworldModsServer.ISLAND_PROVIDER.refreshAndGetTeamId(player.getUUID()).thenAcceptAsync(teamId -> {
+				if (teamId != null && teamId.equals(data.getTeamId())) {
+					// Player is a member of the team that owns this data, proceed to submit.
+					ServerQuestFile.INSTANCE.withPlayerContext(player, () -> task.submitTask(data, player));
+				}
+			}, player.getServer());
 		}
 	}
 }

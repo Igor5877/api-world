@@ -1,6 +1,8 @@
 package dev.ftb.mods.ftbquests.quest;
 
 import com.mojang.util.UUIDTypeAdapter;
+import dev.ftb.mods.ftbquests.quest.team.TeamData;
+import dev.ftb.mods.ftbquests.quest.team.TeamData;
 import dev.ftb.mods.ftblibrary.snbt.SNBT;
 import dev.ftb.mods.ftblibrary.snbt.SNBTCompoundTag;
 import dev.ftb.mods.ftbquests.FTBQuests;
@@ -11,6 +13,7 @@ import dev.ftb.mods.ftbquests.quest.reward.Reward;
 import dev.ftb.mods.ftbquests.quest.reward.RewardAutoClaim;
 import dev.ftb.mods.ftbquests.quest.reward.RewardClaimType;
 import dev.ftb.mods.ftbquests.quest.task.Task;
+import dev.ftb.mods.ftbquests.quest.team.TeamManager;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
 import dev.ftb.mods.ftbquests.util.QuestKey;
 // import dev.ftb.mods.ftbteams.api.FTBTeamsAPI; // REMOVED
@@ -539,8 +542,25 @@ public class IslandData { // RENAMED CLASS
 	}
 
 	public Collection<ServerPlayer> getOnlineMembers() {
-		// This needs to be reimplemented with the new island/team provider
-		// For now, return an empty list to allow compilation
+		if (file instanceof ServerQuestFile sqf) {
+			TeamManager teamManager = TeamManager.getInstance(sqf.server);
+			TeamData team = teamManager.getTeam(this.islandId);
+
+			if (team != null) {
+				List<ServerPlayer> onlinePlayers = new ArrayList<>();
+				for (UUID memberId : team.getMembers().keySet()) {
+					ServerPlayer player = sqf.server.getPlayerList().getPlayer(memberId);
+					if (player != null) {
+						onlinePlayers.add(player);
+					}
+				}
+				return onlinePlayers;
+			} else {
+				// Not a team, probably a solo player's data
+				ServerPlayer player = sqf.server.getPlayerList().getPlayer(this.islandId);
+				return player != null ? Collections.singletonList(player) : Collections.emptyList();
+			}
+		}
 		return Collections.emptyList();
 	}
 

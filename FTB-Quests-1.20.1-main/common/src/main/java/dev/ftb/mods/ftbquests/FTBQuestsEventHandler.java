@@ -12,6 +12,7 @@ import dev.ftb.mods.ftbquests.item.FTBQuestsItems;
 import dev.ftb.mods.ftbquests.quest.BaseQuestFile;
 import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
+import dev.ftb.mods.ftbquests.quest.team.TeamManager;
 import dev.ftb.mods.ftbquests.quest.task.DimensionTask;
 import dev.ftb.mods.ftbquests.quest.task.KillTask;
 import dev.ftb.mods.ftbquests.quest.task.Task;
@@ -72,17 +73,23 @@ public enum FTBQuestsEventHandler {
 
 	private void serverStarted(MinecraftServer server) {
 		ServerQuestFile.INSTANCE.load();
+		TeamManager.getInstance(server).load();
 	}
 
 	private void serverStopped(MinecraftServer server) {
-		ServerQuestFile.INSTANCE.saveNow();
-		ServerQuestFile.INSTANCE.unload();
-		ServerQuestFile.INSTANCE = null;
+		if (ServerQuestFile.INSTANCE != null) {
+			ServerQuestFile.INSTANCE.saveNow();
+			ServerQuestFile.INSTANCE.unload();
+			ServerQuestFile.INSTANCE = null;
+		}
+		TeamManager.getInstance(server).save();
+		TeamManager.clearInstance();
 	}
 
 	private void worldSaved(ServerLevel level) {
 		if (ServerQuestFile.INSTANCE != null) {
 			ServerQuestFile.INSTANCE.saveNow();
+			TeamManager.getInstance(level.getServer()).save();
 		}
 	}
 

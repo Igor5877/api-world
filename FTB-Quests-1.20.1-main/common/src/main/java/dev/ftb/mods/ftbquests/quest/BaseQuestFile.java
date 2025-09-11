@@ -994,7 +994,11 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 	@Override
 	public IslandData getOrCreateIslandData(Entity player) {
 		UUID islandId = com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.getCachedTeamId(player.getUUID());
-		return islandId == null ? null : getOrCreateIslandData(islandId);
+		if (islandId == null) {
+			// Player is not in a team, so use their own UUID for personal data
+			islandId = player.getUUID();
+		}
+		return getOrCreateIslandData(islandId);
 	}
 
 	@Override

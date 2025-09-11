@@ -33,12 +33,12 @@ versionRange = "[2001.2.1,)"
 ordering = "AFTER"
 side = "BOTH"
 
-[[dependencies.ftbquests]]
-modId = "ftbteams"
-mandatory = true
-versionRange = "[2001.1.4,)"
-ordering = "AFTER"
-side = "BOTH"
+#[[dependencies.ftbquests]]
+#modId = "ftbteams"
+#mandatory = true
+#versionRange = "[2001.1.4,)"
+#ordering = "AFTER"
+#side = "BOTH"
 
 [[dependencies.ftbquests]]
 modId = "itemfilters"

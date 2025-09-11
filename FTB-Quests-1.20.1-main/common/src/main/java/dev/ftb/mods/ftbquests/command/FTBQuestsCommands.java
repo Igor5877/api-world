@@ -53,6 +53,8 @@ public class FTBQuestsCommands {
 			Component.translatable("commands.ftbquests.command.error.no_inventory"));
 
 	public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+		TeamCommands.register(dispatcher);
+
 		//noinspection ConstantValue
 		dispatcher.register(Commands.literal("ftbquests")
 				// s.getServer() *can* be null here, whatever the IDE thinks!
