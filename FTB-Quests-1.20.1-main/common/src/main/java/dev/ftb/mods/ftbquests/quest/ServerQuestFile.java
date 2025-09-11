@@ -160,7 +160,7 @@ public class ServerQuestFile extends BaseQuestFile {
 	@Override
 	public boolean isPlayerOnTeam(Player player, IslandData islandData) {
 		// Replaced with call to our cached provider
-		UUID playerTeamId = NestworldModsServer.TEAM_PROVIDER.getCachedTeamId(player.getUUID());
+		UUID playerTeamId = NestworldModsServer.ISLAND_PROVIDER.getCachedTeamId(player.getUUID());
 		return playerTeamId != null && playerTeamId.equals(islandData.getTeamId());
 	}
 

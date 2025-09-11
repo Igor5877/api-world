@@ -147,13 +147,13 @@ public class ClientQuestFile extends BaseQuestFile {
 	}
 
 	@Override
-	public IslandData getOrCreateIslandData(Entity player) { // MODIFIED
-		// This will need to be implemented properly with the new island provider
+	public IslandData getOrCreateIslandData(Entity player) {
 		if (player.getUUID().equals(Minecraft.getInstance().player.getUUID())) {
 			return selfTeamData;
 		}
-		// For now, just create a temporary object for other players
-		return getOrCreateIslandData(player.getUUID());
+		// We don't have a reliable way to get other players' island data on the client yet.
+		// The server will sync data as needed. For now, we can't look it up.
+		return null;
 	}
 
 	public void setPersistedScreenInfo(QuestScreen.PersistedData persistedData) {

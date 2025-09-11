@@ -991,12 +991,10 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 		return islandDataMap.computeIfAbsent(islandId, k -> new IslandData(islandId, this));
 	}
 
-	// This method needs to be re-evaluated. For now, it's a placeholder.
 	@Override
 	public IslandData getOrCreateIslandData(Entity player) {
-		// In the future, this should get the player's island ID from the new provider
-		// For now, we can't do much.
-		return null;
+		UUID islandId = com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.getCachedTeamId(player.getUUID());
+		return islandId == null ? null : getOrCreateIslandData(islandId);
 	}
 
 	@Override
