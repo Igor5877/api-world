@@ -524,12 +524,7 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 	}
 
 	@Override
-	public int getRelativeProgressFromChildren(TeamData data) {
-        /*if (data.getTimesCompleted(this) > 0)
-		{
-			return 100;
-		}*/
-
+	public int getRelativeProgressFromChildren(IslandData data) { // MODIFIED
 		if (tasks.isEmpty()) {
 			return data.areDependenciesComplete(this) ? 100 : 0;
 		}
@@ -552,14 +547,14 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 		data.setStarted(id);
 		ObjectStartedEvent.QUEST.invoker().act(new ObjectStartedEvent.QuestEvent(data.withObject(this)));
 
-		if (!data.getTeamData().isStarted(chapter)) {
+		if (!data.getIslandData().isStarted(chapter)) { // MODIFIED
 			chapter.onStarted(data.withObject(chapter));
 		}
 	}
 
 	@Override
 	public void onCompleted(QuestProgressEventData<?> data) {
-		if (!data.getTeamData().isCompleted(this)) {
+		if (!data.getIslandData().isCompleted(this)) { // MODIFIED
 			// it's possible this quest is already completed, if it has one or more optional tasks
 			data.setCompleted(id);
 			ObjectCompletedEvent.QUEST.invoker().act(new ObjectCompletedEvent.QuestEvent(data.withObject(this)));
@@ -568,17 +563,17 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 				data.notifyPlayers(id);
 			}
 
-			if (chapter.isCompletedRaw(data.getTeamData())) {
+			if (chapter.isCompletedRaw(data.getIslandData())) { // MODIFIED
 				chapter.onCompleted(data.withObject(chapter));
 			}
 
-			data.getTeamData().checkAutoCompletion(this);
+			data.getIslandData().checkAutoCompletion(this); // MODIFIED
 
-			checkForDependantCompletion(data.getTeamData());
+			checkForDependantCompletion(data.getIslandData()); // MODIFIED
 		}
 	}
 
-	private void checkForDependantCompletion(TeamData data) {
+	private void checkForDependantCompletion(IslandData data) { // MODIFIED
 		getDependants().forEach(questObject -> {
 			if (questObject instanceof Quest quest) {
 				if (quest.getProgressionMode() == ProgressionMode.FLEXIBLE) {
@@ -601,11 +596,11 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 	}
 
 	@Override
-	public void forceProgress(TeamData teamData, ProgressChange progressChange) {
-		super.forceProgress(teamData, progressChange);
+	public void forceProgress(IslandData islandData, ProgressChange progressChange) { // MODIFIED
+		super.forceProgress(islandData, progressChange);
 
 		for (Reward r : rewards) {
-			r.forceProgress(teamData, progressChange);
+			r.forceProgress(islandData, progressChange);
 		}
 	}
 
@@ -778,7 +773,7 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 	}
 
 	@Override
-	public boolean isVisible(TeamData data) {
+	public boolean isVisible(IslandData data) { // MODIFIED
 		if (invisibleUntilCompleted && !data.isCompleted(this)) {
 			if (invisibleUntilTasks == 0 || tasks.stream().filter(data::isCompleted).limit(invisibleUntilTasks).count() < invisibleUntilTasks) {
 				return false;
@@ -803,7 +798,7 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 	}
 
 	@Override
-	public boolean isSearchable(TeamData data) {
+	public boolean isSearchable(IslandData data) { // MODIFIED
 		return !chapter.isAlwaysInvisible() && super.isSearchable(data);
 	}
 
@@ -951,14 +946,10 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 		FTBQuestsClient.copyToClipboard(this);
 	}
 
-	public boolean isProgressionIgnored(TeamData data) {
+	public boolean isProgressionIgnored(IslandData data) { // MODIFIED
 		return canBeRepeated() || optional || data.isExcludedByOtherQuestline(this);
 	}
 
-	/**
-	 * Get a collection of dependent quest ID's; quests which can't be progressed until this quest is completed.
-	 * @return a collection of quest objects, checked for validity
-	 */
 	public Collection<QuestObject> getDependants() {
 		return dependantIDs.stream()
 				.map(id -> getQuestFile().get(id))
@@ -966,7 +957,7 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 				.toList();
 	}
 
-	public void checkRepeatable(TeamData data, UUID player) {
+	public void checkRepeatable(IslandData data, UUID player) { // MODIFIED
 		if (canBeRepeated() && rewards.stream().allMatch(r -> data.isRewardClaimed(player, r))) {
 			forceProgress(data, new ProgressChange(data.getFile(), this, player));
 		}
@@ -978,15 +969,15 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 	}
 
 	@Override
-	public boolean isCompletedRaw(TeamData data) {
+	public boolean isCompletedRaw(IslandData data) { // MODIFIED
 		return data.canStartTasks(this) && super.isCompletedRaw(data);
 	}
 
 	@Override
-	public boolean hasUnclaimedRewardsRaw(TeamData teamData, UUID player) {
-		if (teamData.isCompleted(this)) {
+	public boolean hasUnclaimedRewardsRaw(IslandData islandData, UUID player) { // MODIFIED
+		if (islandData.isCompleted(this)) {
 			for (Reward reward : rewards) {
-				if (!teamData.isRewardBlocked(reward) && teamData.getClaimType(player, reward) == RewardClaimType.CAN_CLAIM) {
+				if (!islandData.isRewardBlocked(reward) && islandData.getClaimType(player, reward) == RewardClaimType.CAN_CLAIM) {
 					return true;
 				}
 			}
@@ -1077,8 +1068,8 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 		dependantIDs.remove(id);
 	}
 
-	public boolean allTasksCompleted(TeamData teamData) {
-		return tasks.stream().allMatch(task -> teamData.getProgress(task) >= task.getMaxProgress());
+	public boolean allTasksCompleted(IslandData islandData) { // MODIFIED
+		return tasks.stream().allMatch(task -> islandData.getProgress(task) >= task.getMaxProgress());
 	}
 
 	public boolean hideDetailsUntilStartable() {
@@ -1122,12 +1113,12 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 		}
 	}
 
-	public boolean areDependenciesComplete(TeamData teamData) {
-		return checkDependencies(dep -> dependencyRequirement.needCompletion() ? teamData.isCompleted(dep) : teamData.isStarted(dep));
+	public boolean areDependenciesComplete(IslandData islandData) { // MODIFIED
+		return checkDependencies(dep -> dependencyRequirement.needCompletion() ? islandData.isCompleted(dep) : islandData.isStarted(dep));
 	}
 
-	public boolean areDependenciesVisible(TeamData teamData) {
-		return checkDependencies(dep -> dep.isVisible(teamData));
+	public boolean areDependenciesVisible(IslandData islandData) { // MODIFIED
+		return checkDependencies(dep -> dep.isVisible(islandData));
 	}
 
 	public List<Pair<Integer,Integer>> buildDescriptionIndex() {
@@ -1148,17 +1139,17 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 	}
 
 	@Override
-	public boolean isQuestObjectExcluded(TeamData teamData) {
+	public boolean isQuestObjectExcluded(IslandData islandData) { // MODIFIED
 		for (QuestObject qo : dependencies) {
             if (qo instanceof Quest quest) {
                 if (!quest.dependantIDs.isEmpty() && quest.maxCompletableDeps > 0) {
-                    long completed = quest.getDependants().stream().filter(teamData::isCompleted).count();
-                    if (completed >= quest.maxCompletableDeps && !teamData.isCompleted(this)) {
+                    long completed = quest.getDependants().stream().filter(islandData::isCompleted).count();
+                    if (completed >= quest.maxCompletableDeps && !islandData.isCompleted(this)) {
                         return true;
                     }
                 }
 				// note: this effectively recurses, but the results are cached in TeamData to avoid excessive recursion
-				return teamData.isExcludedByOtherQuestline(qo);
+				return islandData.isExcludedByOtherQuestline(qo);
 			}
 		}
 

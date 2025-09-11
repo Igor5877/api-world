@@ -8,12 +8,12 @@ public interface Excludable {
      *     <li>Any of those dependents has <code>maxCompletableDeps > 0</code></li>
      *     <li>Such dependents already have at least <code>maxCompletableDeps</code> dependencies completed</li>
      * </ol>
-     * <p>This should generally called via {@link TeamData#isExcludedByOtherQuestline(QuestObject)}, which handles caching
+     * <p>This should generally called via {@link IslandData#isExcludedByOtherQuestline(QuestObject)}, which handles caching
      * of the result for performance.</p>
-     * @param teamData the team to check
+     * @param islandData the team to check
      * @return true if the quest is excluded; it will not be shown (outside edit mode), progressable, or completable
      */
-    boolean isQuestObjectExcluded(TeamData teamData);
+    boolean isQuestObjectExcluded(IslandData islandData);
 
     long getId();
 }

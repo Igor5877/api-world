@@ -2,7 +2,7 @@ package dev.ftb.mods.ftbquests.block.fabric;
 
 import dev.ftb.mods.ftbquests.block.entity.TaskScreenBlockEntity;
 import dev.ftb.mods.ftbquests.integration.item_filtering.ItemMatchingSystem;
-import dev.ftb.mods.ftbquests.quest.TeamData;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.task.EnergyTask;
 import dev.ftb.mods.ftbquests.quest.task.FluidTask;
 import dev.ftb.mods.ftbquests.quest.task.ItemTask;
@@ -47,7 +47,7 @@ public class FabricTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         public long insert(ItemVariant insertedVariant, long maxAmount, TransactionContext transaction) {
-            TeamData data = getCachedTeamData();
+            IslandData data = getCachedIslandData();
             ItemStack stack = insertedVariant.toStack();
             if (getTask() instanceof ItemTask itemTask && data.canStartTasks(itemTask.getQuest())) {
                 // task.insert() handles testing the item is valid and the task isn't already completed
@@ -55,7 +55,7 @@ public class FabricTaskScreenBlockEntity extends TaskScreenBlockEntity {
                 int nAdded = stack.getCount() - res.getCount();
                 if (nAdded > 0) {
                     updateSnapshots(transaction);
-                    amount = getCachedTeamData().getProgress(itemTask) + nAdded;
+                    amount = getCachedIslandData().getProgress(itemTask) + nAdded;
                 }
                 return nAdded;
             }
@@ -65,12 +65,12 @@ public class FabricTaskScreenBlockEntity extends TaskScreenBlockEntity {
         @Override
         public long extract(ItemVariant extractedVariant, long maxAmount, TransactionContext transaction) {
             if (getTask() instanceof ItemTask itemTask && !isInputOnly() && !ItemMatchingSystem.INSTANCE.isItemFilter(itemTask.getItemStack())) {
-                TeamData data = getCachedTeamData();
+                IslandData data = getCachedIslandData();
                 if (data != null && data.canStartTasks(itemTask.getQuest()) && !data.isCompleted(itemTask)) {
                     int nRemoved = (int) Math.min(data.getProgress(itemTask), maxAmount);
                     if (nRemoved > 0) {
                         updateSnapshots(transaction);
-                        amount = getCachedTeamData().getProgress(itemTask) - nRemoved;
+                        amount = getCachedIslandData().getProgress(itemTask) - nRemoved;
                     }
                     return nRemoved;
                 }
@@ -80,8 +80,8 @@ public class FabricTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         protected void onFinalCommit() {
-            if (getTask() instanceof ItemTask itemTask && getCachedTeamData() != null) {
-                getCachedTeamData().setProgress(itemTask, amount);
+            if (getTask() instanceof ItemTask itemTask && getCachedIslandData() != null) {
+                getCachedIslandData().setProgress(itemTask, amount);
             }
         }
 
@@ -97,7 +97,7 @@ public class FabricTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         public long getAmount() {
-            return getTask() instanceof ItemTask itemTask && getCachedTeamData() != null ? getCachedTeamData().getProgress(itemTask) : 0L;
+            return getTask() instanceof ItemTask itemTask && getCachedIslandData() != null ? getCachedIslandData().getProgress(itemTask) : 0L;
         }
 
         @Override
@@ -120,7 +120,7 @@ public class FabricTaskScreenBlockEntity extends TaskScreenBlockEntity {
         @Override
         public long insert(FluidVariant insertedVariant, long maxAmount, TransactionContext transaction) {
             if (getTask() instanceof FluidTask fluidTask) {
-                TeamData data = getCachedTeamData();
+                IslandData data = getCachedIslandData();
                 if (data != null && data.canStartTasks(fluidTask.getQuest()) && !data.isCompleted(fluidTask) && fluidTask.getFluid() == insertedVariant.getFluid()) {
                     long curProgress = data.getProgress(fluidTask);
                     long space = fluidTask.getMaxProgress() - curProgress;
@@ -138,7 +138,7 @@ public class FabricTaskScreenBlockEntity extends TaskScreenBlockEntity {
         @Override
         public long extract(FluidVariant extractedVariant, long maxAmount, TransactionContext transaction) {
             if (getTask() instanceof FluidTask fluidTask) {
-                TeamData data = getCachedTeamData();
+                IslandData data = getCachedIslandData();
                 if (data != null && data.canStartTasks(fluidTask.getQuest()) && !data.isCompleted(fluidTask)) {
                     long curProgress = data.getProgress(fluidTask);
                     long toTake = Math.min(maxAmount, curProgress);
@@ -154,8 +154,8 @@ public class FabricTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         protected void onFinalCommit() {
-            if (getTask() instanceof FluidTask fluidTask && getCachedTeamData() != null) {
-                getCachedTeamData().setProgress(fluidTask, amount);
+            if (getTask() instanceof FluidTask fluidTask && getCachedIslandData() != null) {
+                getCachedIslandData().setProgress(fluidTask, amount);
             }
         }
 
@@ -171,7 +171,7 @@ public class FabricTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         public long getAmount() {
-            return getTask() instanceof FluidTask fluidTask && getCachedTeamData() != null ? getCachedTeamData().getProgress(fluidTask) : 0L;
+            return getTask() instanceof FluidTask fluidTask && getCachedIslandData() != null ? getCachedIslandData().getProgress(fluidTask) : 0L;
         }
     }
 
@@ -184,7 +184,7 @@ public class FabricTaskScreenBlockEntity extends TaskScreenBlockEntity {
         @Override
         public long insert(long maxAmount, TransactionContext transaction) {
             if (getTask() instanceof EnergyTask energyTask) {
-                TeamData data = getCachedTeamData();
+                IslandData data = getCachedIslandData();
                 if (data != null && data.canStartTasks(energyTask.getQuest()) && !data.isCompleted(energyTask)) {
                     long space = energyTask.getMaxProgress() - data.getProgress(energyTask);
                     long toAdd = Math.min(energyTask.getMaxInput(), Math.min(maxAmount, space));
@@ -200,8 +200,8 @@ public class FabricTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         protected void onFinalCommit() {
-            if (getTask() instanceof EnergyTask energyTask && getCachedTeamData() != null) {
-                getCachedTeamData().setProgress(energyTask, amount);
+            if (getTask() instanceof EnergyTask energyTask && getCachedIslandData() != null) {
+                getCachedIslandData().setProgress(energyTask, amount);
             }
         }
 
@@ -217,7 +217,7 @@ public class FabricTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         public long getAmount() {
-            return getTask() instanceof EnergyTask energyTask && getCachedTeamData() != null ? (int) getCachedTeamData().getProgress(energyTask) : 0L;
+            return getTask() instanceof EnergyTask energyTask && getCachedIslandData() != null ? (int) getCachedIslandData().getProgress(energyTask) : 0L;
         }
 
         @Override

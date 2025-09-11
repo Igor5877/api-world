@@ -192,7 +192,7 @@ public class FTBQuestsCommands {
 		if (qo instanceof Chapter) {
 			return true;
 		}
-		TeamData data = TeamData.get(player);
+		IslandData data = ServerQuestFile.INSTANCE.getOrCreateIslandData(player); // MODIFIED
 		Quest quest = null;
 		if (qo instanceof QuestLink link) {
 			quest = link.getQuest().orElse(null);
@@ -285,7 +285,7 @@ public class FTBQuestsCommands {
 	}
 
 	private static int editingMode(CommandSourceStack source, ServerPlayer player, @Nullable Boolean canEdit) {
-		TeamData data = ServerQuestFile.INSTANCE.getOrCreateTeamData(player);
+		IslandData data = ServerQuestFile.INSTANCE.getOrCreateIslandData(player); // MODIFIED
 
 		if (canEdit == null) {
 			canEdit = !data.getCanEdit(player);
@@ -302,7 +302,7 @@ public class FTBQuestsCommands {
 	}
 
 	private static int locked(CommandSourceStack source, ServerPlayer player, @Nullable Boolean locked) {
-		TeamData data = ServerQuestFile.INSTANCE.getOrCreateTeamData(player);
+		IslandData data = ServerQuestFile.INSTANCE.getOrCreateIslandData(player); // MODIFIED
 
 		if (locked == null) {
 			locked = !data.isLocked();
@@ -322,7 +322,7 @@ public class FTBQuestsCommands {
 		QuestObjectBase questObject = getQuestObjectForString(idStr);
 		for (ServerPlayer player : players) {
 			ProgressChange progressChange = new ProgressChange(ServerQuestFile.INSTANCE, questObject, player.getUUID()).setReset(reset);
-			questObject.forceProgress(ServerQuestFile.INSTANCE.getOrCreateTeamData(player), progressChange);
+			questObject.forceProgress(ServerQuestFile.INSTANCE.getOrCreateIslandData(player), progressChange); // MODIFIED
 		}
 
 		source.sendSuccess(() -> Component.translatable("commands.ftbquests.change_progress.text"), false);
@@ -410,7 +410,7 @@ public class FTBQuestsCommands {
 		ServerQuestFile instance = ServerQuestFile.INSTANCE;
 		ServerPlayer sender = source.getPlayer();
 
-		if (sender != null && !instance.getOrCreateTeamData(sender).getCanEdit(sender)) {
+		if (sender != null && !instance.getOrCreateIslandData(sender).getCanEdit(sender)) { // MODIFIED
 			source.sendFailure(Component.translatable("commands.ftbquests.command.error.not_editing"));
 			return 0;
 		}
@@ -431,7 +431,7 @@ public class FTBQuestsCommands {
 	}
 
 	private static int toggleRewardBlocking(CommandSourceStack source, ServerPlayer player, Boolean doBlocking) {
-		TeamData data = ServerQuestFile.INSTANCE.getOrCreateTeamData(player);
+		IslandData data = ServerQuestFile.INSTANCE.getOrCreateIslandData(player); // MODIFIED
 
 		if (doBlocking == null) {
 			doBlocking = !data.areRewardsBlocked();

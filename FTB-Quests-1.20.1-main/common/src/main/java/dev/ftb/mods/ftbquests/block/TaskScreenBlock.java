@@ -10,7 +10,6 @@ import dev.ftb.mods.ftbquests.net.TaskScreenConfigRequest;
 import dev.ftb.mods.ftbquests.quest.BaseQuestFile;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
 import dev.ftb.mods.ftbquests.quest.task.Task;
-import dev.ftb.mods.ftbteams.api.FTBTeamsAPI;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -112,7 +111,7 @@ public class TaskScreenBlock extends BaseEntityBlock {
 
         if (level.getBlockEntity(blockPos) instanceof TaskScreenBlockEntity coreScreen) {
             if (livingEntity instanceof ServerPlayer sp) {
-                coreScreen.setTeamId(ServerQuestFile.INSTANCE.getOrCreateTeamData(sp).getTeamId());
+                coreScreen.setTeamId(ServerQuestFile.INSTANCE.getOrCreateIslandData(sp).getTeamId());
             }
 
             Direction facing = blockState.getValue(FACING);
@@ -184,15 +183,8 @@ public class TaskScreenBlock extends BaseEntityBlock {
     }
 
     public static boolean hasPermissionToEdit(ServerPlayer player, ITaskScreen screen) {
-        // either the player must be the owner of the screen...
-        if (player.getUUID().equals(screen.getTeamId())) {
-            return true;
-        }
-
-        // ...or in the same team as the owner of the screen
-        return FTBTeamsAPI.api().getManager().getTeamByID(screen.getTeamId())
-                .map(team -> team.getRankForPlayer(player.getUUID()).isMemberOrBetter())
-                .orElse(false);
+        // This needs to be reimplemented with the new island/team provider
+        return player.getUUID().equals(screen.getTeamId());
     }
 
     /**

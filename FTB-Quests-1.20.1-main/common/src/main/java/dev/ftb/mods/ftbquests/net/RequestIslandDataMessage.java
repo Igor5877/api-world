@@ -3,20 +3,20 @@ package dev.ftb.mods.ftbquests.net;
 import dev.architectury.networking.NetworkManager;
 import dev.architectury.networking.simple.BaseC2SMessage;
 import dev.architectury.networking.simple.MessageType;
-import dev.ftb.mods.ftbquests.quest.TeamData;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 
-public class RequestTeamDataMessage extends BaseC2SMessage {
-    public RequestTeamDataMessage(FriendlyByteBuf buf) {
+public class RequestIslandDataMessage extends BaseC2SMessage {
+    public RequestIslandDataMessage(FriendlyByteBuf buf) {
     }
 
-    public RequestTeamDataMessage() {
+    public RequestIslandDataMessage() {
     }
 
     @Override
     public MessageType getType() {
-        return FTBQuestsNetHandler.REQUEST_TEAM_DATA;
+        return FTBQuestsNetHandler.REQUEST_ISLAND_DATA;
     }
 
     @Override
@@ -26,9 +26,9 @@ public class RequestTeamDataMessage extends BaseC2SMessage {
     @Override
     public void handle(NetworkManager.PacketContext context) {
         if (context.getPlayer() instanceof ServerPlayer serverPlayer) {
-            TeamData data = TeamData.get(serverPlayer);
+            IslandData data = IslandData.get(serverPlayer);
             if (data != null) {
-                new SyncTeamDataMessage(data, true).sendTo(serverPlayer);
+                new SyncIslandDataMessage(data, true).sendTo(serverPlayer);
             }
         }
     }

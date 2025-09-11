@@ -1,9 +1,9 @@
 package dev.ftb.mods.ftbquests.util;
 
 import dev.ftb.mods.ftbquests.quest.BaseQuestFile;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.QuestObjectBase;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.minecraft.network.FriendlyByteBuf;
 
 import java.util.Date;
@@ -43,9 +43,9 @@ public class ProgressChange {
 		buffer.writeBoolean(notifications);
 	}
 
-	public void maybeForceProgress(UUID teamId) {
+	public void maybeForceProgress(UUID islandId) {
 		if (origin != null) {
-			TeamData t = ServerQuestFile.INSTANCE.getOrCreateTeamData(teamId);
+			IslandData t = ServerQuestFile.INSTANCE.getOrCreateIslandData(islandId);
 			origin.forceProgressRaw(t, this);
 		}
 	}

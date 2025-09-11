@@ -15,8 +15,8 @@ import dev.ftb.mods.ftbquests.block.entity.TaskScreenBlockEntity;
 import dev.ftb.mods.ftbquests.item.FTBQuestsItems;
 import dev.ftb.mods.ftbquests.net.SetCustomImageMessage;
 import dev.ftb.mods.ftbquests.quest.BaseQuestFile;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.QuestObjectBase;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.theme.ThemeLoader;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -89,7 +89,7 @@ public class FTBQuestsClient {
 		return ClientQuestFile.exists();
 	}
 
-	public static TeamData getClientPlayerData() {
+	public static IslandData getClientPlayerData() {
 		return ClientQuestFile.INSTANCE.selfTeamData;
 	}
 
@@ -120,7 +120,7 @@ public class FTBQuestsClient {
 
 	public static void openScreenConfigGui(BlockPos pos) {
 		if (Minecraft.getInstance().level.getBlockEntity(pos) instanceof TaskScreenBlockEntity coreScreen) {
-			new EditConfigScreen(coreScreen.fillConfigGroup(ClientQuestFile.INSTANCE.getOrCreateTeamData(coreScreen.getTeamId()))).setAutoclose(true).openGui();
+			new EditConfigScreen(coreScreen.fillConfigGroup(ClientQuestFile.INSTANCE.getOrCreateIslandData(coreScreen.getTeamId()))).setAutoclose(true).openGui();
 		}
 	}
 

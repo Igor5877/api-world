@@ -1,20 +1,20 @@
 package dev.ftb.mods.ftbquests.net;
 
-import dev.ftb.mods.ftbquests.quest.TeamData;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import net.minecraft.network.FriendlyByteBuf;
 
 import java.util.UUID;
 
-public class TeamDataUpdate {
+public class IslandDataUpdate {
 	public final UUID uuid;
 	public final String name;
 
-	public TeamDataUpdate(FriendlyByteBuf buffer) {
+	public IslandDataUpdate(FriendlyByteBuf buffer) {
 		uuid = buffer.readUUID();
 		name = buffer.readUtf(Short.MAX_VALUE);
 	}
 
-	public TeamDataUpdate(TeamData data) {
+	public IslandDataUpdate(IslandData data) {
 		uuid = data.getTeamId();
 		name = data.getName();
 	}

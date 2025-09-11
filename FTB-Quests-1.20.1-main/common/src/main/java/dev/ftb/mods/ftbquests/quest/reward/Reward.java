@@ -170,7 +170,7 @@ public abstract class Reward extends QuestObjectBase {
 	public final void deleteSelf() {
 		quest.removeReward(this);
 
-		for (TeamData data : getQuestFile().getAllTeamData()) {
+		for (IslandData data : getQuestFile().getAllIslandData()) {
 			data.deleteReward(this);
 		}
 
@@ -179,7 +179,7 @@ public abstract class Reward extends QuestObjectBase {
 
 	@Override
 	public final void deleteChildren() {
-		for (TeamData data : getQuestFile().getAllTeamData()) {
+		for (IslandData data : getQuestFile().getAllIslandData()) {
 			data.deleteReward(this);
 		}
 
@@ -218,11 +218,11 @@ public abstract class Reward extends QuestObjectBase {
 	}
 
 	@Override
-	public final void forceProgress(TeamData teamData, ProgressChange progressChange) {
+	public final void forceProgress(IslandData islandData, ProgressChange progressChange) {
 		if (progressChange.shouldReset()) {
-			teamData.resetReward(progressChange.getPlayerId(), this);
+			islandData.resetReward(progressChange.getPlayerId(), this);
 		} else {
-			teamData.claimReward(progressChange.getPlayerId(), this, progressChange.getDate().getTime());
+			islandData.claimReward(progressChange.getPlayerId(), this, progressChange.getDate().getTime());
 		}
 	}
 

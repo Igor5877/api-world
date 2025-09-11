@@ -39,6 +39,6 @@ public class SyncQuestsMessage extends BaseS2CMessage {
 
 		ClientQuestFile.INSTANCE.updateLootCrates();
 
-		new RequestTeamDataMessage().sendToServer();
+		new RequestIslandDataMessage().sendToServer();
 	}
 }

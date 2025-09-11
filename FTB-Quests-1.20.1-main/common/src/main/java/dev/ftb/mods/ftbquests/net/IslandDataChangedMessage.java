@@ -9,23 +9,23 @@ import net.minecraft.network.FriendlyByteBuf;
 /**
  * @author LatvianModder
  */
-public class TeamDataChangedMessage extends BaseS2CMessage {
-	private final TeamDataUpdate oldDataUpdate;
-	private final TeamDataUpdate newDataUpdate;
+public class IslandDataChangedMessage extends BaseS2CMessage {
+	private final IslandDataUpdate oldDataUpdate;
+	private final IslandDataUpdate newDataUpdate;
 
-	TeamDataChangedMessage(FriendlyByteBuf buffer) {
-		oldDataUpdate = new TeamDataUpdate(buffer);
-		newDataUpdate = new TeamDataUpdate(buffer);
+	IslandDataChangedMessage(FriendlyByteBuf buffer) {
+		oldDataUpdate = new IslandDataUpdate(buffer);
+		newDataUpdate = new IslandDataUpdate(buffer);
 	}
 
-	public TeamDataChangedMessage(TeamDataUpdate oldData, TeamDataUpdate newData) {
+	public IslandDataChangedMessage(IslandDataUpdate oldData, IslandDataUpdate newData) {
 		oldDataUpdate = oldData;
 		newDataUpdate = newData;
 	}
 
 	@Override
 	public MessageType getType() {
-		return FTBQuestsNetHandler.TEAM_DATA_CHANGED;
+		return FTBQuestsNetHandler.ISLAND_DATA_CHANGED;
 	}
 
 	@Override
@@ -36,6 +36,6 @@ public class TeamDataChangedMessage extends BaseS2CMessage {
 
 	@Override
 	public void handle(NetworkManager.PacketContext context) {
-		FTBQuestsNetClient.teamDataChanged(oldDataUpdate, newDataUpdate);
+		FTBQuestsNetClient.islandDataChanged(oldDataUpdate, newDataUpdate);
 	}
 }

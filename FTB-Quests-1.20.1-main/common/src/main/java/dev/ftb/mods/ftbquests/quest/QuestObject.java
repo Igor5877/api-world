@@ -57,21 +57,21 @@ public abstract class QuestObject extends QuestObjectBase {
 	}
 
 	@Override
-	public void forceProgress(TeamData teamData, ProgressChange progressChange) {
+	public void forceProgress(IslandData islandData, ProgressChange progressChange) {
 		if (progressChange.shouldReset()) {
-			teamData.setStarted(id, null);
-			teamData.setCompleted(id, null);
+			islandData.setStarted(id, null);
+			islandData.setCompleted(id, null);
 		} else {
-			teamData.setStarted(id, progressChange.getDate());
-			teamData.setCompleted(id, progressChange.getDate());
+			islandData.setStarted(id, progressChange.getDate());
+			islandData.setCompleted(id, progressChange.getDate());
 		}
 
 		for (QuestObject child : getChildren()) {
-			child.forceProgress(teamData, progressChange);
+			child.forceProgress(islandData, progressChange);
 		}
 	}
 
-	public abstract int getRelativeProgressFromChildren(TeamData data);
+	public abstract int getRelativeProgressFromChildren(IslandData data);
 
 	public boolean cacheProgress() {
 		return true;
@@ -87,11 +87,11 @@ public abstract class QuestObject extends QuestObjectBase {
 		return Math.max(1, (int) (progressSum / (double) count));
 	}
 
-	public boolean isVisible(TeamData data) {
+	public boolean isVisible(IslandData data) {
 		return true;
 	}
 
-	public boolean isSearchable(TeamData data) {
+	public boolean isSearchable(IslandData data) {
 		return isVisible(data);
 	}
 
@@ -105,7 +105,7 @@ public abstract class QuestObject extends QuestObjectBase {
 	}
 
 	@Environment(EnvType.CLIENT)
-	public Color4I getProgressColor(TeamData data) {
+	public Color4I getProgressColor(IslandData data) {
 		if (data.isCompleted(this)) {
 			return ThemeProperties.QUEST_COMPLETED_COLOR.get();
 		} else if (data.isStarted(this)) {
@@ -116,7 +116,7 @@ public abstract class QuestObject extends QuestObjectBase {
 	}
 
 	@Environment(EnvType.CLIENT)
-	public Color4I getProgressColor(TeamData data, boolean dim) {
+	public Color4I getProgressColor(IslandData data, boolean dim) {
 		Color4I c = getProgressColor(data);
 		return dim ? c.addBrightness(-0.35F) : c;
 	}
@@ -125,7 +125,7 @@ public abstract class QuestObject extends QuestObjectBase {
 		return List.of();
 	}
 
-	public boolean isCompletedRaw(TeamData data) {
+	public boolean isCompletedRaw(IslandData data) {
 		int nOptional = 0;
 		int nCompleted = 0;
         for (QuestObject child : getChildren()) {
@@ -149,7 +149,7 @@ public abstract class QuestObject extends QuestObjectBase {
 		return false;
 	}
 
-	public boolean hasUnclaimedRewardsRaw(TeamData teamData, UUID player) {
+	public boolean hasUnclaimedRewardsRaw(IslandData islandData, UUID player) {
 		return false;
 	}
 }

@@ -17,8 +17,8 @@ import dev.ftb.mods.ftbquests.integration.item_filtering.ItemMatchingSystem;
 import dev.ftb.mods.ftbquests.item.FTBQuestsItems;
 import dev.ftb.mods.ftbquests.item.MissingItem;
 import dev.ftb.mods.ftbquests.net.FTBQuestsNetHandler;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
 import dev.ftb.mods.ftbquests.util.NBTUtils;
 import net.fabricmc.api.EnvType;
@@ -264,7 +264,7 @@ public class ItemTask extends Task implements Predicate<ItemStack> {
 	}
 
 	@Override
-	public void addMouseOverHeader(TooltipList list, TeamData teamData, boolean advanced) {
+	public void addMouseOverHeader(TooltipList list, IslandData islandData, boolean advanced) {
 		if (!rawTitle.isEmpty()) {
 			// task has had a custom title set, use that in preference to the item's tooltip
 			list.add(getTitle());
@@ -283,11 +283,11 @@ public class ItemTask extends Task implements Predicate<ItemStack> {
 
 	@Override
 	@Environment(EnvType.CLIENT)
-	public void addMouseOverText(TooltipList list, TeamData teamData) {
+	public void addMouseOverText(TooltipList list, IslandData islandData) {
 		if (taskScreenOnly) {
 			list.blankLine();
 			list.add(Component.translatable("ftbquests.task.task_screen_only").withStyle(ChatFormatting.YELLOW, ChatFormatting.UNDERLINE));
-		} else if (consumesResources() && !teamData.isCompleted(this)) {
+		} else if (consumesResources() && !islandData.isCompleted(this)) {
 			list.blankLine();
 			list.add(Component.translatable("ftbquests.task.click_to_submit").withStyle(ChatFormatting.YELLOW, ChatFormatting.UNDERLINE));
 		} else if (getValidDisplayItems().size() > 1) {
@@ -299,13 +299,13 @@ public class ItemTask extends Task implements Predicate<ItemStack> {
 		}
 	}
 
-	public ItemStack insert(TeamData teamData, ItemStack stack, boolean simulate) {
-		if (!teamData.isCompleted(this) && consumesResources() && test(stack)) {
-			long add = Math.min(stack.getCount(), count - teamData.getProgress(this));
+	public ItemStack insert(IslandData islandData, ItemStack stack, boolean simulate) {
+		if (!islandData.isCompleted(this) && consumesResources() && test(stack)) {
+			long add = Math.min(stack.getCount(), count - islandData.getProgress(this));
 
 			if (add > 0L) {
-				if (!simulate && teamData.getFile().isServerSide()) {
-					teamData.addProgress(this, add);
+				if (!simulate && islandData.getFile().isServerSide()) {
+					islandData.addProgress(this, add);
 				}
 
 				ItemStack copy = stack.copy();
@@ -329,23 +329,23 @@ public class ItemTask extends Task implements Predicate<ItemStack> {
 	}
 
 	@Override
-	public void submitTask(TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
-		if (taskScreenOnly || !checkTaskSequence(teamData) || teamData.isCompleted(this) || itemStack.getItem() instanceof MissingItem || craftedItem.getItem() instanceof MissingItem) {
+	public void submitTask(IslandData islandData, ServerPlayer player, ItemStack craftedItem) {
+		if (taskScreenOnly || !checkTaskSequence(islandData) || islandData.isCompleted(this) || itemStack.getItem() instanceof MissingItem || craftedItem.getItem() instanceof MissingItem) {
 			return;
 		}
 
 		if (!consumesResources()) {
 			if (onlyFromCrafting.get(false)) {
 				if (!craftedItem.isEmpty() && test(craftedItem)) {
-					teamData.addProgress(this, craftedItem.getCount());
+					islandData.addProgress(this, craftedItem.getCount());
 				}
 			} else {
 				var toCheck = ItemMatchingSystem.INSTANCE.isItemFilter(itemStack) ?
 						FTBQuestsInventoryListener.getAllNonEmptyStacksForPlayer() :
 						FTBQuestsInventoryListener.getStacksForPlayerOfType(itemStack.getItem());
 				long matchCount = countMatchingItems(toCheck);
-				if (matchCount > teamData.getProgress(this)) {
-					teamData.setProgress(this, matchCount);
+				if (matchCount > islandData.getProgress(this)) {
+					islandData.setProgress(this, matchCount);
 				}
 			}
 		} else if (craftedItem.isEmpty()) {
@@ -353,7 +353,7 @@ public class ItemTask extends Task implements Predicate<ItemStack> {
 
 			for (int i = 0; i < player.getInventory().items.size(); i++) {
 				ItemStack stack = player.getInventory().items.get(i);
-				ItemStack stack1 = insert(teamData, stack, false);
+				ItemStack stack1 = insert(islandData, stack, false);
 
 				if (stack != stack1) {
 					changed = true;

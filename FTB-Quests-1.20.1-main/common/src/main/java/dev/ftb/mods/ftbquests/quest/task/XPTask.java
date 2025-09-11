@@ -1,8 +1,8 @@
 package dev.ftb.mods.ftbquests.quest.task;
 
 import dev.ftb.mods.ftblibrary.config.ConfigGroup;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.ChatFormatting;
@@ -38,7 +38,7 @@ public class XPTask extends Task implements ISingleLongValueTask {
 	}
 
 	@Override
-	public String formatProgress(TeamData teamData, long progress) {
+	public String formatProgress(IslandData islandData, long progress) {
 		return Long.toUnsignedString(points && value <= Integer.MAX_VALUE ? getLevelForExperience((int) progress) : progress);
 	}
 
@@ -154,12 +154,12 @@ public class XPTask extends Task implements ISingleLongValueTask {
 	}
 
 	@Override
-	public void submitTask(TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
-		if (!checkTaskSequence(teamData)) {
+	public void submitTask(IslandData islandData, ServerPlayer player, ItemStack craftedItem) {
+		if (!checkTaskSequence(islandData)) {
 			return;
 		}
 
-		int add = (int) Math.min(points ? getPlayerXP(player) : player.experienceLevel, Math.min(value - teamData.getProgress(this), Integer.MAX_VALUE));
+		int add = (int) Math.min(points ? getPlayerXP(player) : player.experienceLevel, Math.min(value - islandData.getProgress(this), Integer.MAX_VALUE));
 
 		if (add <= 0) {
 			return;
@@ -172,6 +172,6 @@ public class XPTask extends Task implements ISingleLongValueTask {
 			player.giveExperienceLevels(-add);
 		}
 
-		teamData.addProgress(this, add);
+		islandData.addProgress(this, add);
 	}
 }

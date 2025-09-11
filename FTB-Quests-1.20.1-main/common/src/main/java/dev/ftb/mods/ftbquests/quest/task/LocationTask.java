@@ -1,8 +1,8 @@
 package dev.ftb.mods.ftbquests.quest.task;
 
 import dev.ftb.mods.ftblibrary.config.ConfigGroup;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.core.registries.Registries;
@@ -128,7 +128,7 @@ public class LocationTask extends AbstractBooleanTask {
 	}
 
 	@Override
-	public boolean canSubmit(TeamData teamData, ServerPlayer player) {
+	public boolean canSubmit(IslandData islandData, ServerPlayer player) {
 		if (ignoreDimension || dimension == player.level().dimension()) {
 			int py = Mth.floor(player.getY());
 

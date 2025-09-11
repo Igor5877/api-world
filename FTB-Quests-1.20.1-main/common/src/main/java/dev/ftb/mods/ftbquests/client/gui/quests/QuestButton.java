@@ -16,7 +16,14 @@ import dev.ftb.mods.ftbquests.client.gui.ContextMenuBuilder;
 import dev.ftb.mods.ftbquests.net.CreateObjectMessage;
 import dev.ftb.mods.ftbquests.net.DeleteObjectMessage;
 import dev.ftb.mods.ftbquests.net.EditObjectMessage;
-import dev.ftb.mods.ftbquests.quest.*;
+import dev.ftb.mods.ftbquests.quest.Chapter;
+import dev.ftb.mods.ftbquests.quest.IslandData;
+import dev.ftb.mods.ftbquests.quest.Movable;
+import dev.ftb.mods.ftbquests.quest.ProgressionMode;
+import dev.ftb.mods.ftbquests.quest.Quest;
+import dev.ftb.mods.ftbquests.quest.QuestObject;
+import dev.ftb.mods.ftbquests.quest.QuestObjectBase;
+import dev.ftb.mods.ftbquests.quest.QuestShape;
 import dev.ftb.mods.ftbquests.quest.reward.Reward;
 import dev.ftb.mods.ftbquests.quest.reward.RewardType;
 import dev.ftb.mods.ftbquests.quest.reward.RewardTypes;
@@ -332,17 +339,17 @@ public class QuestButton extends Button implements QuestPositionableButton {
 		Icon hiddenIcon = Color4I.empty();
 		Icon lockIcon = Color4I.empty();
 
-		TeamData teamData = questScreen.file.selfTeamData;
-		boolean isCompleted = teamData.isCompleted(quest);
-		boolean isStarted = isCompleted || teamData.isStarted(quest);
-		boolean canStart = isCompleted || isStarted || teamData.areDependenciesComplete(quest);
+		IslandData islandData = questScreen.file.selfTeamData;
+		boolean isCompleted = islandData.isCompleted(quest);
+		boolean isStarted = isCompleted || islandData.isStarted(quest);
+		boolean canStart = isCompleted || isStarted || islandData.areDependenciesComplete(quest);
 		Player player = Minecraft.getInstance().player;
 
 		if (canStart) {
 			if (isCompleted) {
-				if (teamData.hasUnclaimedRewards(player.getUUID(), quest)) {
+				if (islandData.hasUnclaimedRewards(player.getUUID(), quest)) {
 					questIcon = ThemeProperties.ALERT_ICON.get(quest);
-				} else if (teamData.isQuestPinned(player, quest.id)) {
+				} else if (islandData.isQuestPinned(player, quest.id)) {
 					questIcon = ThemeProperties.PIN_ICON_ON.get();
 				} else {
 					questIcon = ThemeProperties.CHECK_ICON.get(quest);
@@ -350,10 +357,10 @@ public class QuestButton extends Button implements QuestPositionableButton {
 
 				outlineColor = ThemeProperties.QUEST_COMPLETED_COLOR.get(quest);
 			} else if (isStarted) {
-				if (teamData.areDependenciesComplete(quest)) {
+				if (islandData.areDependenciesComplete(quest)) {
 					outlineColor = ThemeProperties.QUEST_STARTED_COLOR.get(quest);
 				}
-				if (quest.getProgressionMode() == ProgressionMode.FLEXIBLE && quest.allTasksCompleted(teamData)) {
+				if (quest.getProgressionMode() == ProgressionMode.FLEXIBLE && quest.allTasksCompleted(islandData)) {
 					questIcon = new ThemeProperties.CheckIcon(Color4I.rgb(0x606060), Color4I.rgb(0x808080));
 				}
 			}
@@ -361,10 +368,10 @@ public class QuestButton extends Button implements QuestPositionableButton {
 			outlineColor = ThemeProperties.QUEST_LOCKED_COLOR.get(quest);
 		}
 
-		if (questIcon == Color4I.empty() && teamData.isQuestPinned(player, quest.id)) {
+		if (questIcon == Color4I.empty() && islandData.isQuestPinned(player, quest.id)) {
 			questIcon = ThemeProperties.PIN_ICON_ON.get();
 		}
-		if (questScreen.file.canEdit() && !quest.isVisible(teamData)) {
+		if (questScreen.file.canEdit() && !quest.isVisible(islandData)) {
 			hiddenIcon = ThemeProperties.HIDDEN_ICON.get();
 		}
 
@@ -400,7 +407,7 @@ public class QuestButton extends Button implements QuestPositionableButton {
 			poseStack.popPose();
 		}
 
-		if (!canStart || !teamData.areDependenciesComplete(quest)) {
+		if (!canStart || !islandData.areDependenciesComplete(quest)) {
 			if (shape.shouldDraw()) {
 				shape.getShape().withColor(Color4I.BLACK.withAlpha(100)).draw(graphics, x, y, w, h);
 			}

@@ -3,9 +3,9 @@ package dev.ftb.mods.ftbquests.quest.task;
 import dev.architectury.hooks.level.entity.PlayerHooks;
 import dev.ftb.mods.ftblibrary.config.ConfigGroup;
 import dev.ftb.mods.ftblibrary.integration.stages.StageHelper;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.ChatFormatting;
@@ -73,7 +73,7 @@ public class StageTask extends AbstractBooleanTask {
 	}
 
 	@Override
-	public boolean canSubmit(TeamData teamData, ServerPlayer player) {
+	public boolean canSubmit(IslandData islandData, ServerPlayer player) {
 		return StageHelper.INSTANCE.getProvider().has(player, stage);
 	}
 
@@ -81,7 +81,7 @@ public class StageTask extends AbstractBooleanTask {
 	public static void checkStages(ServerPlayer player) {
 		// hook for FTB XMod Compat to call into
 
-		TeamData data = ServerQuestFile.INSTANCE == null || PlayerHooks.isFake(player) ? null : ServerQuestFile.INSTANCE.getOrCreateTeamData(player);
+		IslandData data = ServerQuestFile.INSTANCE == null || PlayerHooks.isFake(player) ? null : ServerQuestFile.INSTANCE.getOrCreateIslandData(player);
 
 		if (data == null || data.isLocked()) {
 			return;

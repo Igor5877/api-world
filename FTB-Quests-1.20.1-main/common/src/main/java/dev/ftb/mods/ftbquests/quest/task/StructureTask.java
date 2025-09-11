@@ -4,8 +4,8 @@ import com.mojang.datafixers.util.Either;
 import dev.ftb.mods.ftblibrary.config.ConfigGroup;
 import dev.ftb.mods.ftblibrary.config.NameMap;
 import dev.ftb.mods.ftbquests.net.SyncStructuresRequestMessage;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.ChatFormatting;
@@ -105,7 +105,7 @@ public class StructureTask extends AbstractBooleanTask {
 	}
 
 	@Override
-	public boolean canSubmit(TeamData teamData, ServerPlayer player) {
+	public boolean canSubmit(IslandData islandData, ServerPlayer player) {
 		if (player.isSpectator()) return false;
 
 		ServerLevel level = (ServerLevel) player.level();

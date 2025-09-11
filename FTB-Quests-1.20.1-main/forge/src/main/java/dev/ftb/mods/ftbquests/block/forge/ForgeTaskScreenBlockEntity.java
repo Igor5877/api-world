@@ -3,7 +3,7 @@ package dev.ftb.mods.ftbquests.block.forge;
 import dev.ftb.mods.ftbquests.block.TaskScreenBlock;
 import dev.ftb.mods.ftbquests.block.entity.TaskScreenBlockEntity;
 import dev.ftb.mods.ftbquests.integration.item_filtering.ItemMatchingSystem;
-import dev.ftb.mods.ftbquests.quest.TeamData;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.task.FluidTask;
 import dev.ftb.mods.ftbquests.quest.task.ItemTask;
 import dev.ftb.mods.ftbquests.quest.task.forge.ForgeEnergyTask;
@@ -81,14 +81,14 @@ public class ForgeTaskScreenBlockEntity extends TaskScreenBlockEntity {
         public ItemStack getStackInSlot(int slot) {
             // slot 1 is always empty - see above
             return getTask() instanceof ItemTask t && slot == 0 ?
-                    ItemHandlerHelper.copyStackWithSize(t.getItemStack(), (int) Math.min(getCachedTeamData().getProgress(t), t.getItemStack().getMaxStackSize())) :
+                    ItemHandlerHelper.copyStackWithSize(t.getItemStack(), (int) Math.min(getCachedIslandData().getProgress(t), t.getItemStack().getMaxStackSize())) :
                     ItemStack.EMPTY;
         }
 
         @NotNull
         @Override
         public ItemStack insertItem(int slot, @NotNull ItemStack stack, boolean simulate) {
-            TeamData data = getCachedTeamData();
+            IslandData data = getCachedIslandData();
             if (getTask() instanceof ItemTask task && data.canStartTasks(task.getQuest())) {
                 // task.insert() handles testing the item is valid and the task isn't already completed
                 return task.insert(data, stack, simulate);
@@ -100,7 +100,7 @@ public class ForgeTaskScreenBlockEntity extends TaskScreenBlockEntity {
         @Override
         public ItemStack extractItem(int slot, int count, boolean simulate) {
             if (!isInputOnly() && getTask() instanceof ItemTask task && !ItemMatchingSystem.INSTANCE.isItemFilter(task.getItemStack())) {
-                TeamData data = getCachedTeamData();
+                IslandData data = getCachedIslandData();
                 if (data != null && data.canStartTasks(task.getQuest()) && !data.isCompleted(task)) {
                     int itemsRemoved = (int) Math.min(data.getProgress(task), count);
                     if (!simulate) {
@@ -132,7 +132,7 @@ public class ForgeTaskScreenBlockEntity extends TaskScreenBlockEntity {
         @NotNull
         @Override
         public FluidStack getFluidInTank(int tank) {
-            return tank == 0 && getTask() instanceof FluidTask task ? new FluidStack(task.getFluid(), (int) getCachedTeamData().getProgress(task)) : FluidStack.EMPTY;
+            return tank == 0 && getTask() instanceof FluidTask task ? new FluidStack(task.getFluid(), (int) getCachedIslandData().getProgress(task)) : FluidStack.EMPTY;
         }
 
         @Override
@@ -150,7 +150,7 @@ public class ForgeTaskScreenBlockEntity extends TaskScreenBlockEntity {
         @Override
         public int fill(FluidStack fluidStack, FluidAction fluidAction) {
             if (getTask() instanceof FluidTask task && isFluidValid(0, fluidStack)) {
-                TeamData data = getCachedTeamData();
+                IslandData data = getCachedIslandData();
                 if (data != null && data.canStartTasks(task.getQuest()) && !data.isCompleted(task)) {
                     long space = task.getMaxProgress() - data.getProgress(task);
                     long toAdd = Math.min(fluidStack.getAmount(), space);
@@ -175,7 +175,7 @@ public class ForgeTaskScreenBlockEntity extends TaskScreenBlockEntity {
         @Override
         public FluidStack drain(int maxDrain, FluidAction fluidAction) {
             if (getTask() instanceof FluidTask task) {
-                TeamData data = getCachedTeamData();
+                IslandData data = getCachedIslandData();
                 if (data != null && data.canStartTasks(task.getQuest()) && !data.isCompleted(task)) {
                     long toTake = Math.min(maxDrain, data.getProgress(task));
                     if (fluidAction.execute()) {
@@ -194,7 +194,7 @@ public class ForgeTaskScreenBlockEntity extends TaskScreenBlockEntity {
         @Override
         public int receiveEnergy(int amount, boolean simulate) {
             if (getTask() instanceof ForgeEnergyTask task) {
-                TeamData data = getCachedTeamData();
+                IslandData data = getCachedIslandData();
                 if (data != null && data.canStartTasks(task.getQuest()) && !data.isCompleted(task)) {
                     long space = task.getMaxProgress() - data.getProgress(task);
                     long toAdd = Math.min(task.getMaxInput(), Math.min(amount, space));
@@ -214,7 +214,7 @@ public class ForgeTaskScreenBlockEntity extends TaskScreenBlockEntity {
 
         @Override
         public int getEnergyStored() {
-            return getTask() instanceof ForgeEnergyTask task ? (int) getCachedTeamData().getProgress(task) : 0;
+            return getTask() instanceof ForgeEnergyTask task ? (int) getCachedIslandData().getProgress(task) : 0;
         }
 
         @Override

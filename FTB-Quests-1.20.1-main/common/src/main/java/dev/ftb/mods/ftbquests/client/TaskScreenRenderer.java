@@ -11,7 +11,7 @@ import dev.ftb.mods.ftblibrary.icon.ItemIcon;
 import dev.ftb.mods.ftbquests.api.FTBQuestsAPI;
 import dev.ftb.mods.ftbquests.block.TaskScreenBlock;
 import dev.ftb.mods.ftbquests.block.entity.TaskScreenBlockEntity;
-import dev.ftb.mods.ftbquests.quest.TeamData;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.task.EnergyTask;
 import dev.ftb.mods.ftbquests.quest.task.FluidTask;
 import dev.ftb.mods.ftbquests.quest.task.Task;
@@ -60,7 +60,7 @@ public class TaskScreenRenderer implements BlockEntityRenderer<TaskScreenBlockEn
     public void render(TaskScreenBlockEntity taskScreen, float partialTicks, PoseStack poseStack, MultiBufferSource multiBufferSource, int combinedLight, int combinedOverlay) {
         if (!ClientQuestFile.exists() || !(taskScreen.getBlockState().getBlock() instanceof TaskScreenBlock taskScreenBlock)) return;
 
-        TeamData data = ClientQuestFile.INSTANCE.getNullableTeamData(taskScreen.getTeamId());
+        IslandData data = ClientQuestFile.INSTANCE.getNullableIslandData(taskScreen.getTeamId());
         Task task = taskScreen.getTask();
         if (task == null || data == null) return;
 
@@ -133,7 +133,7 @@ public class TaskScreenRenderer implements BlockEntityRenderer<TaskScreenBlockEn
     }
 
     // FIXME: FTB Library should handle this, but its 3d icon rendering needs rewriting (it doesn't properly use MultiBufferSource)
-    private void drawTaskIcon(TaskScreenBlockEntity taskScreen, TeamData data, Icon icon, PoseStack poseStack, MultiBufferSource buffer) {
+    private void drawTaskIcon(TaskScreenBlockEntity taskScreen, IslandData data, Icon icon, PoseStack poseStack, MultiBufferSource buffer) {
         VertexConsumer vertexConsumer = buffer.getBuffer(RenderType.text(InventoryMenu.BLOCK_ATLAS));
 
         Task task = taskScreen.getTask();

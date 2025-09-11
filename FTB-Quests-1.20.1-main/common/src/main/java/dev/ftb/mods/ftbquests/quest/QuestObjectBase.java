@@ -162,20 +162,20 @@ public abstract class QuestObjectBase implements Comparable<QuestObjectBase> {
 		return !tags.isEmpty() && getTags().contains(tag);
 	}
 
-	public void forceProgress(TeamData teamData, ProgressChange progressChange) {
+	public void forceProgress(IslandData islandData, ProgressChange progressChange) {
 	}
 
-	public final void forceProgressRaw(TeamData teamData, ProgressChange progressChange) {
-		if (teamData.isLocked()) {
+	public final void forceProgressRaw(IslandData islandData, ProgressChange progressChange) {
+		if (islandData.isLocked()) {
 			return;
 		}
 
-		teamData.clearCachedProgress();
+		islandData.clearCachedProgress();
 		sendNotifications = progressChange.shouldNotify() ? Tristate.TRUE : Tristate.FALSE;
-		forceProgress(teamData, progressChange);
+		forceProgress(islandData, progressChange);
 		sendNotifications = Tristate.DEFAULT;
-		teamData.clearCachedProgress();
-		teamData.markDirty();
+		islandData.clearCachedProgress();
+		islandData.markDirty();
 	}
 
 	@Nullable

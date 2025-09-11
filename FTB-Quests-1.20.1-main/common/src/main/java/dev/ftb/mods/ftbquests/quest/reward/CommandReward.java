@@ -2,7 +2,6 @@ package dev.ftb.mods.ftbquests.quest.reward;
 
 import dev.ftb.mods.ftblibrary.config.ConfigGroup;
 import dev.ftb.mods.ftbquests.quest.Quest;
-import dev.ftb.mods.ftbteams.api.FTBTeamsAPI;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.ChatFormatting;
@@ -97,13 +96,13 @@ public class CommandReward extends Reward {
 		}
 
 		overrides.put("quest", quest);
-		FTBTeamsAPI.api().getManager().getTeamForPlayer(player).ifPresent(team -> {
-			overrides.put("team", team.getName().getString());
-			overrides.put("team_id", team.getShortName());
-			overrides.put("long_team_id", team.getId().toString());
-			overrides.put("member_count", team.getMembers().size());
-			overrides.put("online_member_count", team.getOnlineMembers().size());
-		});
+		// FTBTeamsAPI.api().getManager().getTeamForPlayer(player).ifPresent(team -> {
+		// 	overrides.put("team", team.getName().getString());
+		// 	overrides.put("team_id", team.getShortName());
+		// 	overrides.put("long_team_id", team.getId().toString());
+		// 	overrides.put("member_count", team.getMembers().size());
+		// 	overrides.put("online_member_count", team.getOnlineMembers().size());
+		// });
 
 		String cmd = format(command.trim(), overrides);
 

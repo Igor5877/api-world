@@ -6,8 +6,8 @@ import dev.ftb.mods.ftblibrary.config.NameMap;
 import dev.ftb.mods.ftblibrary.icon.Icon;
 import dev.ftb.mods.ftblibrary.icon.ItemIcon;
 import dev.ftb.mods.ftblibrary.ui.Button;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -107,9 +107,9 @@ public class KillTask extends Task {
 	public void onButtonClicked(Button button, boolean canClick) {
 	}
 
-	public void kill(TeamData teamData, LivingEntity e) {
-		if (!teamData.isCompleted(this) && entity.equals(RegistrarManager.getId(e.getType(), Registries.ENTITY_TYPE))) {
-			teamData.addProgress(this, 1L);
+	public void kill(IslandData islandData, LivingEntity e) {
+		if (!islandData.isCompleted(this) && entity.equals(RegistrarManager.getId(e.getType(), Registries.ENTITY_TYPE))) {
+			islandData.addProgress(this, 1L);
 		}
 	}
 }

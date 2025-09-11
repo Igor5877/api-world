@@ -75,7 +75,7 @@ public abstract class Task extends QuestObject {
 	public abstract TaskType getType();
 
 	@Override
-	public final int getRelativeProgressFromChildren(TeamData data) {
+	public final int getRelativeProgressFromChildren(IslandData data) { // MODIFIED
 		long max = getMaxProgress();
 
 		if (max <= 0L) {
@@ -105,7 +105,7 @@ public abstract class Task extends QuestObject {
 		data.setCompleted(id);
 		ObjectCompletedEvent.TASK.invoker().act(new ObjectCompletedEvent.TaskEvent(data.withObject(this)));
 
-		boolean questCompleted = quest.isCompletedRaw(data.getTeamData());
+		boolean questCompleted = quest.isCompletedRaw(data.getIslandData()); // MODIFIED
 
 		if (quest.getTasks().size() > 1 && !questCompleted && !disableToast) {
 			data.notifyPlayers(id);
@@ -129,20 +129,20 @@ public abstract class Task extends QuestObject {
 		return StringUtils.formatDouble(getMaxProgress(), true);
 	}
 
-	public String formatProgress(TeamData teamData, long progress) {
+	public String formatProgress(IslandData islandData, long progress) { // MODIFIED
 		return StringUtils.formatDouble(progress, true);
 	}
 
 	@Override
-	public final void forceProgress(TeamData teamData, ProgressChange progressChange) {
-		teamData.setProgress(this, progressChange.shouldReset() ? 0L : getMaxProgress());
+	public final void forceProgress(IslandData islandData, ProgressChange progressChange) { // MODIFIED
+		islandData.setProgress(this, progressChange.shouldReset() ? 0L : getMaxProgress());
 	}
 
 	@Override
 	public final void deleteSelf() {
 		quest.removeTask(this);
 
-		for (TeamData data : quest.getChapter().file.getAllTeamData()) {
+		for (IslandData data : quest.getChapter().file.getAllIslandData()) { // MODIFIED
 			data.resetProgress(this);
 		}
 
@@ -151,7 +151,7 @@ public abstract class Task extends QuestObject {
 
 	@Override
 	public final void deleteChildren() {
-		for (TeamData data : quest.getChapter().file.getAllTeamData()) {
+		for (IslandData data : quest.getChapter().file.getAllIslandData()) { // MODIFIED
 			data.resetProgress(this);
 		}
 
@@ -198,7 +198,7 @@ public abstract class Task extends QuestObject {
 	}
 
 	@Environment(EnvType.CLIENT)
-	public void drawGUI(TeamData teamData, GuiGraphics graphics, int x, int y, int w, int h) {
+	public void drawGUI(IslandData islandData, GuiGraphics graphics, int x, int y, int w, int h) { // MODIFIED
 		getIcon().draw(graphics, x, y, w, h);
 	}
 
@@ -214,24 +214,13 @@ public abstract class Task extends QuestObject {
 		return getMaxProgress() <= 1L;
 	}
 
-	/**
-	 * Called before any progress information is added to the task tooltip
-	 * @param list list to append text to
-	 * @param teamData the team / player data
-	 * @param advanced true for advanced tooltips (when F3+H is in use)
-	 */
 	@Environment(EnvType.CLIENT)
-	public void addMouseOverHeader(TooltipList list, TeamData teamData, boolean advanced) {
+	public void addMouseOverHeader(TooltipList list, IslandData islandData, boolean advanced) { // MODIFIED
 		list.add(getTitle());
 	}
 
-	/**
-	 * Called after any progress information is added to the task tooltip
-	 * @param list list to append text to
-	 * @param teamData the team / player data
-	 */
 	@Environment(EnvType.CLIENT)
-	public void addMouseOverText(TooltipList list, TeamData teamData) {
+	public void addMouseOverText(TooltipList list, IslandData islandData) { // MODIFIED
 		if (consumesResources()) {
 			list.blankLine();
 			list.add(Component.translatable("ftbquests.task.click_to_submit").withStyle(ChatFormatting.YELLOW, ChatFormatting.UNDERLINE));
@@ -282,18 +271,18 @@ public abstract class Task extends QuestObject {
 		return false;
 	}
 
-	public void submitTask(TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
+	public void submitTask(IslandData islandData, ServerPlayer player, ItemStack craftedItem) { // MODIFIED
 	}
 
-	public final void submitTask(TeamData teamData, ServerPlayer player) {
-		submitTask(teamData, player, ItemStack.EMPTY);
+	public final void submitTask(IslandData islandData, ServerPlayer player) { // MODIFIED
+		submitTask(islandData, player, ItemStack.EMPTY);
 	}
 
-	protected final boolean checkTaskSequence(TeamData teamData) {
+	protected final boolean checkTaskSequence(IslandData islandData) { // MODIFIED
 		if (quest.getRequireSequentialTasks()) {
 			List<Task> tasks = quest.getTasksAsList();
 			int idx = tasks.indexOf(this);
-			return idx >= 0 && (idx == 0 || teamData.isCompleted(tasks.get(idx - 1)));
+			return idx >= 0 && (idx == 0 || islandData.isCompleted(tasks.get(idx - 1)));
 		} else {
 			return true;
 		}

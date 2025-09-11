@@ -1,7 +1,7 @@
 package dev.ftb.mods.ftbquests.events;
 
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.QuestObject;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.Date;
@@ -22,8 +22,8 @@ public abstract class ObjectProgressEvent<T extends QuestObject> {
         return data.getTime();
     }
 
-    public TeamData getData() {
-        return data.getTeamData();
+    public IslandData getIslandData() {
+        return data.getIslandData();
     }
 
     public T getObject() {

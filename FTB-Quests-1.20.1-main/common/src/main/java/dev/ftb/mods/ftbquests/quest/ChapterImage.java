@@ -324,8 +324,8 @@ public final class ChapterImage implements Movable {
 		return copy;
 	}
 
-	public boolean shouldShowImage(TeamData teamData) {
-		return !editorsOnly && (dependency == null || teamData.isCompleted(dependency));
+	public boolean shouldShowImage(IslandData islandData) {
+		return !editorsOnly && (dependency == null || islandData.isCompleted(dependency));
 	}
 
 	public static boolean isImageInClipboard() {

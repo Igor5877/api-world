@@ -2,9 +2,9 @@ package dev.ftb.mods.ftbquests.quest.task;
 
 import dev.ftb.mods.ftblibrary.ui.Button;
 import dev.ftb.mods.ftbquests.net.SubmitTaskMessage;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
 import dev.ftb.mods.ftbquests.quest.QuestObjectBase;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.network.FriendlyByteBuf;
@@ -87,9 +87,9 @@ public class CustomTask extends Task {
 	}
 
 	@Override
-	public void submitTask(TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
-		if (check != null && checkTaskSequence(teamData) && !teamData.isCompleted(this)) {
-			check.check(new Data(this, teamData), player);
+	public void submitTask(IslandData islandData, ServerPlayer player, ItemStack craftedItem) {
+		if (check != null && checkTaskSequence(islandData) && !islandData.isCompleted(this)) {
+			check.check(new Data(this, islandData), player);
 		}
 	}
 
@@ -98,17 +98,17 @@ public class CustomTask extends Task {
 		return false;
 	}
 
-	public record Data(CustomTask task, TeamData teamData) {
+	public record Data(CustomTask task, IslandData islandData) {
 		public long getProgress() {
-			return teamData.getProgress(task);
+			return islandData.getProgress(task);
 		}
 
 		public void setProgress(long l) {
-			teamData.setProgress(task, l);
+			islandData.setProgress(task, l);
 		}
 
 		public void addProgress(long l) {
-			teamData.addProgress(task, l);
+			islandData.addProgress(task, l);
 		}
 	}
 

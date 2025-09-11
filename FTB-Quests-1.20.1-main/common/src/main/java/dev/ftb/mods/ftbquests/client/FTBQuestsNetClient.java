@@ -8,7 +8,7 @@ import dev.ftb.mods.ftblibrary.util.client.ClientUtils;
 import dev.ftb.mods.ftbquests.FTBQuests;
 import dev.ftb.mods.ftbquests.client.gui.*;
 import dev.ftb.mods.ftbquests.client.gui.quests.QuestScreen;
-import dev.ftb.mods.ftbquests.net.TeamDataUpdate;
+import dev.ftb.mods.ftbquests.net.IslandDataUpdate;
 import dev.ftb.mods.ftbquests.quest.*;
 import dev.ftb.mods.ftbquests.quest.reward.Reward;
 import dev.ftb.mods.ftbquests.quest.task.Task;
@@ -24,7 +24,7 @@ import java.util.Date;
 import java.util.UUID;
 
 public class FTBQuestsNetClient {
-	public static void syncTeamData(boolean self, TeamData data) {
+	public static void syncIslandData(boolean self, IslandData data) {
 		ClientQuestFile.INSTANCE.addData(data, true);
 
 		if (self) {
@@ -32,14 +32,14 @@ public class FTBQuestsNetClient {
 		}
 	}
 
-	public static void claimReward(UUID teamId, UUID player, long rewardId) {
+	public static void claimReward(UUID islandId, UUID player, long rewardId) {
 		Reward reward = ClientQuestFile.INSTANCE.getReward(rewardId);
 
 		if (reward == null) {
 			return;
 		}
 
-		TeamData data = ClientQuestFile.INSTANCE.getOrCreateTeamData(teamId);
+		IslandData data = ClientQuestFile.INSTANCE.getOrCreateIslandData(islandId);
 		data.claimReward(player, reward, System.currentTimeMillis());
 
 		if (data == ClientQuestFile.INSTANCE.selfTeamData) {
@@ -72,16 +72,16 @@ public class FTBQuestsNetClient {
 		}
 	}
 
-	public static void createOtherTeamData(TeamDataUpdate dataUpdate) {
+	public static void createOtherIslandData(IslandDataUpdate dataUpdate) {
 		if (ClientQuestFile.INSTANCE != null) {
-			TeamData data = new TeamData(dataUpdate.uuid, ClientQuestFile.INSTANCE, dataUpdate.name);
+			IslandData data = new IslandData(dataUpdate.uuid, ClientQuestFile.INSTANCE, dataUpdate.name);
 			ClientQuestFile.INSTANCE.addData(data, true);
 		}
 	}
 
-	public static void teamDataChanged(TeamDataUpdate oldDataUpdate, TeamDataUpdate newDataUpdate) {
+	public static void islandDataChanged(IslandDataUpdate oldDataUpdate, IslandDataUpdate newDataUpdate) {
 		if (ClientQuestFile.INSTANCE != null) {
-			TeamData data = new TeamData(newDataUpdate.uuid, ClientQuestFile.INSTANCE, newDataUpdate.name);
+			IslandData data = new IslandData(newDataUpdate.uuid, ClientQuestFile.INSTANCE, newDataUpdate.name);
 			ClientQuestFile.INSTANCE.addData(data, false);
 		}
 	}
@@ -166,15 +166,15 @@ public class FTBQuestsNetClient {
 		}
 	}
 
-	public static void syncEditingMode(UUID teamId, boolean editingMode) {
-		if (ClientQuestFile.INSTANCE.getOrCreateTeamData(teamId).setCanEdit(Minecraft.getInstance().player, editingMode)) {
+	public static void syncEditingMode(UUID islandId, boolean editingMode) {
+		if (ClientQuestFile.INSTANCE.getOrCreateIslandData(islandId).setCanEdit(Minecraft.getInstance().player, editingMode)) {
 			setEditorPermission(editingMode);
 			ClientQuestFile.INSTANCE.refreshGui();
 		}
 	}
 
 	public static void togglePinned(long id, boolean pinned) {
-		TeamData data = FTBQuestsClient.getClientPlayerData();
+		IslandData data = FTBQuestsClient.getClientPlayerData();
 		data.setQuestPinned(Minecraft.getInstance().player, id, pinned);
 
 		ClientQuestFile.INSTANCE.getQuestScreen().ifPresent(questScreen -> {
@@ -183,16 +183,16 @@ public class FTBQuestsNetClient {
 		});
 	}
 
-	public static void updateTeamData(UUID teamId, String name) {
-		TeamData data = ClientQuestFile.INSTANCE.getOrCreateTeamData(teamId);
+	public static void updateIslandData(UUID islandId, String name) {
+		IslandData data = ClientQuestFile.INSTANCE.getOrCreateIslandData(islandId);
 		data.setName(name);
 	}
 
-	public static void updateTaskProgress(UUID teamId, long task, long progress) {
+	public static void updateTaskProgress(UUID islandId, long task, long progress) {
 		Task t = ClientQuestFile.INSTANCE.getTask(task);
 
 		if (t != null) {
-			TeamData data = ClientQuestFile.INSTANCE.getOrCreateTeamData(teamId);
+			IslandData data = ClientQuestFile.INSTANCE.getOrCreateIslandData(islandId);
 			ClientQuestFile.INSTANCE.clearCachedProgress();
 			data.setProgress(t, progress);
 		}
@@ -217,16 +217,16 @@ public class FTBQuestsNetClient {
 		ClientQuestFile.INSTANCE.moveChapterGroup(id, movingUp);
 	}
 
-	public static void objectStarted(UUID teamId, long id, @Nullable Date time) {
-		TeamData teamData = ClientQuestFile.INSTANCE.getOrCreateTeamData(teamId);
-		teamData.setStarted(id, time);
+	public static void objectStarted(UUID islandId, long id, @Nullable Date time) {
+		IslandData islandData = ClientQuestFile.INSTANCE.getOrCreateIslandData(islandId);
+		islandData.setStarted(id, time);
 
 		refreshQuestScreenIfOpen();
 	}
 
-	public static void objectCompleted(UUID teamId, long id, @Nullable Date time) {
-		TeamData teamData = ClientQuestFile.INSTANCE.getOrCreateTeamData(teamId);
-		teamData.setCompleted(id, time);
+	public static void objectCompleted(UUID islandId, long id, @Nullable Date time) {
+		IslandData islandData = ClientQuestFile.INSTANCE.getOrCreateIslandData(islandId);
+		islandData.setCompleted(id, time);
 
 		refreshQuestScreenIfOpen();
 
@@ -234,17 +234,17 @@ public class FTBQuestsNetClient {
 	}
 
 	public static void syncLock(UUID id, boolean lock) {
-		if (ClientQuestFile.INSTANCE.getOrCreateTeamData(id).setLocked(lock)) {
+		if (ClientQuestFile.INSTANCE.getOrCreateIslandData(id).setLocked(lock)) {
 			ClientQuestFile.INSTANCE.refreshGui();
 		}
 	}
 
-	public static void resetReward(UUID teamId, UUID player, long rewardId) {
+	public static void resetReward(UUID islandId, UUID player, long rewardId) {
 		Reward reward = ClientQuestFile.INSTANCE.getReward(rewardId);
         if (reward != null) {
-            TeamData teamData = ClientQuestFile.INSTANCE.getOrCreateTeamData(teamId);
+            IslandData islandData = ClientQuestFile.INSTANCE.getOrCreateIslandData(islandId);
 
-            if (teamData.resetReward(player, reward)) {
+            if (islandData.resetReward(player, reward)) {
                 refreshQuestScreenIfOpen();
             }
         }
@@ -263,8 +263,8 @@ public class FTBQuestsNetClient {
 		ClientQuestFile.INSTANCE.getQuestScreen().ifPresent(QuestScreen::refreshChapterPanel);
 	}
 
-	public static void syncRewardBlocking(UUID teamId, boolean rewardsBlocked) {
-		if (ClientQuestFile.INSTANCE.getOrCreateTeamData(teamId).setRewardsBlocked(rewardsBlocked)) {
+	public static void syncRewardBlocking(UUID islandId, boolean rewardsBlocked) {
+		if (ClientQuestFile.INSTANCE.getOrCreateIslandData(islandId).setRewardsBlocked(rewardsBlocked)) {
 			ClientQuestFile.INSTANCE.refreshGui();
 		}
 	}

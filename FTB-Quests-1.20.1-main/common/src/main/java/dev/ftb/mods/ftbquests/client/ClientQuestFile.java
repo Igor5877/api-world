@@ -8,15 +8,10 @@ import dev.ftb.mods.ftbquests.FTBQuests;
 import dev.ftb.mods.ftbquests.client.gui.CustomToast;
 import dev.ftb.mods.ftbquests.client.gui.quests.QuestScreen;
 import dev.ftb.mods.ftbquests.net.DeleteObjectMessage;
-import dev.ftb.mods.ftbquests.quest.BaseQuestFile;
-import dev.ftb.mods.ftbquests.quest.Quest;
-import dev.ftb.mods.ftbquests.quest.QuestObject;
-import dev.ftb.mods.ftbquests.quest.TeamData;
+import dev.ftb.mods.ftbquests.quest.*;
 import dev.ftb.mods.ftbquests.quest.task.StructureTask;
 import dev.ftb.mods.ftbquests.quest.theme.QuestTheme;
 import dev.ftb.mods.ftbquests.util.TextUtils;
-import dev.ftb.mods.ftbteams.api.FTBTeamsAPI;
-import dev.ftb.mods.ftbteams.api.client.KnownClientPlayer;
 import net.minecraft.ChatFormatting;
 import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
@@ -27,17 +22,18 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 public class ClientQuestFile extends BaseQuestFile {
 	private static final List<String> MISSING_DATA_ERR = List.of(
 			"Unable to open Quest GUI: no quest book data received from server!",
-			"- Check that FTB Quests and FTB Teams are installed on the server",
+			"- Check that FTB Quests is installed on the server", // MODIFIED
 			"  and that no server-side errors were logged when you connected."
 	);
 
 	public static ClientQuestFile INSTANCE;
 
-	public TeamData selfTeamData;  // TeamData for the player on this client
+	public IslandData selfTeamData;  // MODIFIED
 	public boolean isGuestMode = false;
 
 	private QuestScreen questScreen;
@@ -64,7 +60,7 @@ public class ClientQuestFile extends BaseQuestFile {
 	}
 
 	private void onReplaced() {
-		selfTeamData = new TeamData(Util.NIL_UUID, INSTANCE, "Loading...");
+		selfTeamData = new IslandData(Util.NIL_UUID, INSTANCE, "Loading..."); // MODIFIED
 		selfTeamData.setLocked(true);
 
 		refreshGui();
@@ -151,10 +147,13 @@ public class ClientQuestFile extends BaseQuestFile {
 	}
 
 	@Override
-	public TeamData getOrCreateTeamData(Entity player) {
-		KnownClientPlayer kcp = FTBTeamsAPI.api().getClientManager().getKnownPlayer(player.getUUID())
-				.orElseThrow(() -> new RuntimeException("Unknown client player " + player.getUUID()));
-		return kcp.id().equals(Minecraft.getInstance().player.getUUID()) ? selfTeamData : getOrCreateTeamData(kcp.teamId());
+	public IslandData getOrCreateIslandData(Entity player) { // MODIFIED
+		// This will need to be implemented properly with the new island provider
+		if (player.getUUID().equals(Minecraft.getInstance().player.getUUID())) {
+			return selfTeamData;
+		}
+		// For now, just create a temporary object for other players
+		return getOrCreateIslandData(player.getUUID());
 	}
 
 	public void setPersistedScreenInfo(QuestScreen.PersistedData persistedData) {
@@ -170,10 +169,11 @@ public class ClientQuestFile extends BaseQuestFile {
 	}
 
 	@Override
-	public boolean isPlayerOnTeam(Player player, TeamData teamData) {
-		return FTBTeamsAPI.api().getClientManager().getKnownPlayer(player.getUUID())
-				.map(kcp -> kcp.teamId().equals(teamData.getTeamId()))
-				.orElse(false);
+	public boolean isPlayerOnTeam(Player player, IslandData islandData) { // MODIFIED
+		// This will need to be implemented properly with the new island provider
+		// For now, assume a player is on their own island
+		IslandData playerData = getOrCreateIslandData(player);
+		return playerData != null && playerData.getTeamId().equals(islandData.getTeamId());
 	}
 
 	@Override

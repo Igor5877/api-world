@@ -19,8 +19,8 @@ import dev.ftb.mods.ftbquests.item.FTBQuestsItems;
 import dev.ftb.mods.ftbquests.item.LootCrateItem;
 import dev.ftb.mods.ftbquests.net.SubmitTaskMessage;
 import dev.ftb.mods.ftbquests.quest.BaseQuestFile;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.loot.LootCrate;
 import dev.ftb.mods.ftbquests.quest.task.ObservationTask;
 import dev.ftb.mods.ftbquests.quest.task.StructureTask;
@@ -168,7 +168,7 @@ public class FTBQuestsClientEventHandler {
 
 			currentlyObserving = null;
 
-			TeamData selfTeamData = ClientQuestFile.INSTANCE.selfTeamData;
+			IslandData selfTeamData = ClientQuestFile.INSTANCE.selfTeamData;
 			if (mc.hitResult != null && mc.hitResult.getType() != HitResult.Type.MISS) {
 				for (ObservationTask task : observationTasks) {
 					if (!selfTeamData.isCompleted(task) && task.observe(mc.player, mc.hitResult)
@@ -208,12 +208,12 @@ public class FTBQuestsClientEventHandler {
 	}
 
 	private void collectPinnedQuests(ClientQuestFile file) {
-		TeamData data = file.selfTeamData;
+		IslandData data = file.selfTeamData;
 
 		List<Quest> pinnedQuests = new ArrayList<>();
 		LongSet pinnedIds = data.getPinnedQuestIds(FTBQuestsClient.getClientPlayer());
 		if (!pinnedIds.isEmpty()) {
-			if (pinnedIds.contains(TeamData.AUTO_PIN_ID)) {
+			if (pinnedIds.contains(IslandData.AUTO_PIN_ID)) {
 				// special auto-pin value: collect all quests which can be done now
 				file.forAllQuests(quest -> {
 					if (!data.isCompleted(quest) && data.canStartTasks(quest)) {

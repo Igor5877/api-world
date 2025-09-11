@@ -2,8 +2,8 @@ package dev.ftb.mods.ftbquests.quest.task;
 
 import dev.ftb.mods.ftblibrary.config.ConfigGroup;
 import dev.ftb.mods.ftblibrary.config.NameMap;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -47,7 +47,7 @@ public class StatTask extends Task {
 	}
 
 	@Override
-	public String formatProgress(TeamData teamData, long progress) {
+	public String formatProgress(IslandData islandData, long progress) {
 		return Long.toUnsignedString(progress);
 	}
 
@@ -102,8 +102,8 @@ public class StatTask extends Task {
 	}
 
 	@Override
-	public void submitTask(TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
-		if (teamData.isCompleted(this) || !checkTaskSequence(teamData)) {
+	public void submitTask(IslandData islandData, ServerPlayer player, ItemStack craftedItem) {
+		if (islandData.isCompleted(this) || !checkTaskSequence(islandData)) {
 			return;
 		}
 
@@ -116,8 +116,8 @@ public class StatTask extends Task {
 		if (statId != null) {
 			// could be null, if someone brought an FTB Quests save from a different world and the stat's missing here
 			int set = Math.min(value, player.getStats().getValue(Stats.CUSTOM.get(statId)));
-			if (set > teamData.getProgress(this)) {
-				teamData.setProgress(this, set);
+			if (set > islandData.getProgress(this)) {
+				islandData.setProgress(this, set);
 			}
 		}
 	}

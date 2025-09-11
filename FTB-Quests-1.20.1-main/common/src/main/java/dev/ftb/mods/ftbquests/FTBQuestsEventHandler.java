@@ -10,17 +10,13 @@ import dev.ftb.mods.ftbquests.command.FTBQuestsCommands;
 import dev.ftb.mods.ftbquests.events.ClearFileCacheEvent;
 import dev.ftb.mods.ftbquests.item.FTBQuestsItems;
 import dev.ftb.mods.ftbquests.quest.BaseQuestFile;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.task.DimensionTask;
 import dev.ftb.mods.ftbquests.quest.task.KillTask;
 import dev.ftb.mods.ftbquests.quest.task.Task;
 import dev.ftb.mods.ftbquests.util.DeferredInventoryDetection;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
-import dev.ftb.mods.ftbteams.api.event.PlayerChangedTeamEvent;
-import dev.ftb.mods.ftbteams.api.event.PlayerLoggedInAfterTeamEvent;
-import dev.ftb.mods.ftbteams.api.event.TeamCreatedEvent;
-import dev.ftb.mods.ftbteams.api.event.TeamEvent;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -56,9 +52,6 @@ public enum FTBQuestsEventHandler {
 		FTBQuestsItems.register();
 		FTBQuestsBlockEntities.register();
 		ClearFileCacheEvent.EVENT.register(this::fileCacheClear);
-		// TeamEvent.PLAYER_LOGGED_IN.register(this::playerLoggedIn);
-		// TeamEvent.CREATED.register(this::teamCreated);
-		// TeamEvent.PLAYER_CHANGED.register(this::playerChangedTeam);
 		EntityEvent.LIVING_DEATH.register(this::playerKill);
 		TickEvent.PLAYER_POST.register(this::playerTick);
 		PlayerEvent.CRAFT_ITEM.register(this::itemCrafted);
@@ -100,18 +93,6 @@ public enum FTBQuestsEventHandler {
 		}
 	}
 
-	private void playerLoggedIn(PlayerLoggedInAfterTeamEvent event) {
-		ServerQuestFile.INSTANCE.playerLoggedIn(event);
-	}
-
-	private void teamCreated(TeamCreatedEvent event) {
-		ServerQuestFile.INSTANCE.teamCreated(event);
-	}
-
-	private void playerChangedTeam(PlayerChangedTeamEvent event) {
-		ServerQuestFile.INSTANCE.playerChangedTeam(event);
-	}
-
 	private EventResult playerKill(LivingEntity entity, DamageSource source) {
 		if (source.getEntity() instanceof ServerPlayer player && !PlayerHooks.isFake(player)) {
 			if (killTasks == null) {
@@ -122,7 +103,7 @@ public enum FTBQuestsEventHandler {
 				return EventResult.pass();
 			}
 
-			TeamData data = ServerQuestFile.INSTANCE.getOrCreateTeamData(player);
+			IslandData data = ServerQuestFile.INSTANCE.getOrCreateIslandData(player);
 
 			for (KillTask task : killTasks) {
 				if (data.getProgress(task) < task.getMaxProgress() && data.canStartTasks(task.getQuest())) {
@@ -147,7 +128,7 @@ public enum FTBQuestsEventHandler {
 				return;
 			}
 
-			TeamData data = file.getOrCreateTeamData(player);
+			IslandData data = file.getOrCreateIslandData(player);
 
 			if (data.isLocked()) {
 				return;
@@ -207,7 +188,7 @@ public enum FTBQuestsEventHandler {
 	private void changedDimension(ServerPlayer player, ResourceKey<Level> oldLevel, ResourceKey<Level> newLevel) {
 		if (!PlayerHooks.isFake(player)) {
 			ServerQuestFile file = ServerQuestFile.INSTANCE;
-			TeamData data = file.getOrCreateTeamData(player);
+			IslandData data = file.getOrCreateIslandData(player);
 
 			if (data.isLocked()) {
 				return;

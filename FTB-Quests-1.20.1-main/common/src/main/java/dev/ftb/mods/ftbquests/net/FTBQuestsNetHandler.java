@@ -11,14 +11,14 @@ public interface FTBQuestsNetHandler {
 	SimpleNetworkManager NET = SimpleNetworkManager.create(FTBQuestsAPI.MOD_ID);
 
 	MessageType SYNC_QUESTS = NET.registerS2C("sync_quests", SyncQuestsMessage::new);
-	MessageType SYNC_TEAM_DATA = NET.registerS2C("sync_team_data", SyncTeamDataMessage::new);
+	MessageType SYNC_ISLAND_DATA = NET.registerS2C("sync_island_data", SyncIslandDataMessage::new);
 	MessageType UPDATE_TASK_PROGRESS = NET.registerS2C("update_task_progress", UpdateTaskProgressMessage::new);
 	MessageType SUBMIT_TASK = NET.registerC2S("submit_task", SubmitTaskMessage::new);
 	MessageType CLAIM_REWARD = NET.registerC2S("claim_reward", ClaimRewardMessage::new);
 	MessageType CLAIM_REWARD_RESPONSE = NET.registerS2C("claim_reward_response", ClaimRewardResponseMessage::new);
 	MessageType SYNC_EDITING_MODE = NET.registerS2C("sync_editing_mode", SyncEditingModeMessage::new);
 	MessageType GET_EMERGENCY_ITEMS = NET.registerC2S("get_emergency_items", GetEmergencyItemsMessage::new);
-	MessageType CREATE_OTHER_TEAM_DATA = NET.registerS2C("create_other_team_data", CreateOtherTeamDataMessage::new);
+	MessageType CREATE_OTHER_ISLAND_DATA = NET.registerS2C("create_other_island_data", CreateOtherIslandDataMessage::new);
 	MessageType CLAIM_ALL_REWARDS = NET.registerC2S("claim_all_rewards", ClaimAllRewardsMessage::new);
 	MessageType CLAIM_CHOICE_REWARD = NET.registerC2S("claim_choice_reward", ClaimChoiceRewardMessage::new);
 	MessageType DISPLAY_COMPLETION_TOAST = NET.registerS2C("display_completion_toast", DisplayCompletionToastMessage::new);
@@ -30,7 +30,7 @@ public interface FTBQuestsNetHandler {
 	MessageType TOGGLE_CHAPTER_PINNED_RESPONSE = NET.registerS2C("toggle_chapter_pinned_response", ToggleChapterPinnedResponseMessage::new);
 	MessageType TOGGLE_EDITING_MODE = NET.registerC2S("toggle_editing_mode", ToggleEditingModeMessage::new);
 	MessageType FORCE_SAVE = NET.registerC2S("force_save", ForceSaveMessage::new);
-	MessageType UPDATE_TEAM_DATA = NET.registerS2C("update_team_data", UpdateTeamDataMessage::new);
+	MessageType UPDATE_ISLAND_DATA = NET.registerS2C("update_island_data", UpdateIslandDataMessage::new);
 	MessageType SET_CUSTOM_IMAGE = NET.registerC2S("set_custom_image", SetCustomImageMessage::new);
 	MessageType OBJECT_STARTED = NET.registerS2C("object_started", ObjectStartedMessage::new);
 	MessageType OBJECT_COMPLETED = NET.registerS2C("object_completed", ObjectCompletedMessage::new);
@@ -38,7 +38,7 @@ public interface FTBQuestsNetHandler {
 	MessageType OBJECT_COMPLETED_RESET = NET.registerS2C("object_completed_reset", ObjectCompletedResetMessage::new);
 	MessageType SYNC_LOCK = NET.registerS2C("sync_lock", SyncLockMessage::new);
 	MessageType RESET_REWARD = NET.registerS2C("reset_reward", ResetRewardMessage::new);
-	MessageType TEAM_DATA_CHANGED = NET.registerS2C("team_data_changed", TeamDataChangedMessage::new);
+	MessageType ISLAND_DATA_CHANGED = NET.registerS2C("island_data_changed", IslandDataChangedMessage::new);
 	MessageType TASK_SCREEN_CONFIG_REQ = NET.registerS2C("task_screen_config_req", TaskScreenConfigRequest::new);
 	MessageType TASK_SCREEN_CONFIG_RESP = NET.registerC2S("task_screen_config_resp", TaskScreenConfigResponse::new);
 
@@ -63,7 +63,7 @@ public interface FTBQuestsNetHandler {
 	MessageType COPY_CHAPTER_IMAGE = NET.registerC2S("copy_chapter_image", CopyChapterImageMessage::new);
 	MessageType SYNC_STRUCTURES_REQUEST = NET.registerC2S("sync_structures_request", SyncStructuresRequestMessage::new);
 	MessageType SYNC_STRUCTURES_RESPONSE = NET.registerS2C("sync_structures_response", SyncStructuresResponseMessage::new);
-	MessageType REQUEST_TEAM_DATA = NET.registerC2S("request_team_data", RequestTeamDataMessage::new);
+	MessageType REQUEST_ISLAND_DATA = NET.registerC2S("request_island_data", RequestIslandDataMessage::new);
 	MessageType SYNC_EDITOR_PERMISSION = NET.registerS2C("sync_editor_permission", SyncEditorPermissionMessage::new);
 	MessageType OPEN_QUEST_BOOK = NET.registerS2C("open_quest_book", OpenQuestBookMessage::new);
 	MessageType CLEAR_DISPLAY_CACHE = NET.registerS2C("clear_display_cache", ClearDisplayCacheMessage::new);

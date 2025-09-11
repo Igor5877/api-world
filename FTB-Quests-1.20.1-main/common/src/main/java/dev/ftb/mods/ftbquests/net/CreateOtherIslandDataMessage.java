@@ -9,20 +9,20 @@ import net.minecraft.network.FriendlyByteBuf;
 /**
  * @author LatvianModder
  */
-public class CreateOtherTeamDataMessage extends BaseS2CMessage {
-	private final TeamDataUpdate dataUpdate;
+public class CreateOtherIslandDataMessage extends BaseS2CMessage {
+	private final IslandDataUpdate dataUpdate;
 
-	CreateOtherTeamDataMessage(FriendlyByteBuf buffer) {
-		dataUpdate = new TeamDataUpdate(buffer);
+	CreateOtherIslandDataMessage(FriendlyByteBuf buffer) {
+		dataUpdate = new IslandDataUpdate(buffer);
 	}
 
-	public CreateOtherTeamDataMessage(TeamDataUpdate update) {
+	public CreateOtherIslandDataMessage(IslandDataUpdate update) {
 		dataUpdate = update;
 	}
 
 	@Override
 	public MessageType getType() {
-		return FTBQuestsNetHandler.CREATE_OTHER_TEAM_DATA;
+		return FTBQuestsNetHandler.CREATE_OTHER_ISLAND_DATA;
 	}
 
 	@Override
@@ -32,6 +32,6 @@ public class CreateOtherTeamDataMessage extends BaseS2CMessage {
 
 	@Override
 	public void handle(NetworkManager.PacketContext context) {
-		FTBQuestsNetClient.createOtherTeamData(dataUpdate);
+		FTBQuestsNetClient.createOtherIslandData(dataUpdate);
 	}
 }

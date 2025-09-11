@@ -302,7 +302,7 @@ public final class Chapter extends QuestObject {
 	}
 
 	@Override
-	public int getRelativeProgressFromChildren(TeamData data) {
+	public int getRelativeProgressFromChildren(IslandData data) {
 		if (alwaysInvisible) {
 			return 100;
 		}
@@ -333,7 +333,7 @@ public final class Chapter extends QuestObject {
 		data.setStarted(id);
 		ObjectStartedEvent.CHAPTER.invoker().act(new ObjectStartedEvent.ChapterEvent(data.withObject(this)));
 
-		if (!data.getTeamData().isStarted(file)) {
+		if (!data.getIslandData().isStarted(file)) {
 			file.onStarted(data.withObject(file));
 		}
 	}
@@ -349,11 +349,11 @@ public final class Chapter extends QuestObject {
 
 		file.forAllQuests(quest -> {
 			if (quest.hasDependency(this)) {
-				data.getTeamData().checkAutoCompletion(quest);
+				data.getIslandData().checkAutoCompletion(quest);
 			}
 		});
 
-		if (group.isCompletedRaw(data.getTeamData())) {
+		if (group.isCompletedRaw(data.getIslandData())) {
 			group.onCompleted(data.withObject(group));
 		}
 	}
@@ -458,7 +458,7 @@ public final class Chapter extends QuestObject {
 	}
 
 	@Override
-	public boolean isVisible(TeamData data) {
+	public boolean isVisible(IslandData data) {
 		return !alwaysInvisible
 				&& (quests.isEmpty() || quests.stream().anyMatch(quest -> quest.isVisible(data)))
 				&& (questLinks.isEmpty() || questLinks.stream().anyMatch(link -> link.isVisible(data)));
@@ -502,9 +502,9 @@ public final class Chapter extends QuestObject {
 	}
 
 	@Override
-	public boolean hasUnclaimedRewardsRaw(TeamData teamData, UUID player) {
+	public boolean hasUnclaimedRewardsRaw(IslandData islandData, UUID player) {
 		for (Quest quest : quests) {
-			if (teamData.hasUnclaimedRewards(player, quest)) {
+			if (islandData.hasUnclaimedRewards(player, quest)) {
 				return true;
 			}
 		}

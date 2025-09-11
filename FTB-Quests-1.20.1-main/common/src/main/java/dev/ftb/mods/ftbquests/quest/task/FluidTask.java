@@ -12,8 +12,8 @@ import dev.ftb.mods.ftblibrary.util.StringUtils;
 import dev.ftb.mods.ftblibrary.util.client.ClientUtils;
 import dev.ftb.mods.ftblibrary.util.client.PositionedIngredient;
 import dev.ftb.mods.ftbquests.api.FTBQuestsAPI;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
@@ -68,7 +68,7 @@ public class FluidTask extends Task {
 	}
 
 	@Override
-	public String formatProgress(TeamData teamData, long progress) {
+	public String formatProgress(IslandData islandData, long progress) {
 		return getVolumeString((int) Math.min(Integer.MAX_VALUE, progress));
 	}
 

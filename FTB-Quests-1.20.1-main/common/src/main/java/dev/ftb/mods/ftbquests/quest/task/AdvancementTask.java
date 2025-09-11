@@ -5,8 +5,8 @@ import dev.ftb.mods.ftblibrary.config.NameMap;
 import dev.ftb.mods.ftblibrary.icon.Icon;
 import dev.ftb.mods.ftblibrary.icon.ItemIcon;
 import dev.ftb.mods.ftblibrary.util.KnownServerRegistries;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.ChatFormatting;
@@ -112,7 +112,7 @@ public class AdvancementTask extends AbstractBooleanTask {
 	}
 
 	@Override
-	public boolean canSubmit(TeamData teamData, ServerPlayer player) {
+	public boolean canSubmit(IslandData islandData, ServerPlayer player) {
 		Advancement a = player.server.getAdvancements().getAdvancement(advancement);
 
 		if (a == null) {

@@ -14,7 +14,7 @@ import dev.ftb.mods.ftbquests.quest.reward.RewardTypes;
 import dev.ftb.mods.ftbquests.quest.task.Task;
 import dev.ftb.mods.ftbquests.quest.task.TaskType;
 import dev.ftb.mods.ftbquests.quest.task.TaskTypes;
-import com.skyblockdynamic.nestworld.mods.NestworldModsServer;
+import com.skyblock.dynamic.nestworld.mods.NestworldModsServer;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
 import dev.ftb.mods.ftbquests.util.FileUtils;
 import net.minecraft.server.MinecraftServer;
@@ -80,7 +80,7 @@ public class ServerQuestFile extends BaseQuestFile {
 					if (nbt != null) {
 						try {
 							UUID uuid = UUIDTypeAdapter.fromString(nbt.getString("uuid"));
-							TeamData data = new TeamData(uuid, this);
+							IslandData data = new IslandData(uuid, this);
 							addData(data, true);
 							data.deserializeNBT(nbt);
 						} catch (Exception ex) {
@@ -135,7 +135,7 @@ public class ServerQuestFile extends BaseQuestFile {
 			shouldSave = false;
 		}
 
-		getAllTeamData().forEach(TeamData::saveIfChanged);
+		getAllIslandData().forEach(IslandData::saveIfChanged);
 	}
 
 	public void unload() {
@@ -158,10 +158,10 @@ public class ServerQuestFile extends BaseQuestFile {
 	}
 
 	@Override
-	public boolean isPlayerOnTeam(Player player, TeamData teamData) {
+	public boolean isPlayerOnTeam(Player player, IslandData islandData) {
 		// Replaced with call to our cached provider
 		UUID playerTeamId = NestworldModsServer.TEAM_PROVIDER.getCachedTeamId(player.getUUID());
-		return playerTeamId != null && playerTeamId.equals(teamData.getTeamId());
+		return playerTeamId != null && playerTeamId.equals(islandData.getTeamId());
 	}
 
 	@Override

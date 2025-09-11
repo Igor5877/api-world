@@ -1,9 +1,9 @@
 package dev.ftb.mods.ftbquests.block.entity;
 
 import dev.architectury.hooks.level.entity.PlayerHooks;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.QuestObjectBase;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.util.ProgressChange;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -48,7 +48,7 @@ public class DetectorBlockEntity extends BlockEntity {
 		if (qo != null) {
 			AABB box = new AABB(pos).inflate(radius);
 			for (ServerPlayer player : level.getEntitiesOfClass(ServerPlayer.class, box, DetectorBlockEntity::isRealPlayer)) {
-				TeamData data = ServerQuestFile.INSTANCE.getOrCreateTeamData(player);
+				IslandData data = ServerQuestFile.INSTANCE.getOrCreateIslandData(player);
 				qo.forceProgressRaw(data, new ProgressChange(ServerQuestFile.INSTANCE, qo, player.getUUID()).setReset(false).withNotifications());
 			}
 		}

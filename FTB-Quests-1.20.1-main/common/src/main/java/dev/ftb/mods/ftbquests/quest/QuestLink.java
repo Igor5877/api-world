@@ -54,12 +54,12 @@ public class QuestLink extends QuestObject implements Movable, Excludable {
     }
 
     @Override
-    public boolean isVisible(TeamData data) {
+	public boolean isVisible(IslandData data) {
         return getQuest().map(q -> q.isVisible(data)).orElse(false);
     }
 
     @Override
-    public int getRelativeProgressFromChildren(TeamData data) {
+	public int getRelativeProgressFromChildren(IslandData data) {
         return 0;
     }
 
@@ -226,7 +226,7 @@ public class QuestLink extends QuestObject implements Movable, Excludable {
     }
 
     @Override
-    public boolean isQuestObjectExcluded(TeamData teamData) {
-        return getQuest().map(q -> q.isQuestObjectExcluded(teamData)).orElse(false);
+	public boolean isQuestObjectExcluded(IslandData islandData) {
+		return getQuest().map(q -> q.isQuestObjectExcluded(islandData)).orElse(false);
     }
 }

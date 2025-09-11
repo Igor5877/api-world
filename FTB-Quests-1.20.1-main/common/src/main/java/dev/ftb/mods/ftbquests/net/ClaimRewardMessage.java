@@ -3,8 +3,8 @@ package dev.ftb.mods.ftbquests.net;
 import dev.architectury.networking.NetworkManager;
 import dev.architectury.networking.simple.BaseC2SMessage;
 import dev.architectury.networking.simple.MessageType;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.reward.Reward;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
@@ -43,10 +43,10 @@ public class ClaimRewardMessage extends BaseC2SMessage {
 
 		if (reward != null) {
 			ServerPlayer player = (ServerPlayer) context.getPlayer();
-			TeamData teamData = ServerQuestFile.INSTANCE.getOrCreateTeamData(player);
+			IslandData islandData = ServerQuestFile.INSTANCE.getOrCreateIslandData(player);
 
-			if (teamData.isCompleted(reward.getQuest())) {
-				teamData.claimReward(player, reward, notify);
+			if (islandData.isCompleted(reward.getQuest())) {
+				islandData.claimReward(player, reward, notify);
 			}
 		}
 	}

@@ -13,8 +13,8 @@ import dev.ftb.mods.ftbquests.quest.reward.RewardClaimType;
 import dev.ftb.mods.ftbquests.quest.task.Task;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
 import dev.ftb.mods.ftbquests.util.QuestKey;
-import dev.ftb.mods.ftbteams.api.FTBTeamsAPI;
-import dev.ftb.mods.ftbteams.api.Team;
+// import dev.ftb.mods.ftbteams.api.FTBTeamsAPI; // REMOVED
+// import dev.ftb.mods.ftbteams.api.Team; // REMOVED
 import it.unimi.dsi.fastutil.longs.*;
 import it.unimi.dsi.fastutil.objects.*;
 import net.minecraft.nbt.CompoundTag;
@@ -32,7 +32,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class TeamData {
+public class IslandData { // RENAMED CLASS
 	public static final int VERSION = 1;
 	public static final int AUTO_PIN_ID = 1;
 
@@ -43,7 +43,7 @@ public class TeamData {
 	private static final Comparator<Long2LongMap.Entry> LONG2LONG_COMPARATOR = (e1, e2) -> Long.compareUnsigned(e1.getLongValue(), e2.getLongValue());
 	private static final Comparator<Object2LongMap.Entry<QuestKey>> OBJECT2LONG_COMPARATOR = (e1, e2) -> Long.compareUnsigned(e1.getLongValue(), e2.getLongValue());
 
-	private final UUID teamId;
+	private final UUID islandId; // RENAMED FIELD
 	private final BaseQuestFile file;
 
 	private String name;
@@ -62,12 +62,12 @@ public class TeamData {
 	private final Object2ByteMap<QuestKey> unclaimedRewardsCache;
 	private final Long2BooleanMap exclusionCache;
 
-	public TeamData(UUID teamId, BaseQuestFile file) {
-		this(teamId, file, "");
+	public IslandData(UUID islandId, BaseQuestFile file) { // MODIFIED CONSTRUCTOR
+		this(islandId, file, "");
 	}
 
-	public TeamData(UUID teamId, BaseQuestFile file, String name) {
-		this.teamId = teamId;
+	public IslandData(UUID islandId, BaseQuestFile file, String name) { // MODIFIED CONSTRUCTOR
+		this.islandId = islandId;
 		this.file = file;
 		this.name = name;
 
@@ -88,16 +88,16 @@ public class TeamData {
 		exclusionCache = new Long2BooleanOpenHashMap();
 	}
 
-	public UUID getTeamId() {
-		return teamId;
+	public UUID getTeamId() { // This will need to be renamed to getIslandId later, but for now, keep it to minimize changes in other files
+		return islandId;
 	}
 
 	public BaseQuestFile getFile() {
 		return file;
 	}
 
-	public static TeamData get(Player player) {
-		return FTBQuestsAPI.api().getQuestFile(player.getCommandSenderWorld().isClientSide()).getOrCreateTeamData(player);
+	public static IslandData get(Player player) { // RENAMED
+		return (IslandData) FTBQuestsAPI.api().getQuestFile(player.getCommandSenderWorld().isClientSide()).getOrCreateIslandData(player); // This will need to be changed
 	}
 
 	public void markDirty() {
@@ -118,14 +118,14 @@ public class TeamData {
 	public void saveIfChanged() {
 		if (shouldSave && file instanceof ServerQuestFile sqf) {
 			Path path = sqf.server.getWorldPath(ServerQuestFile.FTBQUESTS_DATA);
-			SNBT.write(path.resolve(teamId + ".snbt"), serializeNBT());
+			SNBT.write(path.resolve(islandId + ".snbt"), serializeNBT()); // MODIFIED
 			shouldSave = false;
 		}
 	}
 
 	@Override
 	public String toString() {
-		return name.isEmpty() ? teamId.toString() : name;
+		return name.isEmpty() ? islandId.toString() : name; // MODIFIED
 	}
 
 	public long getProgress(long taskId) {
@@ -149,7 +149,7 @@ public class TeamData {
 					markDirty();
 
 					if (file.isServerSide()) {
-						new ObjectStartedResetMessage(teamId, questId).sendTo(getOnlineMembers());
+						new ObjectStartedResetMessage(islandId, questId).sendTo(getOnlineMembers()); // MODIFIED
 					}
 
 					return true;
@@ -160,7 +160,7 @@ public class TeamData {
 					markDirty();
 
 					if (file.isServerSide()) {
-						new ObjectStartedMessage(teamId, questId).sendTo(getOnlineMembers());
+						new ObjectStartedMessage(islandId, questId).sendTo(getOnlineMembers()); // MODIFIED
 					}
 
 					return true;
@@ -187,7 +187,7 @@ public class TeamData {
 				markDirty();
 
 				if (file.isServerSide()) {
-					new ObjectCompletedResetMessage(teamId, id).sendTo(getOnlineMembers());
+					new ObjectCompletedResetMessage(islandId, id).sendTo(getOnlineMembers()); // MODIFIED
 				}
 
 				return true;
@@ -198,7 +198,7 @@ public class TeamData {
 				markDirty();
 
 				if (file.isServerSide()) {
-					new ObjectCompletedMessage(teamId, id).sendTo(getOnlineMembers());
+					new ObjectCompletedMessage(islandId, id).sendTo(getOnlineMembers()); // MODIFIED
 				}
 
 				return true;
@@ -230,7 +230,7 @@ public class TeamData {
 			clearCachedProgress();
 			markDirty();
 			if (file.isServerSide()) {
-				new SyncRewardBlockingMessage(teamId, rewardsBlocked).sendTo(getOnlineMembers());
+				new SyncRewardBlockingMessage(islandId, rewardsBlocked).sendTo(getOnlineMembers()); // MODIFIED
 			}
 			return true;
 		}
@@ -265,7 +265,7 @@ public class TeamData {
 			markDirty();
 
 			if (file.isServerSide()) {
-				new ClaimRewardResponseMessage(teamId, player, reward.id).sendTo(getOnlineMembers());
+				new ClaimRewardResponseMessage(islandId, player, reward.id).sendTo(getOnlineMembers()); // MODIFIED
 			}
 
 			reward.getQuest().checkRepeatable(this, player);
@@ -289,7 +289,7 @@ public class TeamData {
 			markDirty();
 
 			if (file.isServerSide()) {
-				new ResetRewardMessage(teamId, player, reward.id).sendTo(getOnlineMembers());
+				new ResetRewardMessage(islandId, player, reward.id).sendTo(getOnlineMembers()); // MODIFIED
 			}
 
 			return true;
@@ -308,7 +308,7 @@ public class TeamData {
 	public SNBTCompoundTag serializeNBT() {
 		SNBTCompoundTag nbt = new SNBTCompoundTag();
 		nbt.putInt("version", VERSION);
-		nbt.putString("uuid", UUIDTypeAdapter.fromUUID(teamId));
+		nbt.putString("uuid", UUIDTypeAdapter.fromUUID(islandId)); // MODIFIED
 		nbt.putString("name", name);
 		nbt.putBoolean("lock", locked);
 		nbt.putBoolean("rewards_blocked", rewardsBlocked);
@@ -393,7 +393,7 @@ public class TeamData {
 				UUID id = UUIDTypeAdapter.fromString(key);
 				perPlayerData.put(id, PerPlayerData.fromNBT(ppdTag.getCompound(key), file));
 			} catch (IllegalArgumentException e) {
-				FTBQuests.LOGGER.error("ignoring invalid player ID {} while loading per-player data for team {}", key, teamId);
+				FTBQuests.LOGGER.error("ignoring invalid player ID {} while loading per-player data for team {}", key, islandId); // MODIFIED
 			}
 		}
 	}
@@ -494,11 +494,6 @@ public class TeamData {
 			return 0;
 		}
 
-		//} else if (!object.cacheProgress()) {
-		//  return object.getRelativeProgressFromChildren(this);
-		//}
-
-		// FIXME?
 		return object.getRelativeProgressFromChildren(this);
 	}
 
@@ -510,7 +505,7 @@ public class TeamData {
 		return completed.containsKey(object.id);
 	}
 
-	private boolean checkDepsCached(Quest quest, Long2ByteMap cache, ToBooleanBiFunction<Quest,TeamData> checker) {
+	private boolean checkDepsCached(Quest quest, Long2ByteMap cache, ToBooleanBiFunction<Quest,IslandData> checker) { // MODIFIED
 		if (!quest.hasDependencies()) {
 			return true;
 		}
@@ -544,9 +539,9 @@ public class TeamData {
 	}
 
 	public Collection<ServerPlayer> getOnlineMembers() {
-		return FTBTeamsAPI.api().getManager().getTeamByID(teamId)
-				.map(Team::getOnlineMembers)
-				.orElse(List.of());
+		// This needs to be reimplemented with the new island/team provider
+		// For now, return an empty list to allow compilation
+		return Collections.emptyList();
 	}
 
 	public void checkAutoCompletion(Quest quest) {
@@ -679,7 +674,7 @@ public class TeamData {
 			markDirty();
 
 			if (file.isServerSide()) {
-				new SyncLockMessage(teamId, locked).sendTo(getOnlineMembers());
+				new SyncLockMessage(islandId, locked).sendTo(getOnlineMembers()); // MODIFIED
 			}
 
 			return true;
@@ -688,7 +683,9 @@ public class TeamData {
 		return false;
 	}
 
-	public void mergeData(TeamData from) {
+	/*
+	// This logic is team-specific and needs to be re-evaluated for islands
+	public void mergeData(IslandData from) {
 		// used when joining an existing party team
 		from.taskProgress.forEach((id, data) -> taskProgress.mergeLong(id, data, Long::max));
 
@@ -699,16 +696,17 @@ public class TeamData {
 		from.perPlayerData.forEach((id, data) -> perPlayerData.merge(id, data, (oldVal, newVal) -> oldVal));
 	}
 
-	public void mergeClaimedRewards(TeamData from) {
+	public void mergeClaimedRewards(IslandData from) {
 		// used when leaving a party team - copy claimed-reward data from to player team
 		from.claimedRewards.forEach((questKey, data) -> {
-			if (questKey.uuid().equals(teamId)) {
+			if (questKey.uuid().equals(islandId)) {
 				claimedRewards.put(questKey, data.longValue());
 			}
 		});
 	}
+	*/
 
-	public void copyData(TeamData from) {
+	public void copyData(IslandData from) { // MODIFIED
 		locked = from.locked;
 		taskProgress.putAll(from.taskProgress);
 		claimedRewards.putAll(from.claimedRewards);
@@ -718,17 +716,8 @@ public class TeamData {
 		rewardsBlocked = from.rewardsBlocked;
 	}
 
-	/**
-	 * Get the per-player data for the given player, creating it if it doesn't exist yet - but only if the player is a
-	 * member of this team!
-	 *
-	 * @param player the player
-	 * @return the player's per-player data, or {@code Optional.empty()} if the player isn't in this team
-	 */
 	private Optional<PerPlayerData> getOrCreatePlayerData(Player player) {
 		if (file == null) {
-			// shouldn't normally be the base, but can happen if ReplayMod is installed
-			//   https://github.com/FTBTeam/FTB-Mods-Issues/issues/1276
 			return Optional.empty();
 		}
 		if (!perPlayerData.containsKey(player.getUUID()) && file.isPlayerOnTeam(player, this)) {
@@ -748,7 +737,7 @@ public class TeamData {
 				clearCachedProgress();
 				markDirty();
 				if (file.isServerSide() && player instanceof ServerPlayer sp) {
-					new SyncEditingModeMessage(teamId, newCanEdit).sendTo(sp);
+					new SyncEditingModeMessage(islandId, newCanEdit).sendTo(sp); // MODIFIED
 				}
 				return true;
 			}
@@ -787,8 +776,6 @@ public class TeamData {
 
 	public boolean isExcludedByOtherQuestline(QuestObject qo) {
 		if (qo instanceof Excludable e) {
-			// note: computeIfAbsent() won't work well here due to indirect recursion
-			//   (can throw exception with both standard and fastutil maps)
 			if (exclusionCache.containsKey(e.getId())) {
 				return exclusionCache.get(e.getId());
 			}

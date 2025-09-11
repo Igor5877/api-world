@@ -5,41 +5,38 @@ import dev.architectury.networking.simple.BaseS2CMessage;
 import dev.architectury.networking.simple.MessageType;
 import dev.ftb.mods.ftbquests.client.ClientQuestFile;
 import dev.ftb.mods.ftbquests.client.FTBQuestsNetClient;
-import dev.ftb.mods.ftbquests.quest.TeamData;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import net.minecraft.network.FriendlyByteBuf;
 
-/**
- * @author LatvianModder
- */
-public class SyncTeamDataMessage extends BaseS2CMessage {
+public class SyncIslandDataMessage extends BaseS2CMessage {
 	private final boolean self;
-	private final TeamData teamData;
+	private final IslandData islandData;
 
-	SyncTeamDataMessage(FriendlyByteBuf buffer) {
+	SyncIslandDataMessage(FriendlyByteBuf buffer) {
 		self = buffer.readBoolean();
-		teamData = new TeamData(buffer.readUUID(), ClientQuestFile.INSTANCE);
-		teamData.read(buffer, self);
+		islandData = new IslandData(buffer.readUUID(), ClientQuestFile.INSTANCE);
+		islandData.read(buffer, self);
 	}
 
-	public SyncTeamDataMessage(TeamData teamData, boolean self) {
+	public SyncIslandDataMessage(IslandData islandData, boolean self) {
 		this.self = self;
-		this.teamData = teamData;
+		this.islandData = islandData;
 	}
 
 	@Override
 	public MessageType getType() {
-		return FTBQuestsNetHandler.SYNC_TEAM_DATA;
+		return FTBQuestsNetHandler.SYNC_ISLAND_DATA;
 	}
 
 	@Override
 	public void write(FriendlyByteBuf buffer) {
 		buffer.writeBoolean(self);
-		buffer.writeUUID(teamData.getTeamId());
-		teamData.write(buffer, self);
+		buffer.writeUUID(islandData.getTeamId()); // Keep getTeamId for now to avoid cascading changes
+		islandData.write(buffer, self);
 	}
 
 	@Override
 	public void handle(NetworkManager.PacketContext context) {
-		FTBQuestsNetClient.syncTeamData(self, teamData);
+		FTBQuestsNetClient.syncIslandData(self, islandData);
 	}
 }

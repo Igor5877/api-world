@@ -1,10 +1,9 @@
 package dev.ftb.mods.ftbquests.api;
 
 import dev.ftb.mods.ftbquests.quest.Chapter;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
 import dev.ftb.mods.ftbquests.quest.QuestLink;
-import dev.ftb.mods.ftbquests.quest.TeamData;
-import dev.ftb.mods.ftbteams.api.Team;
 import net.minecraft.world.entity.Entity;
 import org.jetbrains.annotations.Nullable;
 
@@ -17,15 +16,13 @@ public interface QuestFile {
 
     boolean canEdit();
 
-    @Nullable TeamData getNullableTeamData(UUID id);
+    @Nullable IslandData getNullableIslandData(UUID id);
 
-    TeamData getOrCreateTeamData(UUID teamId);
+    IslandData getOrCreateIslandData(UUID islandId);
 
-    TeamData getOrCreateTeamData(Team team);
+    IslandData getOrCreateIslandData(Entity player);
 
-    TeamData getOrCreateTeamData(Entity player);
-
-    Collection<TeamData> getAllTeamData();
+    Collection<IslandData> getAllIslandData();
 
     void forAllChapters(Consumer<Chapter> consumer);
 

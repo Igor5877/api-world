@@ -23,9 +23,9 @@ import dev.ftb.mods.ftbquests.quest.task.*;
 import dev.ftb.mods.ftbquests.quest.theme.property.ThemeProperties;
 import dev.ftb.mods.ftbquests.util.FileUtils;
 import dev.ftb.mods.ftbquests.util.NetUtils;
-import dev.ftb.mods.ftbteams.api.FTBTeamsAPI;
-import dev.ftb.mods.ftbteams.api.Team;
-import dev.ftb.mods.ftbteams.api.client.ClientTeamManager;
+// import dev.ftb.mods.ftbteams.api.FTBTeamsAPI; // REMOVED
+// import dev.ftb.mods.ftbteams.api.Team; // REMOVED
+// import dev.ftb.mods.ftbteams.api.client.ClientTeamManager; // REMOVED
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -59,7 +59,7 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 	private final DefaultChapterGroup defaultChapterGroup;
 	final List<ChapterGroup> chapterGroups;
 	private final List<RewardTable> rewardTables;
-	protected final Map<UUID, TeamData> teamDataMap;
+	protected final Map<UUID, IslandData> islandDataMap; // MODIFIED
 
 	private final Long2ObjectOpenHashMap<QuestObjectBase> questObjectMap;
 
@@ -99,7 +99,7 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 		chapterGroups = new ArrayList<>();
 		chapterGroups.add(defaultChapterGroup);
 		rewardTables = new ArrayList<>();
-		teamDataMap = new HashMap<>();
+		islandDataMap = new HashMap<>(); // MODIFIED
 
 		questObjectMap = new Long2ObjectOpenHashMap<>();
 		taskTypeIds = new Int2ObjectOpenHashMap<>();
@@ -159,7 +159,7 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 	}
 
 	@Override
-	public int getRelativeProgressFromChildren(TeamData data) {
+	public int getRelativeProgressFromChildren(IslandData data) { // MODIFIED
 		MutableInt progress = new MutableInt(0);
 		MutableInt chapters = new MutableInt(0);
 
@@ -454,9 +454,6 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 	public final void writeDataFull(Path folder) {
 		boolean prev = false;
 		try {
-			// Sorting keys ensure consistent sort order in the saved quest file
-			// Since questbook data is commonly stored under version control, this minimizes extraneous
-			//  version control changes stemming from unpredictable hashmap key ordering
 			prev = SNBT.setShouldSortKeysOnWrite(true);
 
 			SNBTCompoundTag fileNBT = new SNBTCompoundTag();
@@ -694,16 +691,6 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 
 		rewardTables.sort(Comparator.comparingInt(c -> objectOrderMap.get(c.id)));
 		updateLootCrates();
-
-        /*
-		for (Chapter chapter : chapters)
-		{
-			for (Quest quest : chapter.quests)
-			{
-				quest.verifyDependencies(true);
-			}
-		}
-		*/
 
 		for (QuestObjectBase object : getAllObjects()) {
 			if (object instanceof CustomTask) {
@@ -995,39 +982,26 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 
 	@Override
 	@Nullable
-	public TeamData getNullableTeamData(UUID id) {
-		return teamDataMap.get(id);
+	public IslandData getNullableIslandData(UUID id) {
+		return islandDataMap.get(id);
 	}
 
 	@Override
-	public TeamData getOrCreateTeamData(UUID teamId) {
-		return teamDataMap.computeIfAbsent(teamId, k -> new TeamData(teamId, this));
+	public IslandData getOrCreateIslandData(UUID islandId) {
+		return islandDataMap.computeIfAbsent(islandId, k -> new IslandData(islandId, this));
+	}
+
+	// This method needs to be re-evaluated. For now, it's a placeholder.
+	@Override
+	public IslandData getOrCreateIslandData(Entity player) {
+		// In the future, this should get the player's island ID from the new provider
+		// For now, we can't do much.
+		return null;
 	}
 
 	@Override
-	public TeamData getOrCreateTeamData(Team team) {
-		return getOrCreateTeamData(Objects.requireNonNull(team, "Non-null team required!").getId());
-	}
-
-	@Override
-	public TeamData getOrCreateTeamData(Entity player) {
-		return player.level().isClientSide && player instanceof Player p ?
-				getClientTeamData(p).orElse(null) :
-				FTBTeamsAPI.api().getManager().getTeamForPlayerID(player.getUUID())
-						.map(this::getOrCreateTeamData)
-						.orElse(null);
-	}
-
-	private Optional<TeamData> getClientTeamData(Player player) {
-		ClientTeamManager mgr = FTBTeamsAPI.api().getClientManager();
-		return mgr.getKnownPlayer(player.getUUID())
-				.map(kcp -> mgr.getTeamByID(kcp.teamId()))
-				.flatMap(team -> team.map(this::getOrCreateTeamData));
-	}
-
-	@Override
-	public Collection<TeamData> getAllTeamData() {
-		return Collections.unmodifiableCollection(teamDataMap.values());
+	public Collection<IslandData> getAllIslandData() {
+		return Collections.unmodifiableCollection(islandDataMap.values());
 	}
 
 	public abstract void deleteObject(long id);
@@ -1091,7 +1065,7 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 	}
 
 	public void clearCachedProgress() {
-		getAllTeamData().forEach(TeamData::clearCachedProgress);
+		getAllIslandData().forEach(IslandData::clearCachedProgress);
 	}
 
 	public long newID() {
@@ -1187,7 +1161,7 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 	}
 
 	@Override
-	public boolean isVisible(TeamData data) {
+	public boolean isVisible(IslandData data) { // MODIFIED
 		return chapterGroups.stream().anyMatch(group -> group.isVisible(data));
 	}
 
@@ -1223,7 +1197,7 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 		return craftingTasks;
 	}
 
-	public List<Chapter> getVisibleChapters(TeamData data) {
+	public List<Chapter> getVisibleChapters(IslandData data) { // MODIFIED
 		List<Chapter> list = new ArrayList<>();
 
 		for (ChapterGroup group : chapterGroups) {
@@ -1234,7 +1208,7 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 	}
 
 	@Nullable
-	public Chapter getFirstVisibleChapter(TeamData data) {
+	public Chapter getFirstVisibleChapter(IslandData data) { // MODIFIED
 		for (ChapterGroup group : chapterGroups) {
 			Chapter c = group.getFirstVisibleChapter(data);
 
@@ -1272,9 +1246,9 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 		return defaultQuestShape;
 	}
 
-	public void addData(TeamData data, boolean override) {
-		if (override || !teamDataMap.containsKey(data.getTeamId())) {
-			teamDataMap.put(data.getTeamId(), data);
+	public void addData(IslandData data, boolean override) {
+		if (override || !islandDataMap.containsKey(data.getTeamId())) {
+			islandDataMap.put(data.getTeamId(), data);
 		}
 	}
 
@@ -1288,9 +1262,9 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 	}
 
 	@Override
-	public boolean hasUnclaimedRewardsRaw(TeamData teamData, UUID player) {
+	public boolean hasUnclaimedRewardsRaw(IslandData islandData, UUID player) { // MODIFIED
 		for (ChapterGroup group : chapterGroups) {
-			if (teamData.hasUnclaimedRewards(player, group)) {
+			if (islandData.hasUnclaimedRewards(player, group)) {
 				return true;
 			}
 		}
@@ -1350,7 +1324,7 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 		return defaultQuestDisableJEI;
 	}
 
-	public abstract boolean isPlayerOnTeam(Player player, TeamData teamData);
+	public abstract boolean isPlayerOnTeam(Player player, IslandData islandData); // MODIFIED
 
 	public TaskType getTaskType(int typeId) {
 		return taskTypeIds.get(typeId);

@@ -7,7 +7,7 @@ import dev.ftb.mods.ftblibrary.ui.WidgetLayout;
 import dev.ftb.mods.ftblibrary.ui.input.MouseButton;
 import dev.ftb.mods.ftbquests.client.ClientQuestFile;
 import dev.ftb.mods.ftbquests.net.TogglePinnedMessage;
-import dev.ftb.mods.ftbquests.quest.TeamData;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.theme.property.ThemeProperties;
 import net.minecraft.network.chat.Component;
 
@@ -67,13 +67,13 @@ public class OtherButtonsPanelTop extends OtherButtonsPanel {
 		}
 
 		private static boolean isAutoPin() {
-			return ClientQuestFile.isQuestPinned(TeamData.AUTO_PIN_ID);
+			return ClientQuestFile.isQuestPinned(IslandData.AUTO_PIN_ID);
 		}
 
 		@Override
 		public void onClicked(MouseButton button) {
 			playClickSound();
-			new TogglePinnedMessage(TeamData.AUTO_PIN_ID).sendToServer();
+			new TogglePinnedMessage(IslandData.AUTO_PIN_ID).sendToServer();
 		}
 	}
 

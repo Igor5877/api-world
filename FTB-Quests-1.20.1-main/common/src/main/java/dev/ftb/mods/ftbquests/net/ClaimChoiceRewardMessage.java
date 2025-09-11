@@ -3,8 +3,8 @@ package dev.ftb.mods.ftbquests.net;
 import dev.architectury.networking.NetworkManager;
 import dev.architectury.networking.simple.BaseC2SMessage;
 import dev.architectury.networking.simple.MessageType;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.loot.RewardTable;
 import dev.ftb.mods.ftbquests.quest.reward.ChoiceReward;
 import dev.ftb.mods.ftbquests.quest.reward.Reward;
@@ -44,7 +44,7 @@ public class ClaimChoiceRewardMessage extends BaseC2SMessage {
 		Reward reward = ServerQuestFile.INSTANCE.getReward(id);
 
 		if (reward instanceof ChoiceReward choiceReward && context.getPlayer() instanceof ServerPlayer serverPlayer) {
-			TeamData data = TeamData.get(serverPlayer);
+			IslandData data = IslandData.get(serverPlayer);
 			RewardTable table = choiceReward.getTable();
 
 			if (table != null && data.isCompleted(reward.getQuest())) {

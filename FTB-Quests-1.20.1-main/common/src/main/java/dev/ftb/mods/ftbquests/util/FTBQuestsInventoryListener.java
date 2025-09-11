@@ -1,10 +1,9 @@
 package dev.ftb.mods.ftbquests.util;
 
 import dev.architectury.hooks.level.entity.PlayerHooks;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.task.Task;
-import dev.ftb.mods.ftbteams.api.FTBTeamsAPI;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -37,21 +36,19 @@ public class FTBQuestsInventoryListener implements ContainerListener {
 		List<Task> tasksToCheck = craftedItem.isEmpty() ? file.getSubmitTasks() : file.getCraftingTasks();
 
 		if (!tasksToCheck.isEmpty()) {
-			FTBTeamsAPI.api().getManager().getTeamForPlayer(player).ifPresent(team -> {
-				TeamData data = file.getNullableTeamData(team.getId());
-				if (data != null && !data.isLocked()) {
-					file.withPlayerContext(player, () -> {
-						buildInventorySummary(player);
-						for (Task task : tasksToCheck) {
-							if (task.id != sourceTask && data.canStartTasks(task.getQuest())) {
-								task.submitTask(data, player, craftedItem);
-							}
+			IslandData data = file.getOrCreateIslandData(player);
+			if (data != null && !data.isLocked()) {
+				file.withPlayerContext(player, () -> {
+					buildInventorySummary(player);
+					for (Task task : tasksToCheck) {
+						if (task.id != sourceTask && data.canStartTasks(task.getQuest())) {
+							task.submitTask(data, player, craftedItem);
 						}
-						inventorySummaryCache.clear();
-						nonEmptyStacks.clear();
-					});
-				}
-			});
+					}
+					inventorySummaryCache.clear();
+					nonEmptyStacks.clear();
+				});
+			}
 		}
 	}
 

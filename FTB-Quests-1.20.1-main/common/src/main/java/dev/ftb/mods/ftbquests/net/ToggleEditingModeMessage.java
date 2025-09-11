@@ -4,8 +4,8 @@ import dev.architectury.networking.NetworkManager;
 import dev.architectury.networking.simple.BaseC2SMessage;
 import dev.architectury.networking.simple.MessageType;
 import dev.ftb.mods.ftbquests.integration.PermissionsHelper;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -31,7 +31,7 @@ public class ToggleEditingModeMessage extends BaseC2SMessage {
         if (PermissionsHelper.hasEditorPermission(player, false)
                 || player.getServer() != null && player.getServer().isSingleplayerOwner(player.getGameProfile()))
         {
-            TeamData data = ServerQuestFile.INSTANCE.getOrCreateTeamData(player);
+            IslandData data = ServerQuestFile.INSTANCE.getOrCreateIslandData(player);
             data.setCanEdit(player, !data.getCanEdit(player));  // will send a response to the client, causing GUI refresh
         }
     }

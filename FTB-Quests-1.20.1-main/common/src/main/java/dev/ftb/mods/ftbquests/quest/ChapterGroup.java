@@ -136,12 +136,12 @@ public class ChapterGroup extends QuestObject {
 		return IconAnimation.fromList(list, false);
 	}
 
-	public boolean isVisible(TeamData data) {
+	public boolean isVisible(IslandData data) {
 		return chapters.stream().anyMatch(chapter -> chapter.isVisible(data));
 	}
 
 	@Override
-	public int getRelativeProgressFromChildren(TeamData data) {
+	public int getRelativeProgressFromChildren(IslandData data) {
 		if (chapters.isEmpty()) {
 			return 100;
 		}
@@ -159,19 +159,19 @@ public class ChapterGroup extends QuestObject {
 	public void onCompleted(QuestProgressEventData<?> data) {
 		data.setCompleted(id);
 
-		if (file.isCompletedRaw(data.getTeamData())) {
+		if (file.isCompletedRaw(data.getIslandData())) {
 			file.onCompleted(data.withObject(file));
 		}
 	}
 
-	public List<Chapter> getVisibleChapters(TeamData data) {
+	public List<Chapter> getVisibleChapters(IslandData data) {
 		return file.canEdit() ? chapters : chapters.stream()
 						.filter(chapter -> chapter.hasAnyVisibleChildren() && chapter.isVisible(data))
 						.toList();
 	}
 
 	@Nullable
-	public Chapter getFirstVisibleChapter(TeamData data) {
+	public Chapter getFirstVisibleChapter(IslandData data) {
 		if (chapters.isEmpty()) {
 			return null;
 		} else if (file.canEdit()) {
@@ -191,8 +191,8 @@ public class ChapterGroup extends QuestObject {
 	}
 
 	@Override
-	public boolean hasUnclaimedRewardsRaw(TeamData teamData, UUID player) {
-		return chapters.stream().anyMatch(chapter -> teamData.hasUnclaimedRewards(player, chapter));
+	public boolean hasUnclaimedRewardsRaw(IslandData islandData, UUID player) {
+		return chapters.stream().anyMatch(chapter -> islandData.hasUnclaimedRewards(player, chapter));
 	}
 
 	public boolean moveChapterWithinGroup(Chapter chapter, boolean movingUp) {

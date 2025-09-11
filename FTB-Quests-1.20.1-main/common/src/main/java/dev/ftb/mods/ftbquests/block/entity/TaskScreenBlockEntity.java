@@ -9,8 +9,8 @@ import dev.ftb.mods.ftbquests.block.TaskScreenBlock;
 import dev.ftb.mods.ftbquests.client.FTBQuestsClient;
 import dev.ftb.mods.ftbquests.net.TaskScreenConfigResponse;
 import dev.ftb.mods.ftbquests.quest.BaseQuestFile;
+import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.QuestObjectBase;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.quest.task.Task;
 import dev.ftb.mods.ftbquests.util.ConfigQuestObject;
 import net.minecraft.ChatFormatting;
@@ -44,9 +44,9 @@ public class TaskScreenBlockEntity extends BlockEntity implements ITaskScreen {
     private ItemStack inputModeIcon = ItemStack.EMPTY;
     private ItemStack skin = ItemStack.EMPTY;
     @NotNull
-    private UUID teamId = Util.NIL_UUID;
+    private UUID islandId = Util.NIL_UUID; // MODIFIED
     public float[] fakeTextureUV = null;  // null for unknown, 0-array for no texture, 4-array for a texture
-    private TeamData cachedTeamData = null;
+    private IslandData cachedIslandData = null; // MODIFIED
 
     public TaskScreenBlockEntity(BlockPos blockPos, BlockState blockState) {
         super(FTBQuestsBlockEntities.CORE_TASK_SCREEN.get(), blockPos, blockState);
@@ -113,23 +113,23 @@ public class TaskScreenBlockEntity extends BlockEntity implements ITaskScreen {
         this.textShadow = textShadow;
     }
 
-    public void setTeamId(@NotNull UUID teamId) {
-        this.teamId = teamId;
-        cachedTeamData = null;
+    public void setTeamId(@NotNull UUID islandId) { // MODIFIED
+        this.islandId = islandId;
+        this.cachedIslandData = null;
     }
 
     @Override
     @NotNull
-    public UUID getTeamId() {
-        return teamId;
+    public UUID getTeamId() { // Keeping name for ITaskScreen compatibility for now
+        return islandId;
     }
 
-    public TeamData getCachedTeamData() {
-        if (cachedTeamData == null) {
+    public IslandData getCachedIslandData() { // MODIFIED
+        if (cachedIslandData == null) {
             BaseQuestFile f = FTBQuestsAPI.api().getQuestFile(level.isClientSide);
-            cachedTeamData = f.getNullableTeamData(getTeamId());
+            cachedIslandData = f.getNullableIslandData(getTeamId());
         }
-        return cachedTeamData;
+        return cachedIslandData;
     }
 
     @Override
@@ -162,7 +162,7 @@ public class TaskScreenBlockEntity extends BlockEntity implements ITaskScreen {
     public void load(CompoundTag compoundTag) {
         super.load(compoundTag);
 
-        teamId = compoundTag.hasUUID("TeamID") ? compoundTag.getUUID("TeamID") : Util.NIL_UUID;
+        islandId = compoundTag.hasUUID("TeamID") ? compoundTag.getUUID("TeamID") : Util.NIL_UUID; // MODIFIED
         taskId = compoundTag.getLong("TaskID");
         skin = compoundTag.contains("Skin") ? ItemStack.of(compoundTag.getCompound("Skin")) : ItemStack.EMPTY;
         indestructible = compoundTag.getBoolean("Indestructible");
@@ -178,7 +178,7 @@ public class TaskScreenBlockEntity extends BlockEntity implements ITaskScreen {
     protected void saveAdditional(CompoundTag compoundTag) {
         super.saveAdditional(compoundTag);
 
-        if (teamId != Util.NIL_UUID) compoundTag.putUUID("TeamID", teamId);
+        if (islandId != Util.NIL_UUID) compoundTag.putUUID("TeamID", islandId); // MODIFIED
         if (taskId != 0L) compoundTag.putLong("TaskID", taskId);
         if (!skin.isEmpty()) compoundTag.put("Skin", skin.save(new CompoundTag()));
         if (indestructible) compoundTag.putBoolean("Indestructible", true);
@@ -187,7 +187,7 @@ public class TaskScreenBlockEntity extends BlockEntity implements ITaskScreen {
         if (textShadow) compoundTag.putBoolean("TextShadow", true);
     }
 
-    public ConfigGroup fillConfigGroup(TeamData data) {
+    public ConfigGroup fillConfigGroup(IslandData data) { // MODIFIED
         ConfigGroup cg0 = new ConfigGroup("task_screen", accepted -> {
             if (accepted) {
                 new TaskScreenConfigResponse(this).sendToServer();
@@ -213,7 +213,7 @@ public class TaskScreenBlockEntity extends BlockEntity implements ITaskScreen {
         return ConfigQuestObject.formatEntry(task).copy().append(questTxt);
     }
 
-    private boolean isSuitableTask(TeamData data, QuestObjectBase o) {
+    private boolean isSuitableTask(IslandData data, QuestObjectBase o) { // MODIFIED
         return o instanceof Task t && (data.getCanEdit(FTBQuestsClient.getClientPlayer()) || data.canStartTasks(t.getQuest())) && t.consumesResources();
     }
 
