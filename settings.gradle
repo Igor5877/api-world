@@ -1,0 +1,4 @@
+rootProject.name = "api-world"
+
+include("mods-server", "FTB-Quests-1.20.1-main")
+

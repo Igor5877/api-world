@@ -330,6 +330,10 @@ public class ItemTask extends Task implements Predicate<ItemStack> {
 
 	@Override
 	public void submitTask(IslandData islandData, ServerPlayer player, ItemStack craftedItem) {
+		if (!islandData.isMember(player.getUUID())) {
+			return;
+		}
+
 		if (taskScreenOnly || !checkTaskSequence(islandData) || islandData.isCompleted(this) || itemStack.getItem() instanceof MissingItem || craftedItem.getItem() instanceof MissingItem) {
 			return;
 		}

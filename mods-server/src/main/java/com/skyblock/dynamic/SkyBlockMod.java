@@ -44,6 +44,7 @@ import java.time.Duration;
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 import com.electronwill.nightconfig.core.io.WritingMode;
 import com.skyblock.dynamic.utils.IslandContext; // Import the new IslandContext class
+import net.minecraftforge.event.entity.player.PlayerEvent;
 // import java.util.UUID; // if using UUID type directly
 
 @Mod(SkyBlockMod.MODID)
@@ -221,6 +222,13 @@ public class SkyBlockMod
 
     public static String getCreatorUuid() {
         return islandContext.getCreatorUuid();
+    }
+
+    @SubscribeEvent
+    public void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        var player = event.getEntity();
+        LOGGER.info("Player {} logged in, triggering island data refresh.", player.getName().getString());
+        com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.refreshAndGetTeamId(player.getUUID());
     }
     
     // Old methods removed:

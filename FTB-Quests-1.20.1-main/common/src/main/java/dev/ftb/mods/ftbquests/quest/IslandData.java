@@ -12,6 +12,7 @@ import dev.ftb.mods.ftbquests.net.*;
 import dev.ftb.mods.ftbquests.quest.reward.Reward;
 import dev.ftb.mods.ftbquests.quest.reward.RewardAutoClaim;
 import dev.ftb.mods.ftbquests.quest.reward.RewardClaimType;
+import dev.ftb.mods.ftbquests.quest.task.ItemTask;
 import dev.ftb.mods.ftbquests.quest.task.Task;
 import dev.ftb.mods.ftbquests.quest.team.TeamManager;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
@@ -36,6 +37,13 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class IslandData { // RENAMED CLASS
+	public static final IslandData UNLOADED = new IslandData(new UUID(0L, 0L), null, "UNLOADED") {
+		@Override
+		public boolean isMember(UUID playerUuid) {
+			return false;
+		}
+	};
+
 	public static final int VERSION = 1;
 	public static final int AUTO_PIN_ID = 1;
 
@@ -64,6 +72,7 @@ public class IslandData { // RENAMED CLASS
 	private final Long2ByteMap areDependenciesVisibleCache;
 	private final Object2ByteMap<QuestKey> unclaimedRewardsCache;
 	private final Long2BooleanMap exclusionCache;
+	private final Set<UUID> members;
 
 	public IslandData(UUID islandId, BaseQuestFile file) { // MODIFIED CONSTRUCTOR
 		this(islandId, file, "");
@@ -89,6 +98,7 @@ public class IslandData { // RENAMED CLASS
 		areDependenciesVisibleCache = new Long2ByteOpenHashMap();
 		unclaimedRewardsCache = new Object2ByteOpenHashMap<>();
 		exclusionCache = new Long2BooleanOpenHashMap();
+		members = new HashSet<>();
 	}
 
 	public UUID getTeamId() { // This will need to be renamed to getIslandId later, but for now, keep it to minimize changes in other files
@@ -352,6 +362,12 @@ public class IslandData { // RENAMED CLASS
 		});
 		nbt.put("player_data", ppdTag);
 
+		ListTag memberList = new ListTag();
+		for (UUID member : members) {
+			memberList.add(StringTag.valueOf(member.toString()));
+		}
+		nbt.put("members", memberList);
+
 		return nbt;
 	}
 
@@ -399,6 +415,16 @@ public class IslandData { // RENAMED CLASS
 				FTBQuests.LOGGER.error("ignoring invalid player ID {} while loading per-player data for team {}", key, islandId); // MODIFIED
 			}
 		}
+
+		members.clear();
+		ListTag memberList = nbt.getList("members", Tag.TAG_STRING);
+		for (Tag memberTag : memberList) {
+			try {
+				members.add(UUID.fromString(memberTag.getAsString()));
+			} catch (IllegalArgumentException e) {
+				FTBQuests.LOGGER.error("ignoring invalid member UUID {} for island {}", memberTag.getAsString(), islandId);
+			}
+		}
 	}
 
 	public void write(FriendlyByteBuf buffer, boolean self) {
@@ -442,6 +468,10 @@ public class IslandData { // RENAMED CLASS
 				ppd.writeNet(buffer);
 			});
 
+			buffer.writeVarInt(members.size());
+			for (UUID member : members) {
+				buffer.writeUUID(member);
+			}
 		}
 	}
 
@@ -487,7 +517,22 @@ public class IslandData { // RENAMED CLASS
 				perPlayerData.put(id, PerPlayerData.fromNet(buffer));
 			}
 
+			members.clear();
+			int memberCount = buffer.readVarInt();
+			for (int i = 0; i < memberCount; i++) {
+				members.add(buffer.readUUID());
+			}
 		}
+	}
+
+	public boolean isMember(UUID playerUuid) {
+		return members.contains(playerUuid);
+	}
+
+	public void setMembers(Collection<UUID> newMembers) {
+		members.clear();
+		members.addAll(newMembers);
+		markDirty();
 	}
 
 	public int getRelativeProgress(QuestObject object) {
@@ -543,23 +588,21 @@ public class IslandData { // RENAMED CLASS
 
 	public Collection<ServerPlayer> getOnlineMembers() {
 		if (file instanceof ServerQuestFile sqf) {
-			TeamManager teamManager = TeamManager.getInstance(sqf.server);
-			TeamData team = teamManager.getTeam(this.islandId);
-
-			if (team != null) {
-				List<ServerPlayer> onlinePlayers = new ArrayList<>();
-				for (UUID memberId : team.getMembers().keySet()) {
-					ServerPlayer player = sqf.server.getPlayerList().getPlayer(memberId);
-					if (player != null) {
-						onlinePlayers.add(player);
-					}
+			List<ServerPlayer> onlinePlayers = new ArrayList<>();
+			for (UUID memberId : members) {
+				ServerPlayer player = sqf.server.getPlayerList().getPlayer(memberId);
+				if (player != null) {
+					onlinePlayers.add(player);
 				}
-				return onlinePlayers;
-			} else {
-				// Not a team, probably a solo player's data
-				ServerPlayer player = sqf.server.getPlayerList().getPlayer(this.islandId);
-				return player != null ? Collections.singletonList(player) : Collections.emptyList();
 			}
+			// Also include the owner if they are not in the members list for some reason
+			if (!members.contains(islandId)) {
+				ServerPlayer owner = sqf.server.getPlayerList().getPlayer(islandId);
+				if (owner != null) {
+					onlinePlayers.add(owner);
+				}
+			}
+			return onlinePlayers;
 		}
 		return Collections.emptyList();
 	}
@@ -668,8 +711,10 @@ public class IslandData { // RENAMED CLASS
 
 		task.onCompleted(new QuestProgressEventData<>(new Date(), this, task, onlineMembers, notifiedPlayers));
 
-		for (ServerPlayer player : onlineMembers) {
-			FTBQuestsInventoryListener.detect(player, ItemStack.EMPTY, task.id);
+		if (task instanceof ItemTask || !task.getQuest().getRewards().isEmpty()) {
+			for (ServerPlayer player : onlineMembers) {
+				FTBQuestsInventoryListener.detect(player, ItemStack.EMPTY, task.id);
+			}
 		}
 
 		if (isCompleted(task.getQuest())) {

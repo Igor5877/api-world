@@ -138,9 +138,11 @@ public enum FTBQuestsEventHandler {
 
 			IslandData data = ServerQuestFile.INSTANCE.getOrCreateIslandData(player);
 
-			for (KillTask task : killTasks) {
-				if (data.getProgress(task) < task.getMaxProgress() && data.canStartTasks(task.getQuest())) {
-					task.kill(data, entity);
+			if (data != null && data.isMember(player.getUUID())) {
+				for (KillTask task : killTasks) {
+					if (data.getProgress(task) < task.getMaxProgress() && data.canStartTasks(task.getQuest())) {
+						task.kill(data, entity);
+					}
 				}
 			}
 		}
@@ -163,7 +165,7 @@ public enum FTBQuestsEventHandler {
 
 			IslandData data = file.getOrCreateIslandData(player);
 
-			if (data.isLocked()) {
+			if (data == null || data.isLocked() || !data.isMember(player.getUUID())) {
 				return;
 			}
 
@@ -223,7 +225,7 @@ public enum FTBQuestsEventHandler {
 			ServerQuestFile file = ServerQuestFile.INSTANCE;
 			IslandData data = file.getOrCreateIslandData(player);
 
-			if (data.isLocked()) {
+			if (data == null || data.isLocked() || !data.isMember(player.getUUID())) {
 				return;
 			}
 
