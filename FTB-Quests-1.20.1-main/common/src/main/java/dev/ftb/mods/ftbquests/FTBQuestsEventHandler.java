@@ -7,6 +7,7 @@ import dev.architectury.hooks.level.entity.PlayerHooks;
 import dev.ftb.mods.ftbquests.block.FTBQuestsBlocks;
 import dev.ftb.mods.ftbquests.block.entity.FTBQuestsBlockEntities;
 import dev.ftb.mods.ftbquests.command.FTBQuestsCommands;
+import dev.ftb.mods.ftbquests.config.FTBQuestsTeamConfig;
 import dev.ftb.mods.ftbquests.events.ClearFileCacheEvent;
 import dev.ftb.mods.ftbquests.item.FTBQuestsItems;
 import dev.ftb.mods.ftbquests.quest.BaseQuestFile;
@@ -16,6 +17,10 @@ import dev.ftb.mods.ftbquests.quest.team.TeamManager;
 import dev.ftb.mods.ftbquests.quest.task.DimensionTask;
 import dev.ftb.mods.ftbquests.quest.task.KillTask;
 import dev.ftb.mods.ftbquests.quest.task.Task;
+import dev.ftb.mods.ftbquests.integration.PermissionsHelper;
+import dev.ftb.mods.ftbquests.net.SyncEditorPermissionMessage;
+import dev.ftb.mods.ftbquests.net.SyncIslandDataMessage;
+import dev.ftb.mods.ftbquests.net.SyncQuestsMessage;
 import dev.ftb.mods.ftbquests.util.DeferredInventoryDetection;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
 import net.minecraft.commands.CommandBuildContext;
@@ -60,11 +65,31 @@ public enum FTBQuestsEventHandler {
 		PlayerEvent.PLAYER_CLONE.register(this::cloned);
 		PlayerEvent.CHANGE_DIMENSION.register(this::changedDimension);
 		PlayerEvent.OPEN_MENU.register(this::containerOpened);
+		PlayerEvent.PLAYER_JOIN.register(this::playerLoggedIn);
 		TickEvent.SERVER_POST.register(DeferredInventoryDetection::tick);
+	}
+
+	private void playerLoggedIn(ServerPlayer player) {
+		ServerQuestFile file = ServerQuestFile.INSTANCE;
+		if (file != null) {
+			// Sync the entire quest file structure
+			new SyncQuestsMessage(file).sendTo(player);
+
+			// Sync the player's permission level
+			new SyncEditorPermissionMessage(PermissionsHelper.hasEditorPermission(player, false)).sendTo(player);
+
+			// Sync ONLY the player's own team/personal data initially.
+			// This is critical for preventing the "no data" error on login.
+			IslandData selfData = file.getOrCreateIslandData(player);
+			if (selfData != null) {
+				new SyncIslandDataMessage(selfData, true).sendTo(player);
+			}
+		}
 	}
 
 	private void serverAboutToStart(MinecraftServer server) {
 		ServerQuestFile.INSTANCE = new ServerQuestFile(server);
+		FTBQuestsTeamConfig.register();
 	}
 
 	private void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher, CommandBuildContext ctx, Commands.CommandSelection selection) {
@@ -72,6 +97,7 @@ public enum FTBQuestsEventHandler {
 	}
 
 	private void serverStarted(MinecraftServer server) {
+		FTBQuestsTeamConfig.load(server);
 		ServerQuestFile.INSTANCE.load();
 		TeamManager.getInstance(server).load();
 	}

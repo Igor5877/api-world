@@ -102,9 +102,6 @@ public class TeamData {
             TeamRole role = TeamRole.valueOf(memberTag.getString("role"));
             teamData.addMember(memberUuid, role);
         }
-        
-        // Ensure owner from NBT is correctly set as leader
-        teamData.setOwner(owner);
 
         return teamData;
     }

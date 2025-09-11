@@ -3,6 +3,7 @@ package dev.ftb.mods.ftbquests.util;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
+import dev.ftb.mods.ftbquests.config.FTBQuestsTeamConfig;
 import org.slf4j.Logger;
 
 import java.net.URI;
@@ -16,7 +17,6 @@ import java.util.concurrent.CompletableFuture;
 public class TeamHttpClient {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new Gson();
-    private static final String API_BASE_URL = "http://nestworld.site:8000/api/v1/"; // This should be configured
     private static final HttpClient CLIENT = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(Duration.ofSeconds(10))
@@ -24,7 +24,7 @@ public class TeamHttpClient {
 
     public static CompletableFuture<Boolean> notifyTeamCreated(UUID ownerUuid, String teamName) {
         // This is a hypothetical endpoint. The user needs to confirm the actual API endpoints.
-        String apiUrl = API_BASE_URL + "teams/";
+        String apiUrl = FTBQuestsTeamConfig.API_BASE_URL + "teams/";
         
         JsonObject payload = new JsonObject();
         payload.addProperty("name", teamName);
@@ -54,7 +54,7 @@ public class TeamHttpClient {
     }
 
     public static CompletableFuture<Boolean> notifyIslandAction(UUID playerUuid, String action) {
-        String apiUrl = API_BASE_URL + "islands/" + playerUuid.toString() + "/" + action; // e.g. /api/v1/islands/uuid/archive
+        String apiUrl = FTBQuestsTeamConfig.API_BASE_URL + "islands/" + playerUuid.toString() + "/" + action; // e.g. /api/v1/islands/uuid/archive
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(apiUrl))

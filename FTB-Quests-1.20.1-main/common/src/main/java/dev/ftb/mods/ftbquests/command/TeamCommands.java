@@ -6,13 +6,6 @@ import dev.ftb.mods.ftbquests.quest.team.TeamData;
 import dev.ftb.mods.ftbquests.quest.team.TeamManager;
 import dev.ftb.mods.ftbquests.util.TeamHttpClient;
 import net.minecraft.commands.CommandSourceStack;
-import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.arguments.StringArgumentType;
-import dev.ftb.mods.ftbquests.quest.team.TeamData;
-import dev.ftb.mods.ftbquests.quest.team.TeamManager;
-import dev.ftb.mods.ftbquests.quest.team.TeamRole;
-import dev.ftb.mods.ftbquests.util.TeamHttpClient;
-import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.Component;
@@ -78,12 +71,20 @@ public class TeamCommands {
 
         source.sendSuccess(() -> Component.literal("Creating team..."), false);
 
-        TeamData team = teamManager.createTeam(name, player.getUUID());
-        if (team != null) {
-            player.sendSystemMessage(Component.literal("Team '" + name + "' created successfully!"));
-        } else {
-            player.sendSystemMessage(Component.literal("Failed to create team locally. Perhaps you joined a team just now?"));
-        }
+        TeamHttpClient.notifyTeamCreated(player.getUUID(), name).thenAccept(success -> {
+            player.getServer().execute(() -> {
+                if (success) {
+                    TeamData team = teamManager.createTeam(name, player.getUUID());
+                    if (team != null) {
+                        player.sendSystemMessage(Component.literal("Team '" + name + "' created successfully!"));
+                    } else {
+                        player.sendSystemMessage(Component.literal("Failed to create team locally. Perhaps you joined a team just now?"));
+                    }
+                } else {
+                    player.sendSystemMessage(Component.literal("Failed to create team. The backend service rejected the request."));
+                }
+            });
+        });
 
         return 1;
     }
@@ -138,13 +139,15 @@ public class TeamCommands {
         source.sendSuccess(() -> Component.literal("Attempting to join team... Archiving your island..."), false);
 
         TeamHttpClient.notifyIslandAction(player.getUUID(), "archive").thenAccept(success -> {
-            if (success) {
-                teamManager.addPlayerToTeam(player.getUUID(), team);
-                player.sendSystemMessage(Component.literal("Successfully joined team '" + team.getName() + "'!"));
-                teamOwner.sendSystemMessage(Component.literal(player.getName().getString() + " has joined your team."));
-            } else {
-                player.sendSystemMessage(Component.literal("Failed to join team: Could not archive your island."));
-            }
+            player.getServer().execute(() -> {
+                if (success) {
+                    teamManager.addPlayerToTeam(player.getUUID(), team);
+                    player.sendSystemMessage(Component.literal("Successfully joined team '" + team.getName() + "'!"));
+                    teamOwner.sendSystemMessage(Component.literal(player.getName().getString() + " has joined your team."));
+                } else {
+                    player.sendSystemMessage(Component.literal("Failed to join team: Could not archive your island."));
+                }
+            });
         });
 
         return 1;
@@ -175,17 +178,19 @@ public class TeamCommands {
         source.sendSuccess(() -> Component.literal("Leaving team... Restoring your island..."), false);
 
         TeamHttpClient.notifyIslandAction(player.getUUID(), "restore").thenAccept(success -> {
-            if (success) {
-                teamManager.removePlayerFromTeam(player.getUUID());
-                player.sendSystemMessage(Component.literal("You have left the team."));
-            } else {
-                player.sendSystemMessage(Component.literal("Failed to leave team: Could not restore your island."));
-            }
+            player.getServer().execute(() -> {
+                if (success) {
+                    teamManager.removePlayerFromTeam(player.getUUID());
+                    player.sendSystemMessage(Component.literal("You have left the team."));
+                } else {
+                    player.sendSystemMessage(Component.literal("Failed to leave team: Could not restore your island."));
+                }
+            });
         });
 
         return 1;
     }
-    
+
     private static int kickPlayer(CommandSourceStack source, ServerPlayer playerToKick) {
         ServerPlayer owner;
         try {
@@ -216,13 +221,15 @@ public class TeamCommands {
         source.sendSuccess(() -> Component.literal("Kicking player... Restoring their island..."), false);
         
         TeamHttpClient.notifyIslandAction(playerToKick.getUUID(), "restore").thenAccept(success -> {
-            if (success) {
-                teamManager.removePlayerFromTeam(playerToKick.getUUID());
-                owner.sendSystemMessage(Component.literal("You have kicked " + playerToKick.getName().getString() + " from the team."));
-                playerToKick.sendSystemMessage(Component.literal("You have been kicked from the team '" + team.getName() + "'."));
-            } else {
-                owner.sendSystemMessage(Component.literal("Failed to kick player: Could not restore their island."));
-            }
+            owner.getServer().execute(() -> {
+                if (success) {
+                    teamManager.removePlayerFromTeam(playerToKick.getUUID());
+                    owner.sendSystemMessage(Component.literal("You have kicked " + playerToKick.getName().getString() + " from the team."));
+                    playerToKick.sendSystemMessage(Component.literal("You have been kicked from the team '" + team.getName() + "'."));
+                } else {
+                    owner.sendSystemMessage(Component.literal("Failed to kick player: Could not restore their island."));
+                }
+            });
         });
         
         return 1;

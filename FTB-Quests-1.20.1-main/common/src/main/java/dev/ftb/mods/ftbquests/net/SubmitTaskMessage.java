@@ -45,12 +45,14 @@ public class SubmitTaskMessage extends BaseC2SMessage {
 		IslandData data = ServerQuestFile.INSTANCE.getOrCreateIslandData(player);
 
 		if (data != null && !data.isLocked() && data.canStartTasks(task.getQuest())) {
-			NestworldModsServer.ISLAND_PROVIDER.refreshAndGetTeamId(player.getUUID()).thenAcceptAsync(teamId -> {
-				if (teamId != null && teamId.equals(data.getTeamId())) {
-					// Player is a member of the team that owns this data, proceed to submit.
-					ServerQuestFile.INSTANCE.withPlayerContext(player, () -> task.submitTask(data, player));
-				}
-			}, player.getServer());
+			NestworldModsServer.ISLAND_PROVIDER.refreshAndGetTeamId(player.getUUID()).thenAccept(teamId -> {
+				player.getServer().execute(() -> {
+					if (teamId != null && teamId.equals(data.getTeamId())) {
+						// Player is a member of the team that owns this data, proceed to submit.
+						ServerQuestFile.INSTANCE.withPlayerContext(player, () -> task.submitTask(data, player));
+					}
+				});
+			});
 		}
 	}
 }
