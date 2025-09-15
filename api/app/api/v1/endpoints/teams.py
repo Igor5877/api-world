@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 import uuid
 from uuid import UUID
 import logging
@@ -24,7 +26,7 @@ async def create_solo_island_and_team(
     Creates a new solo island for a player.
     This implicitly creates a team of one for the player.
     """
-    player_uuid = uuid.UUID(player_info.get("player_uuid"))
+    player_uuid = player_info.get("player_uuid")
     player_name = player_info.get("player_name")
 
     if not player_uuid or not player_name:
@@ -46,7 +48,7 @@ async def create_solo_island_and_team(
 
 @router.get("/my_team/{player_uuid}", response_model=TeamSchema)
 async def get_my_team(
-    player_uuid: UUID,
+    player_uuid: str,
     db: AsyncSession = Depends(get_db_session)
 ):
     """
@@ -65,14 +67,19 @@ from app.schemas.team import TeamInviteAccept, TeamUpdate
 async def rename_team_endpoint(
     team_id: int,
     team_in: TeamUpdate, # Using a generic update schema
-    player_uuid: UUID, # This should come from an auth token
+    player_uuid: str, # This should come from an auth token
     db: AsyncSession = Depends(get_db_session)
 ):
-    team = await db.get(Team, team_id)
+    result = await db.execute(
+        select(Team)
+        .where(Team.id == team_id)
+        .options(selectinload(Team.members))
+    )
+    team = result.scalars().first()
     if not team:
         raise HTTPException(status_code=404, detail="Team not found.")
     
-    if str(player_uuid) != team.owner_uuid:
+    if player_uuid != team.owner_uuid:
         raise HTTPException(status_code=403, detail="Only the team owner can rename the team.")
 
     # Check if new name is already taken
@@ -92,7 +99,7 @@ async def accept_invite(
     *,
     db: AsyncSession = Depends(get_db_session),
     invite_data: TeamInviteAccept,
-    player_uuid: UUID, # In a real app, this would come from an auth token
+    player_uuid: str, # In a real app, this would come from an auth token
     background_tasks: BackgroundTasks
 ):
     """
@@ -119,7 +126,7 @@ async def accept_invite(
 async def leave_team(
     *,
     team_id: int,
-    player_uuid: UUID, # In a real app, this would come from an auth token
+    player_uuid: str, # In a real app, this would come from an auth token
     db: AsyncSession = Depends(get_db_session)
 ):
     """
@@ -134,7 +141,7 @@ async def leave_team(
     if not member:
         raise HTTPException(status_code=403, detail="Player is not a member of this team.")
 
-    if str(player_uuid) == team.owner_uuid:
+    if player_uuid == team.owner_uuid:
         # Disband the team
         # This is a destructive action and needs a proper service function.
         # For now, we'll just delete the team record, and cascade should handle the rest.

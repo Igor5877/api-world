@@ -94,7 +94,7 @@ public class IslandCommand {
         jsonPayload.addProperty("player_uuid", playerUuid.toString());
         jsonPayload.addProperty("player_name", playerName);
 
-        String apiUrl = Config.getApiBaseUrl() + "islands/"; 
+        String apiUrl = Config.getApiBaseUrl() + "teams/create_solo"; 
         LOGGER.info("Attempting to create island for {} (UUID: {}) via API: {}", playerName, playerUuid, apiUrl);
 
         HttpRequest createRequest = HttpRequest.newBuilder()

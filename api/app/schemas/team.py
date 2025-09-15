@@ -7,7 +7,7 @@ from app.models.team import RoleEnum # Import the RoleEnum from your models
 
 # Base properties for a team member
 class TeamMemberBase(BaseModel):
-    player_uuid: uuid.UUID
+    player_uuid: str
     role: RoleEnum
 
 # Properties to receive via API on creation (role is optional, defaults to member)
@@ -29,7 +29,7 @@ class TeamBase(BaseModel):
 class TeamCreate(TeamBase):
     # The owner_uuid will be extracted from the authenticated user/token in a real app
     # For now, we might pass it in the request body for simplicity.
-    owner_uuid: uuid.UUID
+    owner_uuid: str
 
 class TeamUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=3, max_length=50)
@@ -37,7 +37,7 @@ class TeamUpdate(BaseModel):
 # Properties to return to a client
 class Team(TeamBase):
     id: int
-    owner_uuid: uuid.UUID
+    owner_uuid: str
     members: List[TeamMember] = []
     island_id: Optional[int] = None # The ID of the associated island
 
@@ -51,7 +51,7 @@ class TeamCreateResponse(BaseModel):
 # -- Invitation Schemas --
 
 class TeamInvite(BaseModel):
-    player_to_invite_uuid: uuid.UUID
+    player_to_invite_uuid: str
 
 class TeamInviteAccept(BaseModel):
     team_name: str

@@ -171,23 +171,16 @@ async def reconcile_island_states():
                              extra_fields_to_update["internal_ip_address"] = actual_lxd_state_info.get("ip_address")
 
 
-                if new_status: # If a status change is determined
-                    logger.info(f"Reconciliation: Updating island ID {island_db.id} to status {new_status.value} with fields {extra_fields_to_update}")
-                    await crud_island.update_status(
+                update_payload = extra_fields_to_update.copy()
+                if new_status:
+                    update_payload["status"] = new_status
+
+                if update_payload:
+                    logger.info(f"Reconciliation: Updating island ID {island_db.id} with payload: {update_payload}")
+                    await crud_island.update_by_id(
                         db_session=db_session,
-                        player_uuid=uuid.UUID(island_db.player_uuid), # Ensure it's UUID type
-                        status=new_status,
-                        extra_fields=extra_fields_to_update
-                    )
-                elif extra_fields_to_update: # Only extra fields changed, status remains same
-                    logger.info(f"Reconciliation: Updating fields for island ID {island_db.id}: {extra_fields_to_update} (status {db_status.value} unchanged)")
-                    # Need to fetch the island object to update general fields if not using update_status
-                    # For simplicity, if only IP is changing for a RUNNING island, update_status can handle it.
-                    await crud_island.update_status(
-                        db_session=db_session,
-                        player_uuid=uuid.UUID(island_db.player_uuid),
-                        status=db_status, # Keep current status
-                        extra_fields=extra_fields_to_update
+                        island_id=island_db.id,
+                        obj_in=update_payload
                     )
 
             # await db_session.commit() # crud_island methods already commit.

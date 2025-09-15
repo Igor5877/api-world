@@ -13,7 +13,7 @@ router = APIRouter()
 
 @router.get("/{player_uuid}", response_model=IslandResponse)
 async def get_island_status_endpoint(
-    player_uuid: uuid.UUID,
+    player_uuid: str,
     db_session: AsyncSession = Depends(get_db_session) # Added DB session dependency
 ):
     """

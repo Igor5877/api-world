@@ -11,28 +11,27 @@ import logging
 logger = logging.getLogger(__name__)
 
 class CRUDIslandStartQueue:
-    async def add_to_queue(self, db_session: AsyncSession, *, player_uuid: pyUUID, player_name: Optional[str] = None) -> IslandStartQueue:
-        player_uuid_str = str(player_uuid)
+    async def add_to_queue(self, db_session: AsyncSession, *, player_uuid: str, player_name: Optional[str] = None) -> IslandStartQueue:
         existing_entry = await self.get_by_player_uuid(db_session, player_uuid=player_uuid)
 
         if existing_entry:
             if existing_entry.status == QueueItemStatusEnum.PENDING:
-                logger.info(f"Player {player_uuid_str} already in start queue with PENDING status.")
+                logger.info(f"Player {player_uuid} already in start queue with PENDING status.")
                 return existing_entry
             else:
                 stmt = (
                     update(IslandStartQueue)
-                    .where(IslandStartQueue.player_uuid == player_uuid_str)
+                    .where(IslandStartQueue.player_uuid == player_uuid)
                     .values(status=QueueItemStatusEnum.PENDING, requested_at=func.now(), player_name=player_name)
                 )
                 await db_session.execute(stmt)
                 await db_session.commit()
                 updated_entry = await self.get_by_player_uuid(db_session, player_uuid=player_uuid)
-                logger.info(f"Re-queued player {player_uuid_str} for start with status PENDING.")
+                logger.info(f"Re-queued player {player_uuid} for start with status PENDING.")
                 return updated_entry
 
         new_queue_item = IslandStartQueue(
-            player_uuid=player_uuid_str,
+            player_uuid=player_uuid,
             player_name=player_name,
             status=QueueItemStatusEnum.PENDING
         )
@@ -51,25 +50,24 @@ class CRUDIslandStartQueue:
         )
         return result.scalars().first()
 
-    async def remove_from_queue(self, db_session: AsyncSession, *, player_uuid: pyUUID) -> bool:
+    async def remove_from_queue(self, db_session: AsyncSession, *, player_uuid: str) -> bool:
         stmt = (
             delete(IslandStartQueue)
-            .where(IslandStartQueue.player_uuid == str(player_uuid))
+            .where(IslandStartQueue.player_uuid == player_uuid)
         )
         result = await db_session.execute(stmt)
         await db_session.commit()
         deleted_count = result.rowcount
         if deleted_count > 0:
-            logger.info(f"Removed player {str(player_uuid)} from island_start_queue.")
+            logger.info(f"Removed player {player_uuid} from island_start_queue.")
         else:
-            logger.info(f"Player {str(player_uuid)} not found in island_start_queue for removal or already removed.")
+            logger.info(f"Player {player_uuid} not found in island_start_queue for removal or already removed.")
         return deleted_count > 0
 
-    async def update_queue_item_status(self, db_session: AsyncSession, *, player_uuid: pyUUID, status: QueueItemStatusEnum) -> Optional[IslandStartQueue]:
-        player_uuid_str = str(player_uuid)
+    async def update_queue_item_status(self, db_session: AsyncSession, *, player_uuid: str, status: QueueItemStatusEnum) -> Optional[IslandStartQueue]:
         stmt = (
             update(IslandStartQueue)
-            .where(IslandStartQueue.player_uuid == player_uuid_str)
+            .where(IslandStartQueue.player_uuid == player_uuid)
             .values(status=status)
         )
         await db_session.execute(stmt)
@@ -78,15 +76,15 @@ class CRUDIslandStartQueue:
         updated_item = await self.get_by_player_uuid(db_session, player_uuid=player_uuid)
 
         if updated_item:
-            logger.info(f"Updated island_start_queue status for player {player_uuid_str} to {status.value}.")
+            logger.info(f"Updated island_start_queue status for player {player_uuid} to {status.value}.")
             return updated_item
         else:
-            logger.warning(f"Could not find player {player_uuid_str} in island_start_queue to update status to {status.value}.")
+            logger.warning(f"Could not find player {player_uuid} in island_start_queue to update status to {status.value}.")
             return None
 
-    async def get_by_player_uuid(self, db_session: AsyncSession, *, player_uuid: pyUUID) -> Optional[IslandStartQueue]:
+    async def get_by_player_uuid(self, db_session: AsyncSession, *, player_uuid: str) -> Optional[IslandStartQueue]:
         result = await db_session.execute(
-            select(IslandStartQueue).filter(IslandStartQueue.player_uuid == str(player_uuid))
+            select(IslandStartQueue).filter(IslandStartQueue.player_uuid == player_uuid)
         )
         return result.scalars().first()
 

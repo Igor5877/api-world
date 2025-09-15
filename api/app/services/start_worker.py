@@ -35,8 +35,8 @@ async def trigger_start_worker():
                     try:
                         island = await crud_island.get_by_player_uuid(db_session, player_uuid=next_in_queue.player_uuid)
                         if island:
-                            await island_service._perform_lxd_start_and_update_status(
-                                player_uuid=str(island.player_uuid),
+                            await island_service._perform_solo_lxd_start_and_update_status(
+                                player_uuid_str=island.player_uuid,
                                 container_name=island.container_name,
                                 was_frozen=(island.status == IslandStatusEnum.FROZEN)
                             )
