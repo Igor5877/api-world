@@ -109,7 +109,8 @@ public class ApiClient {
 
     public CompletableFuture<ApiResponse> createTeam(String teamName, UUID ownerUuid, String ownerName) {
         String path = "/teams/create_solo";
-        String jsonPayload = gson.toJson(Map.of("player_uuid", ownerUuid.toString(), "player_name", ownerName));
+        // The API endpoint expects the player_info to be a nested dictionary.
+        String jsonPayload = gson.toJson(Map.of("player_info", Map.of("player_uuid", ownerUuid.toString(), "player_name", ownerName)));
         
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(apiUrlBase + path))

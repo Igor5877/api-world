@@ -89,11 +89,11 @@ public class SkyBlockMod
         }
     }
 
-    @SubscribeEvent
-    public void onRegisterCommands(net.minecraftforge.event.RegisterCommandsEvent event) {
-        com.skyblock.dynamic.commands.IslandCommand.register(event.getDispatcher());
-        LOGGER.info("SkyBlockMod: Registered /island command.");
-    }
+    // @SubscribeEvent
+    // public void onRegisterCommands(net.minecraftforge.event.RegisterCommandsEvent event) {
+    //     com.skyblock.dynamic.commands.IslandCommand.register(event.getDispatcher());
+    //     LOGGER.info("SkyBlockMod: Registered /island command.");
+    // }
 
     @SubscribeEvent
     public void onServerAboutToStart(ServerAboutToStartEvent event) {

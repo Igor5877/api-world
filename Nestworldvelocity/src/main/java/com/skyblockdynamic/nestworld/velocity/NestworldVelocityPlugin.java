@@ -21,6 +21,7 @@ import com.skyblockdynamic.nestworld.velocity.listener.PlayerConnectionListener;
 import com.skyblockdynamic.nestworld.velocity.commands.MyIslandCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.SpawnCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.TeamCommand;
+import com.skyblockdynamic.nestworld.velocity.commands.IslandCommand;
 
 @Plugin(
     id = "nestworldvelocity",
@@ -80,6 +81,13 @@ public class NestworldVelocityPlugin {
             
         commandManager.register(teamCommandMeta, new TeamCommand(this, this.apiClient, logger));
         logger.info("Registered /team command.");
+
+        CommandMeta islandCommandMeta = commandManager.metaBuilder("island")
+            .plugin(this)
+            .build();
+        
+        commandManager.register(islandCommandMeta, new IslandCommand(this, this.apiClient, logger));
+        logger.info("Registered /island command.");
         
         logger.info("NestworldVelocityPlugin initialized successfully with listeners, config, and commands!");
         logger.info("API URL configured to: {}", pluginConfig.getApiUrl());

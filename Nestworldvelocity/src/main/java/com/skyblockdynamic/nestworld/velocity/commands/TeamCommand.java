@@ -1,6 +1,8 @@
 package com.skyblockdynamic.nestworld.velocity.commands;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.skyblockdynamic.nestworld.velocity.NestworldVelocityPlugin;
 import com.skyblockdynamic.nestworld.velocity.network.ApiClient;
@@ -54,6 +56,9 @@ public class TeamCommand implements SimpleCommand {
                 break;
             case "rename":
                 handleRename(player, args);
+                break;
+            case "info":
+                handleInfo(player);
                 break;
             default:
                 sendHelp(player);
@@ -135,12 +140,41 @@ public class TeamCommand implements SimpleCommand {
         });
     }
 
+    private void handleInfo(Player player) {
+        apiClient.getTeam(player.getUniqueId()).thenAccept(response -> {
+            if (response.isSuccess()) {
+                JsonObject teamJson = gson.fromJson(response.body(), JsonObject.class);
+                String teamName = teamJson.get("name").getAsString();
+                String ownerUuid = teamJson.get("owner_uuid").getAsString();
+                JsonArray members = teamJson.getAsJsonArray("members");
+
+                player.sendMessage(Component.text("--- Team Info ---", NamedTextColor.YELLOW));
+                player.sendMessage(Component.text("Name: ", NamedTextColor.AQUA).append(Component.text(teamName, NamedTextColor.WHITE)));
+                
+                // In a real application, you'd want to cache UUID to name lookups
+                player.sendMessage(Component.text("Owner: ", NamedTextColor.AQUA).append(Component.text(ownerUuid, NamedTextColor.WHITE)));
+
+                player.sendMessage(Component.text("Members:", NamedTextColor.AQUA));
+                for (JsonElement memberElement : members) {
+                    JsonObject memberObject = memberElement.getAsJsonObject();
+                    String memberUuid = memberObject.get("player_uuid").getAsString();
+                    String role = memberObject.get("role").getAsString();
+                    player.sendMessage(Component.text(" - " + memberUuid + " (" + role + ")", NamedTextColor.GRAY));
+                }
+
+            } else {
+                player.sendMessage(Component.text("You are not in a team.", NamedTextColor.RED));
+            }
+        });
+    }
+
     private void sendHelp(Player player) {
         player.sendMessage(Component.text("--- Team Commands ---", NamedTextColor.YELLOW));
         player.sendMessage(Component.text("/team create <name>", NamedTextColor.AQUA));
         player.sendMessage(Component.text("/team accept <team_name>", NamedTextColor.AQUA));
         player.sendMessage(Component.text("/team leave", NamedTextColor.AQUA));
         player.sendMessage(Component.text("/team rename <new_name>", NamedTextColor.AQUA));
+        player.sendMessage(Component.text("/team info", NamedTextColor.AQUA));
     }
 
     @Override
