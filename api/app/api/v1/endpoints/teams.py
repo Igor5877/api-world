@@ -142,13 +142,11 @@ async def leave_team(
         raise HTTPException(status_code=403, detail="Player is not a member of this team.")
 
     if player_uuid == team.owner_uuid:
-        # Disband the team
-        # This is a destructive action and needs a proper service function.
-        # For now, we'll just delete the team record, and cascade should handle the rest.
-        logger.info(f"Owner {player_uuid} is leaving team {team_id}. Disbanding team.")
-        # In a real app: await island_service.disband_team(db, team=team)
-        await db.delete(team)
-        await db.commit()
+        # Owner cannot leave the team. They must delete it or transfer ownership.
+        raise HTTPException(
+            status_code=400,
+            detail="Team owner cannot leave the team. Please transfer ownership or delete the team."
+        )
     else:
         # Just remove the member
         await crud_team.remove_member(db, team=team, player_uuid=player_uuid)

@@ -26,12 +26,21 @@ class IslandService:
 
     async def get_island_by_player_uuid(self, db_session: AsyncSession, *, player_uuid: str) -> IslandResponse | None:
         logger.debug(f"Service: Fetching island for player_uuid: {player_uuid}")
-        island_db_model = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
-        if not island_db_model:
-            logger.info(f"Service: Island not found for player_uuid: {player_uuid}")
-            return None
-        logger.info(f"Service: Island found for player_uuid: {player_uuid}, id: {island_db_model.id}")
-        return IslandResponse.model_validate(island_db_model)
+
+        # First, check if the player is in a team and get the team's island
+        team = await crud_team.get_team_by_player(db=db_session, player_uuid=player_uuid)
+        if team and team.island:
+            logger.info(f"Service: Found team island (ID: {team.island.id}) for player {player_uuid}.")
+            return IslandResponse.model_validate(team.island)
+
+        # If not in a team, check for a legacy solo island
+        solo_island = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
+        if solo_island:
+            logger.info(f"Service: Found legacy solo island (ID: {solo_island.id}) for player {player_uuid}.")
+            return IslandResponse.model_validate(solo_island)
+
+        logger.info(f"Service: No island found for player_uuid: {player_uuid}")
+        return None
 
     async def create_new_solo_island(self, db_session: AsyncSession, *, player_uuid: str, player_name: str, background_tasks: BackgroundTasks) -> TeamModel:
         logger.info(f"Service: Explicitly creating a new solo island for player {player_uuid}.")
@@ -116,14 +125,58 @@ class IslandService:
     async def start_island_instance(self, db_session: AsyncSession, *, player_uuid: str, player_name: str, background_tasks: BackgroundTasks) -> IslandResponse:
         logger.info(f"Service: Player {player_uuid} attempting to start an island.")
         team = await crud_team.get_team_by_player(db=db_session, player_uuid=player_uuid)
-        if team and team.island:
-            return await self._start_existing_island(db_session, team.island, team, background_tasks)
 
+        # Case 1: Player is in a team.
+        if team:
+            island = team.island
+            # If the island relationship wasn't loaded, fetch it directly. This is a robust workaround.
+            if not island:
+                logger.warning(f"Team {team.id} was found but island relationship was not loaded. Fetching directly.")
+                island = await crud_island.get_by_team_id(db_session, team_id=team.id)
+
+            # Case 1a: Team has an island. Start it.
+            if island:
+                logger.info(f"Service: Found team island (ID: {island.id}) for player {player_uuid}.")
+                return await self._start_existing_island(db_session, island, team, background_tasks)
+            # Case 1b: Team exists but has no island. Create one for them.
+            else:
+                logger.warning(f"Service: Team {team.id} exists for player {player_uuid} but has no island. Creating one now.")
+                safe_team_name = "".join(c if c.isalnum() else '_' for c in team.name)
+                container_name = f"skyblock-team-{safe_team_name}-{team.id}"
+                
+                new_island = await crud_island.create(
+                    db_session=db_session,
+                    team_id=team.id,
+                    container_name=container_name,
+                    initial_status=IslandStatusEnum.PENDING_CREATION
+                )
+                team.island = new_island
+                db_session.add(team)
+                await db_session.commit()
+                await db_session.refresh(team, relationships=["island"])
+
+                background_tasks.add_task(self._perform_lxd_clone_and_update_status, team_id=team.id, container_name=container_name)
+                logger.info(f"Service: New island (ID: {new_island.id}) created for team {team.id}. Returning PENDING_CREATION state.")
+                return IslandResponse.model_validate(new_island)
+
+        # Case 2: Player is not in a team. Check for a legacy solo island.
         solo_island = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
         if solo_island:
+            logger.info(f"Service: Found legacy solo island (ID: {solo_island.id}) for player {player_uuid}.")
             return await self._start_existing_island(db_session, solo_island, None, background_tasks)
 
-        raise ValueError("No island found for this player. Please create one first.")
+        # Case 3: No team and no solo island. Create a new solo island and team.
+        logger.info(f"Service: No island or team found for player {player_uuid}. Creating a new solo island setup.")
+        new_solo_team = await self.create_new_solo_island(
+            db_session=db_session,
+            player_uuid=player_uuid,
+            player_name=player_name,
+            background_tasks=background_tasks
+        )
+        await db_session.commit()
+        await db_session.refresh(new_solo_team, relationships=["island"])
+        logger.info(f"Service: New solo island (ID: {new_solo_team.island.id}) created for player {player_uuid}. Returning PENDING_CREATION state.")
+        return IslandResponse.model_validate(new_solo_team.island)
 
     async def _start_existing_island(self, db_session: AsyncSession, island: IslandModel, team: Optional[TeamModel], background_tasks: BackgroundTasks) -> IslandResponse:
         current_status = island.status
@@ -330,21 +383,10 @@ class IslandService:
                 logger.error(f"Error freezing solo island for {player_uuid_str}: {e}")
 
     async def rename_team(self, db: AsyncSession, *, team: TeamModel, new_name: str) -> TeamModel:
-        from app.schemas.team import Team as TeamSchema
         existing_name = await crud_team.get_team_by_name(db, name=new_name)
         if existing_name and existing_name.id != team.id:
             raise ValueError("A team with this name already exists.")
         updated_team = await crud_team.rename_team(db, team=team, new_name=new_name)
-        await db.commit()
-        await db.refresh(updated_team, relationships=["members", "island"])
-
-        logger.info(f"Service: Team {team.id} renamed to '{new_name}'. Notifying members.")
-        team_response = TeamSchema.model_validate(updated_team)
-        for member in updated_team.members:
-            await websocket_manager.send_personal_message(
-                {"event": "team_updated", "data": team_response.model_dump()},
-                member.player_uuid
-            )
         return updated_team
 
     async def mark_island_as_ready_for_players(self, db_session: AsyncSession, *, team_id: int):
@@ -368,33 +410,51 @@ class IslandService:
         logger.info(f"Service: Island for team {team_id} marked as ready.")
 
     async def handle_join_team(self, db_session: AsyncSession, *, player_to_join_uuid: str, team_to_join: TeamModel, background_tasks: BackgroundTasks):
-        from app.schemas.team import Team as TeamSchema
+        # 1. Check if player is already in the target team
         for member in team_to_join.members:
             if member.player_uuid == player_to_join_uuid:
                 raise ValueError("Player is already in this team.")
 
-        old_island = await crud_island.get_by_player_uuid(db_session, player_uuid=player_to_join_uuid)
+        # 2. Find the player's current team
+        current_team = await crud_team.get_team_by_player(db=db_session, player_uuid=player_to_join_uuid)
+        
+        old_island_to_delete = None
+        
+        # 3. If the player is in a team, validate if they can leave
+        if current_team:
+            # It's the same team, which should have been caught by the first check, but as a safeguard.
+            if current_team.id == team_to_join.id:
+                 raise ValueError("Player is already in this team.")
+            
+            # If the team has more than one member, prevent leaving.
+            if len(current_team.members) > 1:
+                raise ValueError("Cannot join a new team while being part of a team with other members. Please leave your current team first.")
+            
+            # If we are here, it's a solo team. It's safe to delete it.
+            logger.info(f"Service: Player {player_to_join_uuid} is leaving a solo team (ID: {current_team.id}) to join team {team_to_join.id}.")
+            if current_team.island:
+                old_island_to_delete = current_team.island
+            
+            # Schedule the old team for deletion from the session
+            await db_session.delete(current_team)
+
+        # 4. Add player to the new team
         await crud_team.add_member(db=db_session, team=team_to_join, player_uuid=player_to_join_uuid)
-        await db_session.commit()
-        logger.info(f"Service: Player {player_to_join_uuid} added to team {team_to_join.id}.")
-
-        if old_island:
-            logger.info(f"Service: Player {player_to_join_uuid} has an old island (ID: {old_island.id}) that will be deleted.")
-            background_tasks.add_task(self._perform_lxd_delete_and_cleanup, island_id=old_island.id, player_uuid_to_notify=player_to_join_uuid)
         
-        await db_session.refresh(team_to_join, relationships=["members", "island"])
-        
-        logger.info(f"Service: Notifying team {team_to_join.id} about the new member.")
-        team_response = TeamSchema.model_validate(team_to_join)
-        for member in team_to_join.members:
-            await websocket_manager.send_personal_message(
-                {"event": "team_updated", "data": team_response.model_dump()},
-                member.player_uuid
-            )
+        # The service layer should not commit. The endpoint dependency will handle it.
+        # This ensures all operations (delete old team, add new member) are in one transaction.
 
+        # 5. If an old island was associated with the solo team, schedule its LXD container for deletion
+        if old_island_to_delete:
+            logger.info(f"Service: Scheduling old island (ID: {old_island_to_delete.id}, Container: {old_island_to_delete.container_name}) for LXD deletion.")
+            background_tasks.add_task(self._perform_lxd_delete_and_cleanup, island_id=old_island_to_delete.id)
+        
+        # The endpoint's dependency will handle the commit.
+        # We can't refresh team_to_join here without a commit, but the endpoint returns it,
+        # and FastAPI will serialize the latest state from the session.
         return team_to_join
 
-    async def _perform_lxd_delete_and_cleanup(self, island_id: int, player_uuid_to_notify: Optional[str] = None):
+    async def _perform_lxd_delete_and_cleanup(self, island_id: int):
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db_session_bg:
             try:
@@ -404,19 +464,12 @@ class IslandService:
                     return
 
                 logger.info(f"Service (background): Deleting container {island.container_name} for island {island_id}")
-                await lxd_service.delete_container(island.container_name, force=True)
+                await lxd_service.delete_container(island.container_name)
 
                 logger.info(f"Service (background): Deleting island record {island_id} from database.")
                 await crud_island.remove_by_id(db_session_bg, island_id=island_id)
                 await db_session_bg.commit()
                 logger.info(f"Service (background): Island {island_id} fully deleted.")
-
-                if player_uuid_to_notify:
-                    await websocket_manager.send_personal_message(
-                        {"event": "island_deleted", "data": {"island_id": island_id}},
-                        player_uuid_to_notify
-                    )
-                    logger.info(f"Service (background): Notified player {player_uuid_to_notify} of island deletion.")
 
             except Exception as e:
                 logger.error(f"Service (background): Error during island deletion for island_id {island_id}: {e}", exc_info=True)

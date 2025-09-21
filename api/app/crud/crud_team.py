@@ -61,8 +61,7 @@ async def add_member(db: AsyncSession, *, team: Team, player_uuid: str, role: Ro
         role=role
     )
     db.add(new_member)
-    await db.commit()
-    await db.refresh(new_member)
+    # The calling function is responsible for the commit
     return new_member
 
 async def remove_member(db: AsyncSession, *, team: Team, player_uuid: str) -> None:

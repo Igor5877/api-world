@@ -40,9 +40,10 @@ async def start_island_endpoint(
     """
     logger.info(f"Endpoint: Player {player_uuid} ({player_name}) requesting to start their island.")
     try:
+        player_uuid_str = str(player_uuid)
         updated_island = await island_service.start_island_instance(
             db_session=db_session,
-            player_uuid=player_uuid,
+            player_uuid=player_uuid_str,
             player_name=player_name,
             background_tasks=background_tasks
         )
@@ -70,9 +71,10 @@ async def stop_island_endpoint(
     """
     logger.info(f"Endpoint: Player {player_uuid} requesting to stop their island.")
     try:
+        player_uuid_str = str(player_uuid)
         updated_island = await island_service.stop_island_instance(
             db_session=db_session,
-            player_uuid=player_uuid,
+            player_uuid=player_uuid_str,
             background_tasks=background_tasks
         )
         return updated_island
@@ -103,9 +105,10 @@ async def freeze_island_endpoint(
     """
     logger.info(f"Endpoint: Received request to freeze island UUID: {player_uuid}")
     try:
+        player_uuid_str = str(player_uuid)
         updated_island = await island_service.freeze_island_instance(
             db_session=db_session,
-            player_uuid=player_uuid,
+            player_uuid=player_uuid_str,
             background_tasks=background_tasks
         )
         return updated_island
