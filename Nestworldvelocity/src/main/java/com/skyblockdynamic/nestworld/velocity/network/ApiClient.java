@@ -60,13 +60,11 @@ public class ApiClient {
     }
 
     public CompletableFuture<ApiResponse> requestIslandStart(UUID playerUuid, String playerName) {
-        String path = "/islands/start/" + playerUuid.toString();
-        String jsonPayload = gson.toJson(Map.of("player_name", playerName));
-
+        String path = "/islands/start/" + playerUuid.toString() + "?player_name=" + playerName;
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(apiUrlBase + path))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                .POST(HttpRequest.BodyPublishers.noBody())
                 .timeout(this.requestTimeout)
                 .build();
 
@@ -107,6 +105,22 @@ public class ApiClient {
                 });
     }
 
+    public CompletableFuture<ApiResponse> createSoloIsland(UUID playerUuid, String playerName) {
+        String path = "/teams/create_solo";
+        String jsonPayload = gson.toJson(Map.of("player_uuid", playerUuid.toString(), "player_name", playerName));
+        
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(apiUrlBase + path))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                .timeout(this.requestTimeout)
+                .build();
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
+                .exceptionally(ex -> new ApiResponse(ex.getMessage()));
+    }
+
     public CompletableFuture<ApiResponse> createTeam(String teamName, UUID ownerUuid, String ownerName) {
         String path = "/teams/create_solo";
         // The API endpoint expects the player_info to be a nested dictionary.
@@ -125,12 +139,11 @@ public class ApiClient {
     }
 
     public CompletableFuture<ApiResponse> acceptInvite(String teamName, UUID playerUuid) {
-        String path = "/teams/accept_invite";
+        String path = "/teams/accept_invite?player_uuid=" + playerUuid.toString();
         String jsonPayload = gson.toJson(Map.of("team_name", teamName));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(apiUrlBase + path))
                 .header("Content-Type", "application/json")
-                .header("X-Player-UUID", playerUuid.toString())
                 .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
                 .timeout(this.requestTimeout)
                 .build();
@@ -140,11 +153,10 @@ public class ApiClient {
     }
 
     public CompletableFuture<ApiResponse> leaveTeam(int teamId, UUID playerUuid) {
-        String path = "/teams/" + teamId + "/leave";
+        String path = "/teams/" + teamId + "/leave?player_uuid=" + playerUuid.toString();
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(apiUrlBase + path))
                 .header("Content-Type", "application/json")
-                .header("X-Player-UUID", playerUuid.toString())
                 .POST(HttpRequest.BodyPublishers.noBody())
                 .timeout(this.requestTimeout)
                 .build();
@@ -166,12 +178,11 @@ public class ApiClient {
     }
     
     public CompletableFuture<ApiResponse> renameTeam(int teamId, String newName, UUID playerUuid) {
-        String path = "/teams/" + teamId + "/rename";
+        String path = "/teams/" + teamId + "/rename?player_uuid=" + playerUuid.toString();
         String jsonPayload = gson.toJson(Map.of("name", newName));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(apiUrlBase + path))
                 .header("Content-Type", "application/json")
-                .header("X-Player-UUID", playerUuid.toString())
                 .method("PATCH", HttpRequest.BodyPublishers.ofString(jsonPayload))
                 .timeout(this.requestTimeout)
                 .build();

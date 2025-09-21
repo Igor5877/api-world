@@ -19,3 +19,6 @@ polling_interval_millis = 2000
 # Maximum number of polling attempts before giving up.
 # Total polling time = polling_interval_millis * max_polling_attempts
 max_polling_attempts = 15
+
+# Timeout in seconds for TPA requests.
+tpa_timeout_seconds = 60

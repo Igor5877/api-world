@@ -23,10 +23,12 @@ public class IslandCommand implements SimpleCommand {
     private final Logger logger;
     private final Gson gson = new Gson();
     private final ScheduledExecutorService pollingExecutor;
+    private final com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager;
 
-    public IslandCommand(NestworldVelocityPlugin plugin, ApiClient apiClient, Logger logger) {
+    public IslandCommand(NestworldVelocityPlugin plugin, ApiClient apiClient, Logger logger, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager) {
         this.apiClient = apiClient;
         this.logger = logger;
+        this.localeManager = localeManager;
         this.pollingExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "island-creation-poller");
             t.setDaemon(true);
@@ -38,16 +40,17 @@ public class IslandCommand implements SimpleCommand {
     public void execute(final Invocation invocation) {
         CommandSource source = invocation.source();
         if (!(source instanceof Player)) {
-            source.sendMessage(Component.text("Only players can use this command.", NamedTextColor.RED));
+            source.sendMessage(localeManager.getComponent("en", "command.player_only", NamedTextColor.RED));
             return;
         }
 
         Player player = (Player) source;
+        String lang = player.getPlayerSettings().getLocale().getLanguage();
         String[] args = invocation.arguments();
 
         if (args.length == 0) {
             // In the future, this could show island help or info.
-            player.sendMessage(Component.text("Usage: /island create", NamedTextColor.RED));
+            player.sendMessage(localeManager.getComponent(lang, "island.usage", NamedTextColor.RED));
             return;
         }
 
@@ -55,32 +58,31 @@ public class IslandCommand implements SimpleCommand {
         if ("create".equals(subCommand)) {
             handleCreate(player);
         } else {
-            player.sendMessage(Component.text("Unknown subcommand. Usage: /island create", NamedTextColor.RED));
+            player.sendMessage(localeManager.getComponent(lang, "island.usage", NamedTextColor.RED));
         }
     }
 
     private void handleCreate(Player player) {
-        player.sendMessage(Component.text("Requesting island creation...", NamedTextColor.YELLOW));
+        String lang = player.getPlayerSettings().getLocale().getLanguage();
+        player.sendMessage(localeManager.getComponent(lang, "island.create.requesting", NamedTextColor.YELLOW));
 
-        // The createTeam method handles solo island creation.
-        // The team name parameter is not used by the /create_solo endpoint.
-        apiClient.createTeam(player.getUsername(), player.getUniqueId(), player.getUsername())
+        apiClient.createSoloIsland(player.getUniqueId(), player.getUsername())
             .thenAcceptAsync(response -> {
                 int statusCode = response.statusCode();
                 logger.info("Initial island creation API response for {}: {} - {}", player.getUsername(), statusCode, response.body());
 
                 if (statusCode == 201 || statusCode == 200 || statusCode == 202) { // Created, OK, Accepted
-                    player.sendMessage(Component.text("Request accepted! Polling for creation status...", NamedTextColor.GREEN));
+                    player.sendMessage(localeManager.getComponent(lang, "island.create.accepted", NamedTextColor.GREEN));
                     pollIslandStatus(player, new AtomicInteger(0));
                 } else if (statusCode == 409) { // Conflict
-                    player.sendMessage(Component.text("You already have an island!", NamedTextColor.RED));
+                    player.sendMessage(localeManager.getComponent(lang, "island.create.already_exists", NamedTextColor.RED));
                 } else {
-                    player.sendMessage(Component.text("Error requesting island creation. Code: " + statusCode, NamedTextColor.RED));
+                    player.sendMessage(Component.text(localeManager.getMessage(lang, "island.create.error").replace("{status_code}", String.valueOf(statusCode)), NamedTextColor.RED));
                     logger.error("API Error on island creation for {}. Status: {}. Body: {}", player.getUsername(), statusCode, response.body());
                 }
             }, pollingExecutor)
             .exceptionally(e -> {
-                player.sendMessage(Component.text("Failed to communicate with the island service.", NamedTextColor.RED));
+                player.sendMessage(localeManager.getComponent(lang, "island.create.service_fail", NamedTextColor.RED));
                 logger.error("Exception during island creation request for {}: {}", player.getUsername(), e.getMessage(), e);
                 return null;
             });
@@ -89,9 +91,10 @@ public class IslandCommand implements SimpleCommand {
     private void pollIslandStatus(Player player, AtomicInteger attempts) {
         final int MAX_POLLING_ATTEMPTS = 15;
         final int POLLING_INTERVAL_SECONDS = 2;
+        String lang = player.getPlayerSettings().getLocale().getLanguage();
 
         if (attempts.getAndIncrement() >= MAX_POLLING_ATTEMPTS) {
-            player.sendMessage(Component.text("Island creation is taking longer than expected. Please try connecting with /myisland later.", NamedTextColor.YELLOW));
+            player.sendMessage(localeManager.getComponent(lang, "island.create.long_time", NamedTextColor.YELLOW));
             logger.warn("Max polling attempts reached for player {}", player.getUniqueId());
             return;
         }
@@ -108,8 +111,8 @@ public class IslandCommand implements SimpleCommand {
 
                         switch (status.toUpperCase()) {
                             case "STOPPED":
-                                player.sendMessage(Component.text("Your island has been created successfully!", NamedTextColor.GREEN));
-                                player.sendMessage(Component.text("You can now connect to it using /myisland.", NamedTextColor.AQUA));
+                                player.sendMessage(localeManager.getComponent(lang, "island.create.success", NamedTextColor.GREEN));
+                                player.sendMessage(localeManager.getComponent(lang, "island.create.connect_prompt", NamedTextColor.AQUA));
                                 break;
                             case "PENDING_CREATION":
                             case "CREATING":
@@ -118,7 +121,7 @@ public class IslandCommand implements SimpleCommand {
                                 break;
                             case "ERROR_CREATE":
                             case "ERROR":
-                                player.sendMessage(Component.text("There was an error creating your island. Please contact an administrator.", NamedTextColor.RED));
+                                player.sendMessage(localeManager.getComponent(lang, "island.create.admin_error", NamedTextColor.RED));
                                 logger.error("Island creation failed for {} with status: {}. API Response: {}", player.getUsername(), status, response.body());
                                 break;
                             default:

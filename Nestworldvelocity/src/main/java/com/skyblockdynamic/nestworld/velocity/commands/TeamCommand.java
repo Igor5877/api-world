@@ -21,17 +21,19 @@ public class TeamCommand implements SimpleCommand {
     private final ApiClient apiClient;
     private final Logger logger;
     private final Gson gson = new Gson();
+    private final com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager;
 
-    public TeamCommand(NestworldVelocityPlugin plugin, ApiClient apiClient, Logger logger) {
+    public TeamCommand(NestworldVelocityPlugin plugin, ApiClient apiClient, Logger logger, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager) {
         this.apiClient = apiClient;
         this.logger = logger;
+        this.localeManager = localeManager;
     }
 
     @Override
     public void execute(Invocation invocation) {
         CommandSource source = invocation.source();
         if (!(source instanceof Player)) {
-            source.sendMessage(Component.text("Only players can use this command.", NamedTextColor.RED));
+            source.sendMessage(localeManager.getComponent("en", "command.player_only", NamedTextColor.RED));
             return;
         }
 
@@ -66,38 +68,41 @@ public class TeamCommand implements SimpleCommand {
     }
 
     private void handleCreate(Player player, String[] args) {
+        String lang = player.getPlayerSettings().getLocale().getLanguage();
         if (args.length < 2) {
-            player.sendMessage(Component.text("Usage: /team create <name>", NamedTextColor.RED));
+            player.sendMessage(localeManager.getComponent(lang, "team.create.usage", NamedTextColor.RED));
             return;
         }
         String teamName = args[1];
         apiClient.createTeam(teamName, player.getUniqueId(), player.getUsername())
                 .thenAccept(response -> {
                     if (response.isSuccess()) {
-                        player.sendMessage(Component.text("Team '" + teamName + "' created successfully!", NamedTextColor.GREEN));
+                        player.sendMessage(Component.text(localeManager.getMessage(lang, "team.create.success").replace("{team_name}", teamName), NamedTextColor.GREEN));
                     } else {
-                        player.sendMessage(Component.text("Error creating team: " + response.body(), NamedTextColor.RED));
+                        player.sendMessage(Component.text(localeManager.getMessage(lang, "team.create.error").replace("{error}", response.body()), NamedTextColor.RED));
                     }
                 });
     }
 
     private void handleAccept(Player player, String[] args) {
+        String lang = player.getPlayerSettings().getLocale().getLanguage();
         if (args.length < 2) {
-            player.sendMessage(Component.text("Usage: /team accept <team_name>", NamedTextColor.RED));
+            player.sendMessage(localeManager.getComponent(lang, "team.accept.usage", NamedTextColor.RED));
             return;
         }
         String teamName = args[1];
         apiClient.acceptInvite(teamName, player.getUniqueId())
                 .thenAccept(response -> {
                     if (response.isSuccess()) {
-                        player.sendMessage(Component.text("You have joined team '" + teamName + "'!", NamedTextColor.GREEN));
+                        player.sendMessage(Component.text(localeManager.getMessage(lang, "team.accept.success").replace("{team_name}", teamName), NamedTextColor.GREEN));
                     } else {
-                        player.sendMessage(Component.text("Error joining team: " + response.body(), NamedTextColor.RED));
+                        player.sendMessage(Component.text(localeManager.getMessage(lang, "team.accept.error").replace("{error}", response.body()), NamedTextColor.RED));
                     }
                 });
     }
 
     private void handleLeave(Player player) {
+        String lang = player.getPlayerSettings().getLocale().getLanguage();
         apiClient.getTeam(player.getUniqueId()).thenAccept(response -> {
             if (response.isSuccess()) {
                 JsonObject teamJson = gson.fromJson(response.body(), JsonObject.class);
@@ -105,20 +110,21 @@ public class TeamCommand implements SimpleCommand {
                 apiClient.leaveTeam(teamId, player.getUniqueId())
                         .thenAccept(leaveResponse -> {
                             if (leaveResponse.isSuccess()) {
-                                player.sendMessage(Component.text("You have left your team.", NamedTextColor.GREEN));
+                                player.sendMessage(localeManager.getComponent(lang, "team.leave.success", NamedTextColor.GREEN));
                             } else {
-                                player.sendMessage(Component.text("Error leaving team: " + leaveResponse.body(), NamedTextColor.RED));
+                                player.sendMessage(Component.text(localeManager.getMessage(lang, "team.leave.error").replace("{error}", leaveResponse.body()), NamedTextColor.RED));
                             }
                         });
             } else {
-                player.sendMessage(Component.text("You are not in a team.", NamedTextColor.RED));
+                player.sendMessage(localeManager.getComponent(lang, "team.not_in_team", NamedTextColor.RED));
             }
         });
     }
     
     private void handleRename(Player player, String[] args) {
+        String lang = player.getPlayerSettings().getLocale().getLanguage();
         if (args.length < 2) {
-            player.sendMessage(Component.text("Usage: /team rename <new_name>", NamedTextColor.RED));
+            player.sendMessage(localeManager.getComponent(lang, "team.rename.usage", NamedTextColor.RED));
             return;
         }
         String newName = args[1];
@@ -129,18 +135,19 @@ public class TeamCommand implements SimpleCommand {
                 apiClient.renameTeam(teamId, newName, player.getUniqueId())
                         .thenAccept(renameResponse -> {
                             if (renameResponse.isSuccess()) {
-                                player.sendMessage(Component.text("Team renamed to '" + newName + "'!", NamedTextColor.GREEN));
+                                player.sendMessage(Component.text(localeManager.getMessage(lang, "team.rename.success").replace("{new_name}", newName), NamedTextColor.GREEN));
                             } else {
-                                player.sendMessage(Component.text("Error renaming team: " + renameResponse.body(), NamedTextColor.RED));
+                                player.sendMessage(Component.text(localeManager.getMessage(lang, "team.rename.error").replace("{error}", renameResponse.body()), NamedTextColor.RED));
                             }
                         });
             } else {
-                player.sendMessage(Component.text("You are not in a team.", NamedTextColor.RED));
+                player.sendMessage(localeManager.getComponent(lang, "team.not_in_team", NamedTextColor.RED));
             }
         });
     }
 
     private void handleInfo(Player player) {
+        String lang = player.getPlayerSettings().getLocale().getLanguage();
         apiClient.getTeam(player.getUniqueId()).thenAccept(response -> {
             if (response.isSuccess()) {
                 JsonObject teamJson = gson.fromJson(response.body(), JsonObject.class);
@@ -148,33 +155,34 @@ public class TeamCommand implements SimpleCommand {
                 String ownerUuid = teamJson.get("owner_uuid").getAsString();
                 JsonArray members = teamJson.getAsJsonArray("members");
 
-                player.sendMessage(Component.text("--- Team Info ---", NamedTextColor.YELLOW));
-                player.sendMessage(Component.text("Name: ", NamedTextColor.AQUA).append(Component.text(teamName, NamedTextColor.WHITE)));
+                player.sendMessage(localeManager.getComponent(lang, "team.info.header", NamedTextColor.YELLOW));
+                player.sendMessage(Component.text(localeManager.getMessage(lang, "team.info.name").replace("{team_name}", teamName), NamedTextColor.AQUA));
                 
                 // In a real application, you'd want to cache UUID to name lookups
-                player.sendMessage(Component.text("Owner: ", NamedTextColor.AQUA).append(Component.text(ownerUuid, NamedTextColor.WHITE)));
+                player.sendMessage(Component.text(localeManager.getMessage(lang, "team.info.owner").replace("{owner_uuid}", ownerUuid), NamedTextColor.AQUA));
 
-                player.sendMessage(Component.text("Members:", NamedTextColor.AQUA));
+                player.sendMessage(localeManager.getComponent(lang, "team.info.members", NamedTextColor.AQUA));
                 for (JsonElement memberElement : members) {
                     JsonObject memberObject = memberElement.getAsJsonObject();
                     String memberUuid = memberObject.get("player_uuid").getAsString();
                     String role = memberObject.get("role").getAsString();
-                    player.sendMessage(Component.text(" - " + memberUuid + " (" + role + ")", NamedTextColor.GRAY));
+                    player.sendMessage(Component.text(localeManager.getMessage(lang, "team.info.member_format").replace("{member_uuid}", memberUuid).replace("{role}", role), NamedTextColor.GRAY));
                 }
 
             } else {
-                player.sendMessage(Component.text("You are not in a team.", NamedTextColor.RED));
+                player.sendMessage(localeManager.getComponent(lang, "team.not_in_team", NamedTextColor.RED));
             }
         });
     }
 
     private void sendHelp(Player player) {
-        player.sendMessage(Component.text("--- Team Commands ---", NamedTextColor.YELLOW));
-        player.sendMessage(Component.text("/team create <name>", NamedTextColor.AQUA));
-        player.sendMessage(Component.text("/team accept <team_name>", NamedTextColor.AQUA));
-        player.sendMessage(Component.text("/team leave", NamedTextColor.AQUA));
-        player.sendMessage(Component.text("/team rename <new_name>", NamedTextColor.AQUA));
-        player.sendMessage(Component.text("/team info", NamedTextColor.AQUA));
+        String lang = player.getPlayerSettings().getLocale().getLanguage();
+        player.sendMessage(localeManager.getComponent(lang, "team.help.header", NamedTextColor.YELLOW));
+        player.sendMessage(localeManager.getComponent(lang, "team.help.create", NamedTextColor.AQUA));
+        player.sendMessage(localeManager.getComponent(lang, "team.help.accept", NamedTextColor.AQUA));
+        player.sendMessage(localeManager.getComponent(lang, "team.help.leave", NamedTextColor.AQUA));
+        player.sendMessage(localeManager.getComponent(lang, "team.help.rename", NamedTextColor.AQUA));
+        player.sendMessage(localeManager.getComponent(lang, "team.help.info", NamedTextColor.AQUA));
     }
 
     @Override

@@ -330,10 +330,21 @@ class IslandService:
                 logger.error(f"Error freezing solo island for {player_uuid_str}: {e}")
 
     async def rename_team(self, db: AsyncSession, *, team: TeamModel, new_name: str) -> TeamModel:
+        from app.schemas.team import Team as TeamSchema
         existing_name = await crud_team.get_team_by_name(db, name=new_name)
         if existing_name and existing_name.id != team.id:
             raise ValueError("A team with this name already exists.")
         updated_team = await crud_team.rename_team(db, team=team, new_name=new_name)
+        await db.commit()
+        await db.refresh(updated_team, relationships=["members", "island"])
+
+        logger.info(f"Service: Team {team.id} renamed to '{new_name}'. Notifying members.")
+        team_response = TeamSchema.model_validate(updated_team)
+        for member in updated_team.members:
+            await websocket_manager.send_personal_message(
+                {"event": "team_updated", "data": team_response.model_dump()},
+                member.player_uuid
+            )
         return updated_team
 
     async def mark_island_as_ready_for_players(self, db_session: AsyncSession, *, team_id: int):
@@ -357,6 +368,7 @@ class IslandService:
         logger.info(f"Service: Island for team {team_id} marked as ready.")
 
     async def handle_join_team(self, db_session: AsyncSession, *, player_to_join_uuid: str, team_to_join: TeamModel, background_tasks: BackgroundTasks):
+        from app.schemas.team import Team as TeamSchema
         for member in team_to_join.members:
             if member.player_uuid == player_to_join_uuid:
                 raise ValueError("Player is already in this team.")
@@ -368,12 +380,21 @@ class IslandService:
 
         if old_island:
             logger.info(f"Service: Player {player_to_join_uuid} has an old island (ID: {old_island.id}) that will be deleted.")
-            background_tasks.add_task(self._perform_lxd_delete_and_cleanup, island_id=old_island.id)
+            background_tasks.add_task(self._perform_lxd_delete_and_cleanup, island_id=old_island.id, player_uuid_to_notify=player_to_join_uuid)
         
-        await db_session.refresh(team_to_join)
+        await db_session.refresh(team_to_join, relationships=["members", "island"])
+        
+        logger.info(f"Service: Notifying team {team_to_join.id} about the new member.")
+        team_response = TeamSchema.model_validate(team_to_join)
+        for member in team_to_join.members:
+            await websocket_manager.send_personal_message(
+                {"event": "team_updated", "data": team_response.model_dump()},
+                member.player_uuid
+            )
+
         return team_to_join
 
-    async def _perform_lxd_delete_and_cleanup(self, island_id: int):
+    async def _perform_lxd_delete_and_cleanup(self, island_id: int, player_uuid_to_notify: Optional[str] = None):
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db_session_bg:
             try:
@@ -389,6 +410,13 @@ class IslandService:
                 await crud_island.remove_by_id(db_session_bg, island_id=island_id)
                 await db_session_bg.commit()
                 logger.info(f"Service (background): Island {island_id} fully deleted.")
+
+                if player_uuid_to_notify:
+                    await websocket_manager.send_personal_message(
+                        {"event": "island_deleted", "data": {"island_id": island_id}},
+                        player_uuid_to_notify
+                    )
+                    logger.info(f"Service (background): Notified player {player_uuid_to_notify} of island deletion.")
 
             except Exception as e:
                 logger.error(f"Service (background): Error during island deletion for island_id {island_id}: {e}", exc_info=True)
