@@ -1,6 +1,7 @@
 package dev.ftb.mods.ftbquests.quest;
 
 import com.mojang.datafixers.util.Pair;
+import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftblibrary.config.*;
 import dev.ftb.mods.ftblibrary.icon.Icon;
 import dev.ftb.mods.ftblibrary.icon.IconAnimation;
@@ -541,6 +542,12 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 
 		return getRelativeProgressFromChildren(progress, tasks.size());
 	}
+	// Для backward compatibility з аддонами/міксинами
+	@Deprecated
+	public int getRelativeProgressFromChildren(TeamData data) {
+	    return getRelativeProgressFromChildren(data.islandData);
+	}
+	
 
 	@Override
 	public void onStarted(QuestProgressEventData<?> data) {
@@ -797,6 +804,14 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 		return streamDependencies().anyMatch(object -> object.isVisible(data));
 	}
 
+	/**
+	 * @deprecated for backward compatibility with addons like Quests Additions. Not for direct use.
+	 */
+	@Deprecated
+	public boolean isVisible(TeamData data) {
+		return isVisible(data.islandData);
+	}
+
 	@Override
 	public boolean isSearchable(IslandData data) { // MODIFIED
 		return !chapter.isAlwaysInvisible() && super.isSearchable(data);
@@ -972,6 +987,15 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 	public boolean isCompletedRaw(IslandData data) { // MODIFIED
 		return data.canStartTasks(this) && super.isCompletedRaw(data);
 	}
+
+	/**
+	 * @deprecated for backward compatibility with addons.
+	 */
+	@Deprecated
+	public boolean isCompletedRaw(TeamData data) {
+    	return isCompletedRaw(data.islandData);
+	}
+
 
 	@Override
 	public boolean hasUnclaimedRewardsRaw(IslandData islandData, UUID player) { // MODIFIED

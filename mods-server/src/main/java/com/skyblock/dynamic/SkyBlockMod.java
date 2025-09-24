@@ -70,6 +70,7 @@ public class SkyBlockMod
         IEventBus modEventBus = context.getModEventBus();
         modEventBus.addListener(this::commonSetup);
         MinecraftForge.EVENT_BUS.register(this);
+        MinecraftForge.EVENT_BUS.register(new com.skyblock.dynamic.events.PlayerEventHandler());
         modEventBus.addListener(this::onModConfigEvent);
         // Register the common config (skyblock-common.toml)
         context.registerConfig(ModConfig.Type.COMMON, Config.SPEC, MODID + "-common.toml");
@@ -89,11 +90,11 @@ public class SkyBlockMod
         }
     }
 
-    // @SubscribeEvent
-    // public void onRegisterCommands(net.minecraftforge.event.RegisterCommandsEvent event) {
-    //     com.skyblock.dynamic.commands.IslandCommand.register(event.getDispatcher());
-    //     LOGGER.info("SkyBlockMod: Registered /island command.");
-    // }
+    @SubscribeEvent
+    public void onRegisterCommands(net.minecraftforge.event.RegisterCommandsEvent event) {
+        com.skyblock.dynamic.commands.IslandCommand.register(event.getDispatcher());
+        LOGGER.info("SkyBlockMod: Registered /island command.");
+    }
 
     @SubscribeEvent
     public void onServerAboutToStart(ServerAboutToStartEvent event) {
@@ -122,47 +123,26 @@ public class SkyBlockMod
             return;
         }
 
-        String creatorUuid = islandContext.getCreatorUuid();
-        String apiBaseUrl = Config.getApiBaseUrl(); // Assuming this ends with /api/v1
-        if (apiBaseUrl == null || apiBaseUrl.trim().isEmpty()) {
-            LOGGER.error("SkyBlockMod: API base URL is not configured. Cannot send ready signal.");
-            return;
-        }
+        String creatorUuidStr = islandContext.getCreatorUuid();
+        java.util.UUID creatorUuid = java.util.UUID.fromString(creatorUuidStr);
 
-        // Ensure apiBaseUrl ends with a slash if it doesn't already, for robust URL joining
-        if (!apiBaseUrl.endsWith("/")) {
-            apiBaseUrl += "/";
-        }
-
-        String endpointUrl = apiBaseUrl + "islands/" + creatorUuid + "/ready";
-        LOGGER.info("SkyBlockMod: Sending 'island ready for players' signal to: {}", endpointUrl);
-
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(endpointUrl))
-                    .timeout(Duration.ofSeconds(Config.getApiRequestTimeoutSeconds()))
-                    .POST(HttpRequest.BodyPublishers.noBody()) // No body needed for this request
-                    .header("Content-Type", "application/json") // Standard header, even with no body
-                    .build();
-
-            // Using the shared HTTP_CLIENT
-            HTTP_CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(response -> {
-                        int statusCode = response.statusCode();
-                        if (statusCode >= 200 && statusCode < 300) {
-                            LOGGER.info("SkyBlockMod: Successfully sent 'island ready' signal to API (status: {}).", statusCode);
-                        } else {
-                            LOGGER.error("SkyBlockMod: Failed to send 'island ready' signal to API. Status: {}, Body: {}", statusCode, response.body());
-                        }
-                    })
-                    .exceptionally(ex -> {
-                        LOGGER.error("SkyBlockMod: Exception while sending 'island ready' signal to API: {}", ex.getMessage(), ex);
-                        return null;
-                    });
-
-        } catch (Exception e) {
-            LOGGER.error("SkyBlockMod: Could not create or send 'island ready' signal HTTP request: {}", e.getMessage(), e);
-        }
+        com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.getOrRefreshTeamIntegerId(creatorUuid)
+            .thenAccept(teamId -> {
+                if (teamId != null) {
+                    com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.sendReady(teamId)
+                        .thenRun(() -> LOGGER.info("SkyBlockMod: Successfully sent 'island ready' signal for team ID: {}", teamId))
+                        .exceptionally(ex -> {
+                            LOGGER.error("SkyBlockMod: Failed to send 'island ready' signal for team ID: {}", teamId, ex);
+                            return null;
+                        });
+                } else {
+                    LOGGER.error("SkyBlockMod: Could not retrieve team ID for creator UUID: {}. Cannot send ready signal.", creatorUuidStr);
+                }
+            })
+            .exceptionally(ex -> {
+                LOGGER.error("SkyBlockMod: Exception while trying to get team ID for ready signal: {}", ex.getMessage(), ex);
+                return null;
+            });
     }
 
     private void loadIslandContextData(Path serverBasePath) {
