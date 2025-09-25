@@ -26,7 +26,6 @@ public class NestworldModsServer {
 
     public static class IslandProvider {
         private final Map<UUID, UUID> islandCache = new ConcurrentHashMap<>();
-        private final Map<UUID, Integer> teamIdCache = new ConcurrentHashMap<>();
         private final HttpClient httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(10))
@@ -35,18 +34,6 @@ public class NestworldModsServer {
 
         public UUID getCachedTeamId(UUID playerUuid) {
             return islandCache.get(playerUuid);
-        }
-
-        public Integer getCachedTeamIntegerId(UUID playerUuid) {
-            return teamIdCache.get(playerUuid);
-        }
-
-        public CompletableFuture<Integer> getOrRefreshTeamIntegerId(UUID playerUuid) {
-            Integer cachedId = getCachedTeamIntegerId(playerUuid);
-            if (cachedId != null) {
-                return CompletableFuture.completedFuture(cachedId);
-            }
-            return refreshAndGetTeamId(playerUuid).thenApply(ownerUuid -> getCachedTeamIntegerId(playerUuid));
         }
 
         public CompletableFuture<UUID> refreshAndGetTeamId(UUID playerUuid) {
@@ -62,9 +49,8 @@ public class NestworldModsServer {
                         if (response.statusCode() == 200) {
                             try {
                                 JsonObject teamJson = gson.fromJson(response.body(), JsonObject.class);
-                                if (teamJson.has("owner_uuid") && teamJson.has("id")) {
+                                if (teamJson.has("owner_uuid")) {
                                     UUID ownerUuid = UUID.fromString(teamJson.get("owner_uuid").getAsString());
-                                    int teamId = teamJson.get("id").getAsInt();
 
                                     List<UUID> memberUuids = new ArrayList<>();
                                     if (teamJson.has("members") && teamJson.get("members").isJsonArray()) {
@@ -74,21 +60,12 @@ public class NestworldModsServer {
                                                 UUID memberUuid = UUID.fromString(memberObj.get("player_uuid").getAsString());
                                                 memberUuids.add(memberUuid);
                                                 islandCache.put(memberUuid, ownerUuid);
-                                                teamIdCache.put(memberUuid, teamId);
                                             }
                                         });
                                     }
 
-                                    // Update the IslandData with the new member list
-                                    ServerQuestFile file = ServerQuestFile.INSTANCE;
-                                    if (file != null) {
-                                        IslandData islandData = file.getOrCreateIslandData(ownerUuid);
-                                        islandData.setMembers(memberUuids);
-                                    }
-                                    
-                                    teamIdCache.put(ownerUuid, teamId);
-                                    islandCache.put(playerUuid, ownerUuid);
-
+                                    // MODIFIED: Use the QuestTeamBridge to synchronize data
+                                    com.skyblock.dynamic.utils.QuestTeamBridge.getInstance().syncTeamData(ownerUuid, memberUuids);
                                     return ownerUuid;
                                 }
                             } catch (JsonSyntaxException | IllegalStateException e) {
@@ -96,36 +73,6 @@ public class NestworldModsServer {
                             }
                         }
                         return null;
-                    });
-        }
-
-        public CompletableFuture<Void> sendReady(int teamId) {
-            String apiUrl = Config.getApiBaseUrl() + "islands/team/" + teamId + "/ready";
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(apiUrl))
-                    .POST(HttpRequest.BodyPublishers.noBody())
-                    .build();
-
-            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(response -> {
-                        if (response.statusCode() != 200) {
-                            // Log error or handle non-200 response
-                        }
-                    });
-        }
-
-        public CompletableFuture<Void> sendFreeze(UUID playerUuid) {
-            String apiUrl = Config.getApiBaseUrl() + "islands/" + playerUuid.toString() + "/freeze";
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(apiUrl))
-                    .POST(HttpRequest.BodyPublishers.noBody())
-                    .build();
-
-            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(response -> {
-                        if (response.statusCode() != 202) {
-                            // Log error or handle non-202 response
-                        }
                     });
         }
     }

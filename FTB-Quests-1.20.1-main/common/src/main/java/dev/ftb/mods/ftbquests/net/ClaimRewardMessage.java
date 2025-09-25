@@ -51,17 +51,10 @@ public class ClaimRewardMessage extends BaseC2SMessage {
 		IslandData islandData = ServerQuestFile.INSTANCE.getOrCreateIslandData(player);
 
 		if (islandData != null && islandData.isCompleted(reward.getQuest())) {
-			// Now, verify the player is actually a member of this team.
-			// This prevents guests from claiming rewards.
-			NestworldModsServer.ISLAND_PROVIDER.refreshAndGetTeamId(player.getUUID()).thenAccept(teamId -> {
-				player.getServer().execute(() -> {
-					if (teamId != null && teamId.equals(islandData.getTeamId())) {
-						// Player is a member of the team that owns this data, proceed to claim.
-						islandData.claimReward(player, reward, notify);
-					}
-					// If teamId is null or doesn't match, do nothing. The player is a guest or not on the team.
-				});
-			});
+			// MODIFIED: Use the QuestTeamBridge for an authoritative and synchronous check
+			if (com.skyblock.dynamic.utils.QuestTeamBridge.getInstance().isPlayerOnTeam(player.getUUID(), islandData.getTeamId())) {
+				islandData.claimReward(player, reward, notify);
+			}
 		}
 	}
 }

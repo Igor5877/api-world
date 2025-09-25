@@ -46,13 +46,14 @@ public class PlayerEventHandler {
         }
 
         Runnable task = () -> {
-            UUID creatorUuid = UUID.fromString(creatorUuidStr);
-            NestworldModsServer.ISLAND_PROVIDER.sendFreeze(creatorUuid)
-                .thenRun(() -> LOGGER.info("Successfully sent island freeze request for creator: {}", creatorUuidStr))
-                .exceptionally(ex -> {
-                    LOGGER.error("Failed to send island freeze request for creator: {}", creatorUuidStr, ex);
-                    return null;
-                });
+            // UUID creatorUuid = UUID.fromString(creatorUuidStr);
+            // NestworldModsServer.ISLAND_PROVIDER.sendFreeze(creatorUuid)
+            //     .thenRun(() -> LOGGER.info("Successfully sent island freeze request for creator: {}", creatorUuidStr))
+            //     .exceptionally(ex -> {
+            //         LOGGER.error("Failed to send island freeze request for creator: {}", creatorUuidStr, ex);
+            //         return null;
+            //     });
+            LOGGER.info("Island freeze task was triggered for creator {} but is currently disabled.", creatorUuidStr);
         };
 
         freezeTask = scheduler.schedule(task, 10, TimeUnit.MINUTES);

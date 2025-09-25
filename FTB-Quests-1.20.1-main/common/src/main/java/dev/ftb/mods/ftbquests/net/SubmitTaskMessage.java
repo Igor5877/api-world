@@ -45,7 +45,8 @@ public class SubmitTaskMessage extends BaseC2SMessage {
 		IslandData data = ServerQuestFile.INSTANCE.getOrCreateIslandData(player);
 
 		if (data != IslandData.UNLOADED && !data.isLocked() && data.canStartTasks(task.getQuest())) {
-			if (data.isMember(player.getUUID())) {
+			// MODIFIED: Use the QuestTeamBridge for an authoritative check
+			if (com.skyblock.dynamic.utils.QuestTeamBridge.getInstance().isPlayerOnTeam(player.getUUID(), data.getTeamId())) {
 				ServerQuestFile.INSTANCE.withPlayerContext(player, () -> task.submitTask(data, player));
 			}
 		}

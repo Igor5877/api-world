@@ -92,8 +92,8 @@ public class SkyBlockMod
 
     @SubscribeEvent
     public void onRegisterCommands(net.minecraftforge.event.RegisterCommandsEvent event) {
-        com.skyblock.dynamic.commands.IslandCommand.register(event.getDispatcher());
-        LOGGER.info("SkyBlockMod: Registered /island command.");
+        // com.skyblock.dynamic.commands.IslandCommand.register(event.getDispatcher());
+        // LOGGER.info("SkyBlockMod: Registered /island command.");
     }
 
     @SubscribeEvent
@@ -118,31 +118,32 @@ public class SkyBlockMod
     }
 
     private void sendIslandReadyForPlayersSignal() {
-        if (!islandContext.isIslandServer() || islandContext.getCreatorUuid() == null) {
-            LOGGER.warn("SkyBlockMod: Attempted to send ready signal, but not an island server or UUID is missing.");
-            return;
-        }
-
-        String creatorUuidStr = islandContext.getCreatorUuid();
-        java.util.UUID creatorUuid = java.util.UUID.fromString(creatorUuidStr);
-
-        com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.getOrRefreshTeamIntegerId(creatorUuid)
-            .thenAccept(teamId -> {
-                if (teamId != null) {
-                    com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.sendReady(teamId)
-                        .thenRun(() -> LOGGER.info("SkyBlockMod: Successfully sent 'island ready' signal for team ID: {}", teamId))
-                        .exceptionally(ex -> {
-                            LOGGER.error("SkyBlockMod: Failed to send 'island ready' signal for team ID: {}", teamId, ex);
-                            return null;
-                        });
-                } else {
-                    LOGGER.error("SkyBlockMod: Could not retrieve team ID for creator UUID: {}. Cannot send ready signal.", creatorUuidStr);
-                }
-            })
-            .exceptionally(ex -> {
-                LOGGER.error("SkyBlockMod: Exception while trying to get team ID for ready signal: {}", ex.getMessage(), ex);
-                return null;
-            });
+        // if (!islandContext.isIslandServer() || islandContext.getCreatorUuid() == null) {
+        //     LOGGER.warn("SkyBlockMod: Attempted to send ready signal, but not an island server or UUID is missing.");
+        //     return;
+        // }
+        //
+        // String creatorUuidStr = islandContext.getCreatorUuid();
+        // java.util.UUID creatorUuid = java.util.UUID.fromString(creatorUuidStr);
+        //
+        // com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.getOrRefreshTeamIntegerId(creatorUuid)
+        //     .thenAccept(teamId -> {
+        //         if (teamId != null) {
+        //             com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.sendReady(teamId)
+        //                 .thenRun(() -> LOGGER.info("SkyBlockMod: Successfully sent 'island ready' signal for team ID: {}", teamId))
+        //                 .exceptionally(ex -> {
+        //                     LOGGER.error("SkyBlockMod: Failed to send 'island ready' signal for team ID: {}", teamId, ex);
+        //                     return null;
+        //                 });
+        //         } else {
+        //             LOGGER.error("SkyBlockMod: Could not retrieve team ID for creator UUID: {}. Cannot send ready signal.", creatorUuidStr);
+        //         }
+        //     })
+        //     .exceptionally(ex -> {
+        //         LOGGER.error("SkyBlockMod: Exception while trying to get team ID for ready signal: {}", ex.getMessage(), ex);
+        //         return null;
+        //     });
+        LOGGER.info("Island ready signal was triggered but is currently disabled.");
     }
 
     private void loadIslandContextData(Path serverBasePath) {
