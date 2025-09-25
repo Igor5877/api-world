@@ -52,7 +52,13 @@ public class ClaimRewardMessage extends BaseC2SMessage {
 
 		if (islandData != null && islandData.isCompleted(reward.getQuest())) {
 			// MODIFIED: Use the QuestTeamBridge for an authoritative and synchronous check
-			if (com.skyblock.dynamic.utils.QuestTeamBridge.getInstance().isPlayerOnTeam(player.getUUID(), islandData.getTeamId())) {
+			boolean isMember = com.skyblock.dynamic.utils.QuestTeamBridge.getInstance().isPlayerOnTeam(player.getUUID(), islandData.getTeamId());
+
+			// ADDED: Crucial check to ensure the player is on THEIR OWN island server when claiming rewards.
+			boolean isCorrectIsland = !com.skyblock.dynamic.SkyBlockMod.isIslandServer() ||
+					java.util.UUID.fromString(com.skyblock.dynamic.SkyBlockMod.getCreatorUuid()).equals(islandData.getTeamId());
+
+			if (isMember && isCorrectIsland) {
 				islandData.claimReward(player, reward, notify);
 			}
 		}
