@@ -2,19 +2,19 @@ package com.skyblock.dynamic.utils;
 
 public class IslandContext {
     private final boolean isIslandServer;
-    private final String creatorUuid;
+    private final String ownerUuid;
 
-    public IslandContext(boolean isIslandServer, String creatorUuid) {
+    public IslandContext(boolean isIslandServer, String ownerUuid) {
         this.isIslandServer = isIslandServer;
-        this.creatorUuid = creatorUuid;
+        this.ownerUuid = ownerUuid;
     }
 
     public boolean isIslandServer() {
         return isIslandServer;
     }
 
-    public String getCreatorUuid() {
-        return creatorUuid;
+    public String getOwnerUuid() {
+        return ownerUuid;
     }
 
     public static IslandContext getDefault() {

@@ -45,25 +45,22 @@ import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 import com.electronwill.nightconfig.core.io.WritingMode;
 import com.skyblock.dynamic.utils.IslandContext; // Import the new IslandContext class
 import net.minecraftforge.event.entity.player.PlayerEvent;
-// import java.util.UUID; // if using UUID type directly
+import java.util.UUID;
 
 @Mod(SkyBlockMod.MODID)
 public class SkyBlockMod
 {
     public static final String MODID = "skyblock";
     private static final Logger LOGGER = LogUtils.getLogger();
-    // private static String islandOwnerUuid = null; // Replaced by IslandContext
-    // private static boolean readySignalSent = false; // Logic removed
 
-    // HTTP_CLIENT might be used by other parts (e.g. IslandCommand still uses its own, PlayerEventHandler will need one)
-    // For now, keep it here if it's intended to be a shared client, or it can be moved/recreated where needed.
-    // Given PlayerEventHandler will do API calls, a shared one could be useful.
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
-            .connectTimeout(Duration.ofSeconds(10)) // Default, actual request timeout from Config
+            .connectTimeout(Duration.ofSeconds(10))
             .build();
 
-    private static IslandContext islandContext = IslandContext.getDefault(); // Initialize with default
+    private static IslandContext islandContext = IslandContext.getDefault();
+    private static long serverStartTime = 0;
+    private static boolean playerJoinedWithinFirstHour = false;
 
     public SkyBlockMod(FMLJavaModLoadingContext context)
     {
@@ -72,17 +69,14 @@ public class SkyBlockMod
         MinecraftForge.EVENT_BUS.register(this);
         MinecraftForge.EVENT_BUS.register(new com.skyblock.dynamic.events.PlayerEventHandler());
         modEventBus.addListener(this::onModConfigEvent);
-        // Register the common config (skyblock-common.toml)
         context.registerConfig(ModConfig.Type.COMMON, Config.SPEC, MODID + "-common.toml");
     }
 
     private void commonSetup(final FMLCommonSetupEvent event)
     {
         LOGGER.info("SkyBlockMod: Common Setup Initialized.");
-        // Initialization that doesn't depend on world/server files can go here.
     }
 
-    // Listener for the common config (skyblock-common.toml)
     public void onModConfigEvent(final ModConfigEvent configEvent) {
         if (configEvent.getConfig().getSpec() == Config.SPEC) {
             Config.bake();
@@ -92,25 +86,19 @@ public class SkyBlockMod
 
     @SubscribeEvent
     public void onRegisterCommands(net.minecraftforge.event.RegisterCommandsEvent event) {
-        // com.skyblock.dynamic.commands.IslandCommand.register(event.getDispatcher());
-        // LOGGER.info("SkyBlockMod: Registered /island command.");
     }
 
     @SubscribeEvent
     public void onServerAboutToStart(ServerAboutToStartEvent event) {
-        // serverBasePath is the root directory of the server, where 'world', 'config', etc. reside.
         Path serverBasePath = event.getServer().getServerDirectory().toPath();
         loadIslandContextData(serverBasePath);
-
-        // Old logic for island_meta.properties is removed.
-        // loadIslandOwnerUuidIfPresent(serverBasePath);
     }
 
     @SubscribeEvent
     public void onServerStarted(ServerStartedEvent event) {
         if (islandContext.isIslandServer()) {
-            LOGGER.info("SkyBlockMod: Server started. Running as an ISLAND SERVER. Creator UUID: {}", islandContext.getCreatorUuid());
-            // Send request to API to mark island as ready for players
+            serverStartTime = System.currentTimeMillis();
+            LOGGER.info("SkyBlockMod: Server started. Running as an ISLAND SERVER. Owner UUID: {}", islandContext.getOwnerUuid());
             sendIslandReadyForPlayersSignal();
         } else {
             LOGGER.info("SkyBlockMod: Server started. Running as a HUB SERVER.");
@@ -118,32 +106,21 @@ public class SkyBlockMod
     }
 
     private void sendIslandReadyForPlayersSignal() {
-        // if (!islandContext.isIslandServer() || islandContext.getCreatorUuid() == null) {
-        //     LOGGER.warn("SkyBlockMod: Attempted to send ready signal, but not an island server or UUID is missing.");
-        //     return;
-        // }
-        //
-        // String creatorUuidStr = islandContext.getCreatorUuid();
-        // java.util.UUID creatorUuid = java.util.UUID.fromString(creatorUuidStr);
-        //
-        // com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.getOrRefreshTeamIntegerId(creatorUuid)
-        //     .thenAccept(teamId -> {
-        //         if (teamId != null) {
-        //             com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.sendReady(teamId)
-        //                 .thenRun(() -> LOGGER.info("SkyBlockMod: Successfully sent 'island ready' signal for team ID: {}", teamId))
-        //                 .exceptionally(ex -> {
-        //                     LOGGER.error("SkyBlockMod: Failed to send 'island ready' signal for team ID: {}", teamId, ex);
-        //                     return null;
-        //                 });
-        //         } else {
-        //             LOGGER.error("SkyBlockMod: Could not retrieve team ID for creator UUID: {}. Cannot send ready signal.", creatorUuidStr);
-        //         }
-        //     })
-        //     .exceptionally(ex -> {
-        //         LOGGER.error("SkyBlockMod: Exception while trying to get team ID for ready signal: {}", ex.getMessage(), ex);
-        //         return null;
-        //     });
-        LOGGER.info("Island ready signal was triggered but is currently disabled.");
+        if (!islandContext.isIslandServer() || islandContext.getOwnerUuid() == null) {
+            LOGGER.warn("SkyBlockMod: Attempted to send ready signal, but not an island server or UUID is missing.");
+            return;
+        }
+
+        String ownerUuidStr = islandContext.getOwnerUuid();
+        UUID ownerUuid;
+        try {
+            ownerUuid = UUID.fromString(ownerUuidStr);
+        } catch (IllegalArgumentException e) {
+            LOGGER.error("SkyBlockMod: Invalid owner_uuid format: {}. Cannot send ready signal.", ownerUuidStr, e);
+            return;
+        }
+
+        com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.sendReady(ownerUuid);
     }
 
     private void loadIslandContextData(Path serverBasePath) {
@@ -159,35 +136,33 @@ public class SkyBlockMod
         try (CommentedFileConfig config = CommentedFileConfig.builder(islandDataPath)
                 .sync()
                 .autosave()
-                .writingMode(WritingMode.REPLACE) // Or another mode if you prefer
+                .writingMode(WritingMode.REPLACE)
                 .build()) {
             
-            config.load(); // Load the file
+            config.load();
 
             boolean isIsland = config.getOptional("is_island_server")
                                     .map(obj -> Boolean.valueOf(String.valueOf(obj)))
                                     .orElse(false);
-            String creatorUuid = config.getOptional("creator_uuid")
+            String ownerUuid = config.getOptional("owner_uuid")
                                  .map(String::valueOf)
                                  .orElse(null);
 
-            if (isIsland && (creatorUuid == null || creatorUuid.trim().isEmpty())) {
-                LOGGER.error("SkyBlockMod: skyblock_island_data.toml indicates this is an island server, but 'creator_uuid' is missing or empty. Treating as HUB.");
-                islandContext = IslandContext.getDefault(); // Fallback to default if critical info is missing
+            if (isIsland && (ownerUuid == null || ownerUuid.trim().isEmpty())) {
+                LOGGER.error("SkyBlockMod: skyblock_island_data.toml indicates this is an island server, but 'owner_uuid' is missing or empty. Treating as HUB.");
+                islandContext = IslandContext.getDefault();
             } else if (isIsland) {
                 try {
-                    // Validate UUID format if it's present for an island server
-                    java.util.UUID.fromString(creatorUuid.trim());
-                    islandContext = new IslandContext(true, creatorUuid.trim());
-                    LOGGER.info("SkyBlockMod: Successfully loaded island context: isIslandServer={}, creatorUuid={}", isIsland, creatorUuid);
+                    java.util.UUID.fromString(ownerUuid.trim());
+                    islandContext = new IslandContext(true, ownerUuid.trim());
+                    LOGGER.info("SkyBlockMod: Successfully loaded island context: isIslandServer={}, ownerUuid={}", isIsland, ownerUuid);
                 } catch (IllegalArgumentException e) {
-                    LOGGER.error("SkyBlockMod: 'creator_uuid' in skyblock_island_data.toml is not a valid UUID: {}. Treating as HUB. Error: {}", creatorUuid, e.getMessage());
+                    LOGGER.error("SkyBlockMod: 'owner_uuid' in skyblock_island_data.toml is not a valid UUID: {}. Treating as HUB. Error: {}", ownerUuid, e.getMessage());
                     islandContext = IslandContext.getDefault();
                 }
             } else {
-                // Not an island server, UUID is not strictly needed but store if present
-                islandContext = new IslandContext(false, creatorUuid != null ? creatorUuid.trim() : null);
-                LOGGER.info("SkyBlockMod: Successfully loaded island context: isIslandServer=false. creator_uuid (if any) will be ignored for hub logic.");
+                islandContext = new IslandContext(false, ownerUuid != null ? ownerUuid.trim() : null);
+                LOGGER.info("SkyBlockMod: Successfully loaded island context: isIslandServer=false. owner_uuid (if any) will be ignored for hub logic.");
             }
 
         } catch (Exception e) {
@@ -196,13 +171,24 @@ public class SkyBlockMod
         }
     }
 
-    // Getter methods for the context, accessible from other classes like IslandCommand and PlayerEventHandler
     public static boolean isIslandServer() {
         return islandContext.isIslandServer();
     }
 
-    public static String getCreatorUuid() {
-        return islandContext.getCreatorUuid();
+    public static String getOwnerUuid() {
+        return islandContext.getOwnerUuid();
+    }
+
+    public static long getServerStartTime() {
+        return serverStartTime;
+    }
+
+    public static boolean hasPlayerJoinedWithinFirstHour() {
+        return playerJoinedWithinFirstHour;
+    }
+
+    public static void setPlayerJoinedWithinFirstHour(boolean value) {
+        playerJoinedWithinFirstHour = value;
     }
 
     @SubscribeEvent
@@ -211,11 +197,6 @@ public class SkyBlockMod
         LOGGER.info("Player {} logged in, triggering island data refresh.", player.getName().getString());
         com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.refreshAndGetTeamId(player.getUUID());
     }
-    
-    // Old methods removed:
-    // private void loadIslandOwnerUuidIfPresent(Path serverBasePath) { ... }
-    // private void sendIslandReadyConfirmation() { ... }
-
 
     @Mod.EventBusSubscriber(modid = MODID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
     public static class ClientModEvents

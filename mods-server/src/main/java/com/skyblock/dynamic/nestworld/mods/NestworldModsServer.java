@@ -4,24 +4,24 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 import com.skyblock.dynamic.Config;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import dev.ftb.mods.ftbquests.quest.IslandData;
-import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class NestworldModsServer {
 
-    //public static final TeamProvider TEAM_PROVIDER = new TeamProvider();
+    private static final Logger LOGGER = LogUtils.getLogger();
     public static final IslandProvider ISLAND_PROVIDER = new IslandProvider();
 
     public static class IslandProvider {
@@ -39,7 +39,7 @@ public class NestworldModsServer {
         public CompletableFuture<UUID> refreshAndGetTeamId(UUID playerUuid) {
             String apiUrl = Config.getApiBaseUrl() + "teams/my_team/";
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(apiUrl + playerUuid.toString()))
+                    .uri(URI.create(apiUrl))
                     .header("Content-Type", "application/json")
                     .GET()
                     .build();
@@ -63,17 +63,64 @@ public class NestworldModsServer {
                                             }
                                         });
                                     }
+                                    
+                                    islandCache.put(ownerUuid, ownerUuid);
 
-                                    // MODIFIED: Use the QuestTeamBridge to synchronize data
                                     com.skyblock.dynamic.utils.QuestTeamBridge.getInstance().syncTeamData(ownerUuid, memberUuids);
                                     return ownerUuid;
                                 }
                             } catch (JsonSyntaxException | IllegalStateException e) {
-                                // Log error
+                                LOGGER.error("Failed to parse team data for player {}", playerUuid, e);
                             }
+                        } else {
+                            LOGGER.warn("Failed to get team data for player {}. Status: {}, Body: {}", playerUuid, response.statusCode(), response.body());
                         }
                         return null;
                     });
+        }
+
+        public CompletableFuture<Void> sendReady(UUID ownerUuid) {
+            String apiUrl = Config.getApiBaseUrl() + "islands/" + ownerUuid.toString() + "/ready";
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(apiUrl))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .timeout(Duration.ofSeconds(Config.getApiRequestTimeoutSeconds()))
+                    .build();
+            
+            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenAccept(response -> {
+                    if (response.statusCode() >= 300) {
+                        LOGGER.error("Failed to send 'island ready' signal for owner UUID: {}. Status: {}, Body: {}", ownerUuid, response.statusCode(), response.body());
+                    } else {
+                        LOGGER.info("Successfully sent 'island ready' signal for owner UUID: {}", ownerUuid);
+                    }
+                })
+                .exceptionally(ex -> {
+                    LOGGER.error("Exception while sending 'island ready' signal for owner UUID: {}", ownerUuid, ex);
+                    return null;
+                });
+        }
+
+        public CompletableFuture<Void> sendFreeze(UUID ownerUuid) {
+            String apiUrl = Config.getApiBaseUrl() + "islands/" + ownerUuid.toString() + "/freeze";
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(apiUrl))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .timeout(Duration.ofSeconds(Config.getApiRequestTimeoutSeconds()))
+                    .build();
+
+            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenAccept(response -> {
+                    if (response.statusCode() >= 300) {
+                        LOGGER.error("Failed to send 'island freeze' signal for owner UUID: {}. Status: {}, Body: {}", ownerUuid, response.statusCode(), response.body());
+                    } else {
+                        LOGGER.info("Successfully sent 'island freeze' signal for owner UUID: {}", ownerUuid);
+                    }
+                })
+                .exceptionally(ex -> {
+                    LOGGER.error("Exception while sending 'island freeze' signal for owner UUID: {}", ownerUuid, ex);
+                    return null;
+                });
         }
     }
 }

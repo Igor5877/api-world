@@ -26,36 +26,49 @@ public class PlayerEventHandler {
             freezeTask.cancel(false);
             LOGGER.info("Player logged in. Canceled scheduled island freeze.");
         }
+
+        if (SkyBlockMod.isIslandServer() && !SkyBlockMod.hasPlayerJoinedWithinFirstHour()) {
+            long uptime = System.currentTimeMillis() - SkyBlockMod.getServerStartTime();
+            if (TimeUnit.MILLISECONDS.toHours(uptime) < 1) {
+                SkyBlockMod.setPlayerJoinedWithinFirstHour(true);
+                LOGGER.info("A player has joined within the first hour. The island is now eligible for auto-freeze.");
+            }
+        }
     }
 
     @SubscribeEvent
     public void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         MinecraftServer server = event.getEntity().getServer();
         if (server != null && server.getPlayerCount() - 1 == 0) {
-            if (SkyBlockMod.isIslandServer()) {
-                LOGGER.info("Last player logged out. Scheduling island freeze in 10 minutes.");
-                scheduleFreezeTask(SkyBlockMod.getCreatorUuid());
+            if (SkyBlockMod.isIslandServer() && SkyBlockMod.hasPlayerJoinedWithinFirstHour()) {
+                LOGGER.info("Last player logged out. Scheduling island freeze in 5 minutes.");
+                scheduleFreezeTask(SkyBlockMod.getOwnerUuid());
+            } else {
+                LOGGER.info("Last player logged out, but the island is not eligible for auto-freeze.");
             }
         }
     }
 
-    private void scheduleFreezeTask(String creatorUuidStr) {
-        if (creatorUuidStr == null) {
-            LOGGER.error("Cannot schedule freeze task: creator UUID is null.");
+    private void scheduleFreezeTask(String ownerUuidStr) {
+        if (ownerUuidStr == null) {
+            LOGGER.error("Cannot schedule freeze task: owner UUID is null.");
             return;
         }
 
         Runnable task = () -> {
-            // UUID creatorUuid = UUID.fromString(creatorUuidStr);
-            // NestworldModsServer.ISLAND_PROVIDER.sendFreeze(creatorUuid)
-            //     .thenRun(() -> LOGGER.info("Successfully sent island freeze request for creator: {}", creatorUuidStr))
-            //     .exceptionally(ex -> {
-            //         LOGGER.error("Failed to send island freeze request for creator: {}", creatorUuidStr, ex);
-            //         return null;
-            //     });
-            LOGGER.info("Island freeze task was triggered for creator {} but is currently disabled.", creatorUuidStr);
+            try {
+                UUID ownerUuid = UUID.fromString(ownerUuidStr);
+                NestworldModsServer.ISLAND_PROVIDER.sendFreeze(ownerUuid)
+                    .thenRun(() -> LOGGER.info("Successfully sent island freeze request for owner: {}", ownerUuidStr))
+                    .exceptionally(ex -> {
+                        LOGGER.error("Failed to send island freeze request for owner: {}", ownerUuidStr, ex);
+                        return null;
+                    });
+            } catch (IllegalArgumentException e) {
+                LOGGER.error("Invalid UUID format for owner: {}", ownerUuidStr, e);
+            }
         };
 
-        freezeTask = scheduler.schedule(task, 10, TimeUnit.MINUTES);
+        freezeTask = scheduler.schedule(task, 5, TimeUnit.MINUTES);
     }
 }
