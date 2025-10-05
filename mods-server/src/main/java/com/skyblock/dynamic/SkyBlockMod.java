@@ -58,8 +58,13 @@ public class SkyBlockMod
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
+<<<<<<< Updated upstream
     private static IslandContext islandContext = IslandContext.getDefault();
     private static long serverStartTime = 0;
+=======
+    private static IslandContext islandContext = IslandContext.getDefault(); // Initialize with default
+    private static long serverStartTime = 0L;
+>>>>>>> Stashed changes
     private static boolean playerJoinedWithinFirstHour = false;
 
     public SkyBlockMod(FMLJavaModLoadingContext context)
@@ -190,12 +195,30 @@ public class SkyBlockMod
     public static void setPlayerJoinedWithinFirstHour(boolean value) {
         playerJoinedWithinFirstHour = value;
     }
+    // Alias for old code still using getOwnerUuid
+    public static String getOwnerUuid() {
+        return getCreatorUuid();
+    }
+
+    public static boolean hasPlayerJoinedWithinFirstHour() {
+        return playerJoinedWithinFirstHour;
+    }
 
     @SubscribeEvent
     public void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
-        var player = event.getEntity();
-        LOGGER.info("Player {} logged in, triggering island data refresh.", player.getName().getString());
-        com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.refreshAndGetTeamId(player.getUUID());
+        if (isIslandServer() && !playerJoinedWithinFirstHour) {
+            long now = System.currentTimeMillis();
+            // 1 hour = 3,600,000 milliseconds
+            if (now - serverStartTime <= 3600000L) {
+                playerJoinedWithinFirstHour = true;
+                LOGGER.info("First player joined within one hour of server start. Auto-freeze is now enabled.");
+            }
+        }
+
+        // The refresh is now handled by getCachedTeamId on demand, so this explicit call is no longer needed.
+        // var player = event.getEntity();
+        // LOGGER.info("Player {} logged in, triggering island data refresh.", player.getName().getString());
+        // com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.refreshAndGetTeamId(player.getUUID());
     }
 
     @Mod.EventBusSubscriber(modid = MODID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)

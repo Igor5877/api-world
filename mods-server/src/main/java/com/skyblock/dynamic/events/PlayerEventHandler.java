@@ -43,8 +43,13 @@ public class PlayerEventHandler {
             if (SkyBlockMod.isIslandServer() && SkyBlockMod.hasPlayerJoinedWithinFirstHour()) {
                 LOGGER.info("Last player logged out. Scheduling island freeze in 5 minutes.");
                 scheduleFreezeTask(SkyBlockMod.getOwnerUuid());
+<<<<<<< Updated upstream
             } else {
                 LOGGER.info("Last player logged out, but the island is not eligible for auto-freeze.");
+=======
+            } else if (SkyBlockMod.isIslandServer()) {
+                LOGGER.info("Last player logged out, but no player joined within the first hour. Auto-freeze is disabled.");
+>>>>>>> Stashed changes
             }
         }
     }
@@ -65,7 +70,11 @@ public class PlayerEventHandler {
                         return null;
                     });
             } catch (IllegalArgumentException e) {
+<<<<<<< Updated upstream
                 LOGGER.error("Invalid UUID format for owner: {}", ownerUuidStr, e);
+=======
+                LOGGER.error("Cannot send freeze request: owner UUID '{}' is not a valid UUID.", ownerUuidStr, e);
+>>>>>>> Stashed changes
             }
         };
 
