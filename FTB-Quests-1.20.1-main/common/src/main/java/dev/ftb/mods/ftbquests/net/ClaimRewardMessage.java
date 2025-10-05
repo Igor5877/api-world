@@ -56,7 +56,7 @@ public class ClaimRewardMessage extends BaseC2SMessage {
 
 			// ADDED: Crucial check to ensure the player is on THEIR OWN island server when claiming rewards.
 			boolean isCorrectIsland = !com.skyblock.dynamic.SkyBlockMod.isIslandServer() ||
-					java.util.UUID.fromString(com.skyblock.dynamic.SkyBlockMod.getCreatorUuid()).equals(islandData.getTeamId());
+					java.util.UUID.fromString(com.skyblock.dynamic.SkyBlockMod.getOwnerUuid()).equals(islandData.getTeamId());
 
 			if (isMember && isCorrectIsland) {
 				islandData.claimReward(player, reward, notify);

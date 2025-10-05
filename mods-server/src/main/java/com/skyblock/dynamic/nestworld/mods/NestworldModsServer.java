@@ -121,5 +121,13 @@ public class NestworldModsServer {
 
             return null;
         }
+
+        public boolean isThisAnIslandServer() {
+            return com.skyblock.dynamic.SkyBlockMod.isIslandServer();
+        }
+
+        public String getCurrentServerOwnerUuid() {
+            return com.skyblock.dynamic.SkyBlockMod.getOwnerUuid();
+        }
     }
 }

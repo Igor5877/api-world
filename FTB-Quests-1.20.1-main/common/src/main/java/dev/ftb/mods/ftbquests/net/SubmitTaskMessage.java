@@ -50,7 +50,7 @@ public class SubmitTaskMessage extends BaseC2SMessage {
 
 			// ADDED: Crucial check to ensure the player is on THEIR OWN island server when submitting tasks.
 			boolean isCorrectIsland = !com.skyblock.dynamic.SkyBlockMod.isIslandServer() ||
-					java.util.UUID.fromString(com.skyblock.dynamic.SkyBlockMod.getCreatorUuid()).equals(data.getTeamId());
+					java.util.UUID.fromString(com.skyblock.dynamic.SkyBlockMod.getOwnerUuid()).equals(data.getTeamId());
 
 			if (isMember && isCorrectIsland) {
 				ServerQuestFile.INSTANCE.withPlayerContext(player, () -> task.submitTask(data, player));
