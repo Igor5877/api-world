@@ -92,6 +92,7 @@ public class MyIslandCommand implements SimpleCommand {
     private void startAndListen(Player player) {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
         player.sendMessage(localeManager.getComponent(lang, "myisland.status.not_ready", NamedTextColor.YELLOW));
+        plugin.getAwaitingConnection().add(player.getUniqueId());
 
         apiClient.requestIslandStart(player.getUniqueId(), player.getUsername())
             .thenAccept(startResponse -> {
@@ -100,11 +101,13 @@ public class MyIslandCommand implements SimpleCommand {
                     connectToWebSocket(player);
                 } else {
                     player.sendMessage(Component.text(localeManager.getMessage(lang, "myisland.status.start_failed").replace("{status_code}", String.valueOf(startResponse.statusCode())), NamedTextColor.RED));
+                    plugin.getAwaitingConnection().remove(player.getUniqueId());
                 }
             })
             .exceptionally(ex -> {
                 player.sendMessage(localeManager.getComponent(lang, "myisland.status.start_error", NamedTextColor.RED));
                 logger.error("Exception in requestIslandStart chain for {}: {}", player.getUsername(), ex.getMessage(), ex);
+                plugin.getAwaitingConnection().remove(player.getUniqueId());
                 return null;
             });
     }
@@ -124,7 +127,7 @@ public class MyIslandCommand implements SimpleCommand {
                 String ip = islandData.get("internal_ip_address").getAsString();
                 int port = islandData.get("internal_port").getAsInt();
                 proxyServer.getScheduler().buildTask(plugin, () -> attemptSingleConnection(player, ip, port)).schedule();
-            });
+            }, plugin);
             client.connect();
             plugin.getWebSocketManagers().put(playerUuid, client);
         } catch (Exception e) {

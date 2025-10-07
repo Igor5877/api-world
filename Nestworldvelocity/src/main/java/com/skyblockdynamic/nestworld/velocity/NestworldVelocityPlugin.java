@@ -10,6 +10,7 @@ import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import org.slf4j.Logger;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import com.skyblockdynamic.nestworld.velocity.network.WebSocketManager;
@@ -42,6 +43,7 @@ public class NestworldVelocityPlugin {
     private ApiClient apiClient;
     private LocaleManager localeManager;
     private final Map<UUID, WebSocketManager> webSocketManagers = new ConcurrentHashMap<>();
+    private final Set<UUID> awaitingConnection = ConcurrentHashMap.newKeySet();
 
 
     @Inject
@@ -122,5 +124,9 @@ public class NestworldVelocityPlugin {
 
     public Map<UUID, WebSocketManager> getWebSocketManagers() {
         return webSocketManagers;
+    }
+
+    public Set<UUID> getAwaitingConnection() {
+        return awaitingConnection;
     }
 }

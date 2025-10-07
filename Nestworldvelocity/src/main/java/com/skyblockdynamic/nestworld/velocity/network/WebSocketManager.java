@@ -20,16 +20,18 @@ public class WebSocketManager implements WebSocket.Listener {
     private final Player player;
     private final ProxyServer proxyServer;
     private final Consumer<JsonObject> onIslandReady;
+    private final com.skyblockdynamic.nestworld.velocity.NestworldVelocityPlugin plugin;
     private final CountDownLatch latch = new CountDownLatch(1);
     private WebSocket webSocket;
     private final URI uri;
 
-    public WebSocketManager(URI uri, Logger logger, Player player, ProxyServer proxyServer, Consumer<JsonObject> onIslandReady) {
+    public WebSocketManager(URI uri, Logger logger, Player player, ProxyServer proxyServer, Consumer<JsonObject> onIslandReady, com.skyblockdynamic.nestworld.velocity.NestworldVelocityPlugin plugin) {
         this.uri = uri;
         this.logger = logger;
         this.player = player;
         this.proxyServer = proxyServer;
         this.onIslandReady = onIslandReady;
+        this.plugin = plugin;
     }
 
     public void connect() {
@@ -52,8 +54,10 @@ public class WebSocketManager implements WebSocket.Listener {
             JsonObject jsonObject = JsonParser.parseString(message).getAsJsonObject();
             if (jsonObject.has("status") && "RUNNING".equalsIgnoreCase(jsonObject.get("status").getAsString()) &&
                 jsonObject.has("minecraft_ready") && jsonObject.get("minecraft_ready").getAsBoolean()) {
-                onIslandReady.accept(jsonObject);
-                close();
+                if (plugin.getAwaitingConnection().remove(player.getUniqueId())) {
+                    onIslandReady.accept(jsonObject);
+                    close();
+                }
             }
         } catch (Exception e) {
             logger.error("Error processing WebSocket message for player " + player.getUsername(), e);
