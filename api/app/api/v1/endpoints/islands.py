@@ -135,31 +135,29 @@ async def freeze_island_endpoint(
 # For example: `player_uuid: uuid.UUID` in function parameters.
 # For this initial setup, string is fine.
 
-@router.post("/team/{team_id}/ready", response_model=MessageResponse, status_code=status.HTTP_200_OK)
+@router.post("/{owner_uuid}/ready", response_model=MessageResponse, status_code=status.HTTP_200_OK)
 async def mark_island_ready_endpoint(
-    team_id: int,
+    owner_uuid: str,
     db_session: AsyncSession = Depends(get_db_session)
 ):
     """
     Endpoint for a Minecraft server to signal that its team island is fully loaded.
     """
-    logger.info(f"Endpoint: Received request to mark island ready for team_id: {team_id}")
+    logger.info(f"Endpoint: Received request to mark island ready for owner_uuid: {owner_uuid}")
     try:
         await island_service.mark_island_as_ready_for_players(
             db_session=db_session,
-            team_id=team_id
+            owner_uuid=owner_uuid
         )
         return MessageResponse(message="Island marked as ready for players.")
     except ValueError as e:
-        logger.warning(f"Endpoint: ValueError marking island ready for {player_uuid}: {e}")
+        logger.warning(f"Endpoint: ValueError marking island ready for {owner_uuid}: {e}")
         if "not found" in str(e).lower():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
         elif "not in a state to be marked ready" in str(e).lower() or "already marked as ready" in str(e).lower():
-            # Using 409 Conflict if the state is not appropriate for this action
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
         else:
-            # Generic bad request or internal error depending on expected exceptions
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error(f"Endpoint Error: Unexpected error marking island ready for {player_uuid}: {e}", exc_info=True)
+        logger.error(f"Endpoint Error: Unexpected error marking island ready for {owner_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while marking the island ready.")

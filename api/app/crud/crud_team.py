@@ -29,6 +29,14 @@ async def get_team_by_player(db: AsyncSession, *, player_uuid: str) -> Team | No
     )
     return result.scalars().first()
 
+async def get_team_by_owner(db: AsyncSession, *, owner_uuid: str) -> Team | None:
+    result = await db.execute(
+        select(Team)
+        .where(Team.owner_uuid == owner_uuid)
+        .options(selectinload(Team.members), selectinload(Team.island))
+    )
+    return result.scalars().first()
+
 async def create_team(db: AsyncSession, *, team_in: TeamCreate) -> Team:
     """
     Create a new team and add the owner as the first member.

@@ -49,7 +49,7 @@ class IslandService:
         if await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid):
             raise ValueError("Player already has a legacy solo island.")
 
-        safe_player_name = "".join(c if c.isalnum() else '_' for c in player_name)
+        safe_player_name = "".join(c if c.isalnum() else '-' for c in player_name)
         # We still need to parse the string UUID to get its hex part for the name
         team_name = f"island-of-{safe_player_name}-{uuid.UUID(player_uuid).hex[:8]}"
         team_create_data = TeamCreate(name=team_name, owner_uuid=player_uuid)
@@ -141,7 +141,7 @@ class IslandService:
             # Case 1b: Team exists but has no island. Create one for them.
             else:
                 logger.warning(f"Service: Team {team.id} exists for player {player_uuid} but has no island. Creating one now.")
-                safe_team_name = "".join(c if c.isalnum() else '_' for c in team.name)
+                safe_team_name = "".join(c if c.isalnum() else '-' for c in team.name)
                 container_name = f"skyblock-team-{safe_team_name}-{team.id}"
                 
                 new_island = await crud_island.create(
@@ -153,7 +153,7 @@ class IslandService:
                 team.island = new_island
                 db_session.add(team)
                 await db_session.commit()
-                await db_session.refresh(team, relationships=["island"])
+                await db_session.refresh(team, attribute_names=["island"])
 
                 background_tasks.add_task(self._perform_lxd_clone_and_update_status, team_id=team.id, container_name=container_name)
                 logger.info(f"Service: New island (ID: {new_island.id}) created for team {team.id}. Returning PENDING_CREATION state.")
@@ -174,7 +174,7 @@ class IslandService:
             background_tasks=background_tasks
         )
         await db_session.commit()
-        await db_session.refresh(new_solo_team, relationships=["island"])
+        await db_session.refresh(new_solo_team, attribute_names=["island"])
         logger.info(f"Service: New solo island (ID: {new_solo_team.island.id}) created for player {player_uuid}. Returning PENDING_CREATION state.")
         return IslandResponse.model_validate(new_solo_team.island)
 
@@ -389,11 +389,15 @@ class IslandService:
         updated_team = await crud_team.rename_team(db, team=team, new_name=new_name)
         return updated_team
 
-    async def mark_island_as_ready_for_players(self, db_session: AsyncSession, *, team_id: int):
-        logger.info(f"Service: Attempting to mark island as ready for team_id: {team_id}")
-        island_db_model = await crud_island.get_by_team_id(db_session, team_id=team_id)
-        if not island_db_model:
-            raise ValueError("Island not found for this team.")
+    async def mark_island_as_ready_for_players(self, db_session: AsyncSession, *, owner_uuid: str):
+        logger.info(f"Service: Attempting to mark island as ready for owner_uuid: {owner_uuid}")
+        
+        team = await crud_team.get_team_by_owner(db_session, owner_uuid=owner_uuid)
+        if not team or not team.island:
+            raise ValueError("Team or island not found for this owner.")
+
+        island_db_model = team.island
+        
         if island_db_model.status != IslandStatusEnum.RUNNING:
             raise ValueError("Island is not in RUNNING state.")
         if island_db_model.minecraft_ready:
@@ -402,12 +406,10 @@ class IslandService:
         updated_island = await crud_island.update(db_session, db_obj=island_db_model, obj_in={"minecraft_ready": True})
         await db_session.commit()
         
-        result = await db_session.execute(select(TeamModel).where(TeamModel.id == team_id).options(selectinload(TeamModel.members)))
-        team = result.scalars().first()
-        if team:
-            for member in team.members:
-                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
-        logger.info(f"Service: Island for team {team_id} marked as ready.")
+        # We already have the team object, so we can use it directly
+        for member in team.members:
+            await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+        logger.info(f"Service: Island for team {team.id} (owner: {owner_uuid}) marked as ready.")
 
     async def handle_join_team(self, db_session: AsyncSession, *, player_to_join_uuid: str, team_to_join: TeamModel, background_tasks: BackgroundTasks):
         # 1. Check if player is already in the target team
