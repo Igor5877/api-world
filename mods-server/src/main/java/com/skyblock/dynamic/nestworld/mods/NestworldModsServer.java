@@ -5,12 +5,18 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 import com.skyblock.dynamic.Config;
 import com.mojang.logging.LogUtils;
+import com.skyblock.dynamic.utils.QuestTeamBridge;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
 import net.minecraftforge.server.ServerLifecycleHooks;
 import org.slf4j.Logger;
 
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -74,51 +80,84 @@ public class NestworldModsServer {
         }
 
         public UUID refreshAndGetTeamId(UUID playerUuid) {
-            LOGGER.info("Fetching team data for player {} synchronously...", playerUuid);
-            String apiUrl = Config.getApiBaseUrl() + "teams/my_team/";
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(apiUrl + playerUuid.toString()))
-                    .header("Content-Type", "application/json")
-                    .GET()
-                    .build();
+            LOGGER.info("Attempting to refresh team data for player {}...", playerUuid);
+            Path cachePath = ServerLifecycleHooks.getCurrentServer().getServerDirectory().toPath().resolve("world").resolve("serverconfig").resolve("cached_team_data.json");
 
             try {
+                String apiUrl = Config.getApiBaseUrl() + "teams/my_team/";
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(apiUrl + playerUuid.toString()))
+                        .timeout(Duration.ofSeconds(Config.getApiRequestTimeoutSeconds()))
+                        .header("Content-Type", "application/json")
+                        .GET()
+                        .build();
+                
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
                 if (response.statusCode() == 200) {
+                    LOGGER.info("Successfully fetched team data from API for player {}.", playerUuid);
                     JsonObject teamJson = gson.fromJson(response.body(), JsonObject.class);
-                    if (teamJson.has("owner_uuid")) {
-                        UUID ownerUuid = UUID.fromString(teamJson.get("owner_uuid").getAsString());
-                        List<UUID> memberUuids = new ArrayList<>();
-                        memberUuids.add(ownerUuid);
-
-                        if (teamJson.has("members") && teamJson.get("members").isJsonArray()) {
-                            teamJson.get("members").getAsJsonArray().forEach(memberElement -> {
-                                JsonObject memberObj = memberElement.getAsJsonObject();
-                                if (memberObj.has("player_uuid")) {
-                                    UUID memberUuid = UUID.fromString(memberObj.get("player_uuid").getAsString());
-                                    if (!memberUuids.contains(memberUuid)) {
-                                        memberUuids.add(memberUuid);
-                                    }
-                                }
-                            });
-                        }
-
-                        for (UUID memberUuid : memberUuids) {
-                            islandCache.put(memberUuid, ownerUuid);
-                        }
-                        
-                        // It's safe to call this directly now because this whole method is on the main thread.
-                        com.skyblock.dynamic.utils.QuestTeamBridge.getInstance().syncTeamData(ownerUuid, memberUuids);
-                        LOGGER.info("Successfully refreshed and synced team data for owner {}", ownerUuid);
-                        return ownerUuid;
+                    
+                    try (FileWriter writer = new FileWriter(cachePath.toFile())) {
+                        gson.toJson(teamJson, writer);
+                        LOGGER.info("Successfully cached team data to {}.", cachePath);
+                    } catch (IOException e) {
+                        LOGGER.error("Failed to write team data to cache file: {}", cachePath, e);
                     }
+                    
+                    return processTeamData(teamJson);
                 } else {
-                    LOGGER.warn("Failed to fetch team data for player {}: HTTP {}", playerUuid, response.statusCode());
+                    LOGGER.warn("Failed to fetch team data for player {} from API, HTTP {}. Attempting to use cache.", playerUuid, response.statusCode());
+                    return loadTeamDataFromCache(cachePath);
                 }
             } catch (Exception e) {
-                LOGGER.error("Exception during synchronous team data refresh for player {}", playerUuid, e);
+                LOGGER.error("Exception fetching team data from API for player {}. Attempting to use cache.", playerUuid, e);
+                return loadTeamDataFromCache(cachePath);
             }
+        }
 
+        private UUID loadTeamDataFromCache(Path cachePath) {
+            if (Files.exists(cachePath)) {
+                try (FileReader reader = new FileReader(cachePath.toFile())) {
+                    JsonObject teamJson = gson.fromJson(reader, JsonObject.class);
+                    LOGGER.info("Successfully loaded team data from cache file: {}", cachePath);
+                    return processTeamData(teamJson);
+                } catch (IOException | JsonSyntaxException e) {
+                    LOGGER.error("Failed to read or parse cached team data from {}.", cachePath, e);
+                }
+            } else {
+                LOGGER.warn("Team data cache file not found at {}. Unable to proceed.", cachePath);
+            }
+            return null;
+        }
+
+        public UUID processTeamData(JsonObject teamJson) {
+            if (teamJson != null && teamJson.has("owner_uuid")) {
+                UUID ownerUuid = UUID.fromString(teamJson.get("owner_uuid").getAsString());
+                List<UUID> memberUuids = new ArrayList<>();
+                memberUuids.add(ownerUuid);
+
+                if (teamJson.has("members") && teamJson.get("members").isJsonArray()) {
+                    teamJson.get("members").getAsJsonArray().forEach(memberElement -> {
+                        JsonObject memberObj = memberElement.getAsJsonObject();
+                        if (memberObj.has("player_uuid")) {
+                            UUID memberUuid = UUID.fromString(memberObj.get("player_uuid").getAsString());
+                            if (!memberUuids.contains(memberUuid)) {
+                                memberUuids.add(memberUuid);
+                            }
+                        }
+                    });
+                }
+
+                for (UUID memberUuid : memberUuids) {
+                    islandCache.put(memberUuid, ownerUuid);
+                }
+                
+                com.skyblock.dynamic.utils.QuestTeamBridge.getInstance().syncTeamData(ownerUuid, memberUuids);
+                LOGGER.info("Successfully processed and synced team data for owner {}", ownerUuid);
+                return ownerUuid;
+            }
+            LOGGER.warn("processTeamData called with invalid or incomplete team JSON.");
             return null;
         }
 

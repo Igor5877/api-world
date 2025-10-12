@@ -85,6 +85,9 @@ public enum FTBQuestsEventHandler {
 				new SyncIslandDataMessage(selfData, true).sendTo(player);
 			}
 		}
+		
+		// Attach inventory listener so item detection tasks work immediately
+		player.inventoryMenu.addSlotListener(new FTBQuestsInventoryListener(player));
 	}
 
 	private void serverAboutToStart(MinecraftServer server) {

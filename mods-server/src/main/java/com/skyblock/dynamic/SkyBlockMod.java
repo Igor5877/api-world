@@ -2,12 +2,17 @@ package com.skyblock.dynamic;
 
 import com.electronwill.nightconfig.core.file.CommentedFileConfig;
 import com.electronwill.nightconfig.core.io.WritingMode;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
+import com.skyblock.dynamic.nestworld.mods.NestworldModsServer;
 import com.skyblock.dynamic.utils.IslandContext;
+import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.server.ServerAboutToStartEvent;
 import net.minecraftforge.event.server.ServerStartedEvent;
+import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -19,17 +24,26 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import org.slf4j.Logger;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
+import net.minecraftforge.event.server.ServerStoppingEvent;
+import java.net.URI;
+import java.net.URISyntaxException;
 
 @Mod(SkyBlockMod.MODID)
 public class SkyBlockMod {
     public static final String MODID = "skyblock";
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Gson GSON = new Gson();
 
     private static IslandContext islandContext = IslandContext.getDefault();
     private static long serverStartTime = 0L;
     private static boolean playerJoinedWithinFirstHour = false;
+    private static com.skyblock.dynamic.utils.IslandWebSocketClient webSocketClient;
 
     public SkyBlockMod() {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
@@ -57,6 +71,12 @@ public class SkyBlockMod {
         playerJoinedWithinFirstHour = false;
         Path serverBasePath = event.getServer().getServerDirectory().toPath();
         loadIslandContextData(serverBasePath);
+
+        if (islandContext.isIslandServer()) {
+            LOGGER.info("SkyBlockMod: Island server detected. Synchronizing team data...");
+            UUID ownerUuid = UUID.fromString(islandContext.getOwnerUuid());
+            NestworldModsServer.ISLAND_PROVIDER.refreshAndGetTeamId(ownerUuid);
+        }
     }
 
     @SubscribeEvent
@@ -64,8 +84,31 @@ public class SkyBlockMod {
         if (islandContext.isIslandServer()) {
             LOGGER.info("SkyBlockMod: Server started. Running as an ISLAND SERVER. Owner UUID: {}", islandContext.getOwnerUuid());
             sendIslandReadyForPlayersSignal();
+            initializeWebSocket();
         } else {
             LOGGER.info("SkyBlockMod: Server started. Running as a HUB SERVER.");
+        }
+    }
+
+    @SubscribeEvent
+    public void onServerStopping(ServerStoppingEvent event) {
+        if (webSocketClient != null && webSocketClient.isOpen()) {
+            LOGGER.info("SkyBlockMod: Closing WebSocket connection.");
+            webSocketClient.close();
+        }
+    }
+
+    private void initializeWebSocket() {
+        if (!islandContext.isIslandServer() || islandContext.getOwnerUuid() == null) {
+            return;
+        }
+        try {
+            String wsUrl = Config.getApiBaseUrl().replaceFirst("http", "ws") + "ws/" + islandContext.getOwnerUuid();
+            webSocketClient = new com.skyblock.dynamic.utils.IslandWebSocketClient(new URI(wsUrl), islandContext.getOwnerUuid());
+            LOGGER.info("SkyBlockMod: Attempting to connect to WebSocket at {}", wsUrl);
+            webSocketClient.connect();
+        } catch (URISyntaxException e) {
+            LOGGER.error("SkyBlockMod: Invalid WebSocket URI syntax.", e);
         }
     }
 
