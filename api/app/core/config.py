@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     # Default Minecraft server settings (can be overridden per island if needed)
     DEFAULT_MC_PORT_INTERNAL: int = 25565
 
+    # Redis settings
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    REDIS_CHANNEL: str = os.getenv("REDIS_CHANNEL", "skyblock_island_notifications")
+
+
     class Config:
         # If you have a .env file, pydantic-settings will load it automatically.
         env_file = ".env"

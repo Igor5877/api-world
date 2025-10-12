@@ -1,72 +1,105 @@
 import asyncio
-from typing import Dict, List, Any
-from fastapi import WebSocket
-import logging
 import json
+import logging
+from typing import Any, Dict, List
+
+from fastapi import WebSocket
+from starlette.websockets import WebSocketDisconnect
+
+from app.core.config import settings
+from app.core.redis import get_redis_client
 
 logger = logging.getLogger(__name__)
 
 class ConnectionManager:
     def __init__(self):
-        # Зберігаємо активні з'єднання. Ключ - це client_id (наприклад, player_uuid)
         self.active_connections: Dict[str, WebSocket] = {}
 
     async def connect(self, websocket: WebSocket, client_id: str):
-        """
-        Приймає нове WebSocket з'єднання.
-        """
+        # If a connection for this client_id already exists, close it first.
+        if client_id in self.active_connections:
+            logger.warning(f"Client {client_id} is reconnecting. Closing the old connection.")
+            old_websocket = self.active_connections[client_id]
+            try:
+                await old_websocket.close()
+            except Exception as e:
+                logger.error(f"Error closing old websocket for {client_id}: {e}", exc_info=False)
+            self.disconnect(client_id)
+
         await websocket.accept()
         self.active_connections[client_id] = websocket
-        logger.info(f"WebSocket Manager: New connection for client_id: {client_id}. Total connections: {len(self.active_connections)}")
+        logger.info(f"WebSocket Manager: New connection for client_id: {client_id} on this worker.")
 
     def disconnect(self, client_id: str):
-        """
-        Закриває та видаляє з'єднання.
-        """
         if client_id in self.active_connections:
-            # Немає потреби викликати `websocket.close()` тут,
-            # оскільки FastAPI обробляє це, коли ендпоінт завершується.
             del self.active_connections[client_id]
-            logger.info(f"WebSocket Manager: Disconnected client_id: {client_id}. Total connections: {len(self.active_connections)}")
+            logger.info(f"WebSocket Manager: Disconnected client_id: {client_id} on this worker.")
+
+    async def _send_direct_personal_message(self, data: Any, websocket: WebSocket):
+        """
+        Sends a message directly to a websocket connection.
+        This method is used by the redis_listener to send messages to locally connected clients.
+        """
+        try:
+            message_text = json.dumps(data) if isinstance(data, (dict, list)) else str(data)
+            await websocket.send_text(message_text)
+        except (WebSocketDisconnect, RuntimeError) as e:
+            # Find client_id to disconnect if the connection is dead
+            for cid, ws in self.active_connections.items():
+                if ws == websocket:
+                    logger.warning(f"WebSocket Manager: Connection to {cid} closed while sending: {e}")
+                    self.disconnect(cid)
+                    break
+        except Exception as e:
+            logger.error(f"WebSocket Manager: Unexpected error sending direct message: {e}", exc_info=True)
+
+    async def publish_to_redis(self, client_ids: List[str], data: Any):
+        """
+        Publishes a message to the Redis channel, which will be picked up by all workers.
+        """
+        redis = get_redis_client()
+        payload = {
+            "client_ids": client_ids,
+            "data": data
+        }
+        await redis.publish(settings.REDIS_CHANNEL, json.dumps(payload))
+        logger.info(f"WebSocket Manager: Published message to Redis for clients: {client_ids}")
 
     async def send_personal_message(self, data: Any, client_id: str):
+        """Publishes a message for a single client to Redis."""
+        await self.publish_to_redis([client_id], data)
+
+    async def send_message_to_clients(self, client_ids: List[str], data: Any):
+        """Publishes a message for multiple clients to Redis."""
+        await self.publish_to_redis(client_ids, data)
+
+    async def redis_listener(self):
         """
-        Надсилає особисте повідомлення конкретному клієнту.
+        Listens for messages on the Redis Pub/Sub channel and sends them
+        to clients connected to this specific worker process.
         """
-        if client_id in self.active_connections:
-            websocket = self.active_connections[client_id]
+        redis = get_redis_client()
+        pubsub = redis.pubsub()
+        await pubsub.subscribe(settings.REDIS_CHANNEL)
+        logger.info(f"Subscribed to Redis channel: {settings.REDIS_CHANNEL} on this worker.")
+        
+        while True:
             try:
-                # Переконуємося, що дані є у форматі JSON-рядка
-                if isinstance(data, dict) or isinstance(data, list):
-                    await websocket.send_text(json.dumps(data))
-                else:
-                    await websocket.send_text(str(data))
-                logger.debug(f"WebSocket Manager: Sent message to {client_id}: {data}")
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if message and message.get("type") == "message":
+                    payload = json.loads(message["data"])
+                    data = payload["data"]
+                    client_ids = payload["client_ids"]
+                    
+                    # Send to locally connected clients
+                    for client_id in client_ids:
+                        if client_id in self.active_connections:
+                            websocket = self.active_connections[client_id]
+                            logger.debug(f"Redis Listener: Sending message from channel to local client: {client_id}")
+                            await self._send_direct_personal_message(data, websocket)
+                await asyncio.sleep(0.01)  # Prevent high CPU usage
             except Exception as e:
-                logger.error(f"WebSocket Manager: Error sending message to {client_id}: {e}", exc_info=True)
-                # Можливо, з'єднання вже закрите, варто його видалити
-                self.disconnect(client_id)
+                logger.error(f"Redis listener error: {e}", exc_info=True)
+                await asyncio.sleep(5)  # Wait before retrying on major error
 
-    async def broadcast(self, data: Any):
-        """
-        Надсилає повідомлення усім підключеним клієнтам.
-        """
-        # Створюємо JSON-рядок один раз для всіх
-        message_text = json.dumps(data) if isinstance(data, (dict, list)) else str(data)
-        
-        # Використовуємо asyncio.gather для паралельної відправки
-        results = await asyncio.gather(
-            *[conn.send_text(message_text) for conn in self.active_connections.values()],
-            return_exceptions=True
-        )
-        
-        # Обробляємо помилки, які могли виникнути (наприклад, закриті з'єднання)
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                client_id = list(self.active_connections.keys())[i]
-                logger.error(f"WebSocket Manager: Error broadcasting to {client_id}: {result}", exc_info=False)
-                # Не видаляємо з'єднання тут, щоб не змінити список під час ітерації,
-                # але можна зібрати "мертві" з'єднання і видалити їх пізніше.
-
-# Створюємо єдиний екземпляр менеджера, який буде використовуватися у всьому додатку
 manager = ConnectionManager()

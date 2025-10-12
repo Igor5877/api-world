@@ -77,9 +77,23 @@ class IslandService:
         
         return team_db_model
 
+    async def _send_update_notification(self, team: Optional[TeamModel], island: IslandModel):
+        """
+        Централізовано надсилає оновлення стану острова членам команди або окремому гравцеві.
+        """
+        island_data = IslandResponse.model_validate(island).model_dump_json()
+        
+        if team and team.members:
+            member_uuids = [member.player_uuid for member in team.members]
+            await websocket_manager.send_message_to_clients(member_uuids, island_data)
+        elif island.player_uuid:
+            # Для застарілих "соло" островів
+            await websocket_manager.send_personal_message(island_data, str(island.player_uuid))
+
     async def _perform_lxd_clone_and_update_status(self, team_id: int, container_name: str):
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
+            team = None
             try:
                 result = await db.execute(
                     select(TeamModel)
@@ -109,18 +123,23 @@ class IslandService:
                 await lxd_service.push_file_to_container(container_name, config_path, toml_content.encode('utf-8'))
                 
                 updated_island = await crud_island.update(db, db_obj=team.island, obj_in={"status": IslandStatusEnum.STOPPED})
-                await db.commit() # Commit the update
-                for member_uuid in member_uuids:
-                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member_uuid)
+                await db.commit()
+                await db.refresh(updated_island)
+                await db.refresh(team, attribute_names=['island', 'members'])
+                await self._send_update_notification(team, updated_island)
                 logger.info(f"Clone task: Island for team {team_id} successfully created and set to STOPPED.")
 
             except Exception as e:
                 logger.error(f"Clone task for team {team_id} failed: {e}", exc_info=True)
                 async with AsyncSessionLocal() as error_db:
-                    island_to_update = await crud_island.get_by_team_id(error_db, team_id=team_id)
-                    if island_to_update:
-                        await crud_island.update(error_db, db_obj=island_to_update, obj_in={"status": IslandStatusEnum.ERROR_CREATE})
+                    result = await error_db.execute(select(TeamModel).where(TeamModel.id == team_id).options(selectinload(TeamModel.island), selectinload(TeamModel.members)))
+                    team_in_error = result.scalars().first()
+                    if team_in_error and team_in_error.island:
+                        updated_island = await crud_island.update(error_db, db_obj=team_in_error.island, obj_in={"status": IslandStatusEnum.ERROR_CREATE})
                         await error_db.commit()
+                        await error_db.refresh(updated_island)
+                        await error_db.refresh(team_in_error, attribute_names=['island', 'members'])
+                        await self._send_update_notification(team_in_error, updated_island)
 
     async def start_island_instance(self, db_session: AsyncSession, *, player_uuid: str, player_name: str, background_tasks: BackgroundTasks) -> IslandResponse:
         logger.info(f"Service: Player {player_uuid} attempting to start an island.")
@@ -184,18 +203,27 @@ class IslandService:
 
         if current_status == IslandStatusEnum.RUNNING:
             logger.info(f"Service: Island {container_name} is already RUNNING.")
-        elif current_status in [IslandStatusEnum.STOPPED, IslandStatusEnum.FROZEN]:
+            # Even if running, a refresh and notification can be useful
+            await db_session.refresh(island)
+            if team: await db_session.refresh(team, attribute_names=['island', 'members'])
+            await self._send_update_notification(team, island)
+
+        elif current_status in [IslandStatusEnum.STOPPED, IslandStatusEnum.FROZEN, IslandStatusEnum.ERROR_START]:
             logger.info(f"Service: Starting island {container_name} from status {current_status.value}...")
             updated_island = await crud_island.update(db_session, db_obj=island, obj_in={"status": IslandStatusEnum.PENDING_START})
             await db_session.commit()
+            
+            await db_session.refresh(updated_island)
+            if team: await db_session.refresh(team, attribute_names=['island', 'members'])
+            
+            await self._send_update_notification(team, updated_island)
+            
             if team:
-                for member in team.members:
-                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
                 background_tasks.add_task(self._perform_lxd_start_and_update_status, team_id=team.id, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN))
             else:
                 player_uuid_str = str(island.player_uuid)
-                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
                 background_tasks.add_task(self._perform_solo_lxd_start_and_update_status, player_uuid_str=player_uuid_str, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN))
+            
             return IslandResponse.model_validate(updated_island)
         elif current_status == IslandStatusEnum.PENDING_START:
             logger.info(f"Service: Island {container_name} is already PENDING_START.")
@@ -218,12 +246,14 @@ class IslandService:
                 update_data = {"status": IslandStatusEnum.RUNNING, "internal_ip_address": ip}
                 updated_island = await crud_island.update(db, db_obj=island, obj_in=update_data)
                 await db.commit()
-                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
+                await db.refresh(updated_island)
+                await self._send_update_notification(None, updated_island)
             except Exception as e:
                 logger.error(f"Error starting solo island for {player_uuid_str}: {e}")
                 updated_island = await crud_island.update(db, db_obj=island, obj_in={"status": IslandStatusEnum.ERROR_START})
                 await db.commit()
-                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
+                await db.refresh(updated_island)
+                await self._send_update_notification(None, updated_island)
 
     async def _perform_lxd_start_and_update_status(self, team_id: int, container_name: str, was_frozen: bool):
         from app.db.session import AsyncSessionLocal
@@ -239,7 +269,9 @@ class IslandService:
                 logger.info(f"Service (background): Starting LXD ops for team {team_id}, container {container_name}")
                 if was_frozen:
                     await lxd_service.unfreeze_container(container_name)
-                if (await lxd_service.get_container_state(container_name)).get('status', '').lower() != 'running':
+                
+                current_state = await lxd_service.get_container_state(container_name)
+                if current_state.get('status', '').lower() != 'running':
                     await lxd_service.start_container(container_name)
 
                 ip_address = await lxd_service.get_container_ip(container_name)
@@ -249,8 +281,9 @@ class IslandService:
                 update_fields = {"internal_ip_address": ip_address, "internal_port": settings.DEFAULT_MC_PORT_INTERNAL, "status": IslandStatusEnum.RUNNING, "last_seen_at": datetime.now(timezone.utc)}
                 updated_island = await crud_island.update(db_session_bg, db_obj=team.island, obj_in=update_fields)
                 await db_session_bg.commit()
-                for member in team.members:
-                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+                await db_session_bg.refresh(updated_island)
+                await db_session_bg.refresh(team, attribute_names=['island', 'members'])
+                await self._send_update_notification(team, updated_island)
                 logger.info(f"Service (background): Island for team {team_id} is RUNNING. Awaiting ready signal from mod.")
 
             except Exception as e:
@@ -258,8 +291,9 @@ class IslandService:
                 if team and team.island:
                     updated_island = await crud_island.update(db_session_bg, db_obj=team.island, obj_in={"status": IslandStatusEnum.ERROR_START})
                     await db_session_bg.commit()
-                    for member in team.members:
-                         await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+                    await db_session_bg.refresh(updated_island)
+                    await db_session_bg.refresh(team, attribute_names=['island', 'members'])
+                    await self._send_update_notification(team, updated_island)
 
     async def stop_island_instance(self, db_session: AsyncSession, *, player_uuid: str, background_tasks: BackgroundTasks) -> IslandResponse:
         logger.info(f"Service: Player {player_uuid} attempting to stop an island.")
@@ -279,13 +313,14 @@ class IslandService:
         if island.status in [IslandStatusEnum.RUNNING, IslandStatusEnum.FROZEN, IslandStatusEnum.ERROR_START]:
             updated_island = await crud_island.update(db_session, db_obj=island, obj_in={"status": IslandStatusEnum.PENDING_STOP})
             await db_session.commit()
+            await db_session.refresh(updated_island)
+            if team: await db_session.refresh(team, attribute_names=['island', 'members'])
+            await self._send_update_notification(team, updated_island)
+            
             if team:
-                for member in team.members:
-                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
                 background_tasks.add_task(self._perform_lxd_stop_and_update_status, team_id=team.id)
             else:
                 player_uuid_str = str(island.player_uuid)
-                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
                 background_tasks.add_task(self._perform_solo_lxd_stop_and_update_status, player_uuid_str=player_uuid_str)
             
             return IslandResponse.model_validate(updated_island)
@@ -306,8 +341,9 @@ class IslandService:
                 update_fields = {"status": IslandStatusEnum.STOPPED, "internal_ip_address": None, "minecraft_ready": False}
                 updated_island = await crud_island.update(db, db_obj=team.island, obj_in=update_fields)
                 await db.commit()
-                for member in team.members:
-                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+                await db.refresh(updated_island)
+                await db.refresh(team, attribute_names=['island', 'members'])
+                await self._send_update_notification(team, updated_island)
             except Exception as e:
                  logger.error(f"Error stopping team island for team {team_id}: {e}")
 
@@ -321,7 +357,8 @@ class IslandService:
                 update_fields = {"status": IslandStatusEnum.STOPPED, "internal_ip_address": None, "minecraft_ready": False}
                 updated_island = await crud_island.update(db, db_obj=island, obj_in=update_fields)
                 await db.commit()
-                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
+                await db.refresh(updated_island)
+                await self._send_update_notification(None, updated_island)
             except Exception as e:
                 logger.error(f"Error stopping solo island for {player_uuid_str}: {e}")
 
@@ -339,13 +376,14 @@ class IslandService:
         if island.status == IslandStatusEnum.RUNNING:
             updated_island = await crud_island.update(db_session, db_obj=island, obj_in={"status": IslandStatusEnum.PENDING_FREEZE})
             await db_session.commit()
+            await db_session.refresh(updated_island)
+            if team: await db_session.refresh(team, attribute_names=['island', 'members'])
+            await self._send_update_notification(team, updated_island)
+
             if team:
-                for member in team.members:
-                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
                 background_tasks.add_task(self._perform_lxd_freeze_and_update_status, team_id=team.id)
             else:
                 player_uuid_str = str(island.player_uuid)
-                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
                 background_tasks.add_task(self._perform_solo_lxd_freeze_and_update_status, player_uuid_str=player_uuid_str)
             return IslandResponse.model_validate(updated_island)
         elif island.status == IslandStatusEnum.FROZEN:
@@ -364,8 +402,9 @@ class IslandService:
                 await lxd_service.freeze_container(team.island.container_name)
                 updated_island = await crud_island.update(db, db_obj=team.island, obj_in={"status": IslandStatusEnum.FROZEN})
                 await db.commit()
-                for member in team.members:
-                    await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
+                await db.refresh(updated_island)
+                await db.refresh(team, attribute_names=['island', 'members'])
+                await self._send_update_notification(team, updated_island)
             except Exception as e:
                  logger.error(f"Error freezing island for team {team_id}: {e}")
 
@@ -378,7 +417,8 @@ class IslandService:
                 await lxd_service.freeze_container(island.container_name)
                 updated_island = await crud_island.update(db, db_obj=island, obj_in={"status": IslandStatusEnum.FROZEN})
                 await db.commit()
-                await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), player_uuid_str)
+                await db.refresh(updated_island)
+                await self._send_update_notification(None, updated_island)
             except Exception as e:
                 logger.error(f"Error freezing solo island for {player_uuid_str}: {e}")
 
@@ -392,24 +432,25 @@ class IslandService:
     async def mark_island_as_ready_for_players(self, db_session: AsyncSession, *, owner_uuid: str):
         logger.info(f"Service: Attempting to mark island as ready for owner_uuid: {owner_uuid}")
         
-        team = await crud_team.get_team_by_owner(db_session, owner_uuid=owner_uuid)
+        team = await crud_team.get_team_by_owner_with_relations(db_session, owner_uuid=owner_uuid)
         if not team or not team.island:
             raise ValueError("Team or island not found for this owner.")
 
         island_db_model = team.island
         
         if island_db_model.status != IslandStatusEnum.RUNNING:
-            raise ValueError("Island is not in RUNNING state.")
+            raise ValueError(f"Island is not in RUNNING state, but in {island_db_model.status}. Cannot mark as ready.")
         if island_db_model.minecraft_ready:
-            raise ValueError("Island already marked as ready.")
+            logger.warning(f"Service: Island for team {team.id} was already marked as ready. Ignoring duplicate request.")
+            return
 
         updated_island = await crud_island.update(db_session, db_obj=island_db_model, obj_in={"minecraft_ready": True})
         await db_session.commit()
+        await db_session.refresh(updated_island)
+        await db_session.refresh(team, attribute_names=['island', 'members'])
         
-        # We already have the team object, so we can use it directly
-        for member in team.members:
-            await websocket_manager.send_personal_message(IslandResponse.model_validate(updated_island).model_dump_json(), member.player_uuid)
-        logger.info(f"Service: Island for team {team.id} (owner: {owner_uuid}) marked as ready.")
+        await self._send_update_notification(team, updated_island)
+        logger.info(f"Service: Island for team {team.id} (owner: {owner_uuid}) marked as ready and notification sent.")
 
     async def handle_join_team(self, db_session: AsyncSession, *, player_to_join_uuid: str, team_to_join: TeamModel, background_tasks: BackgroundTasks):
         # 1. Check if player is already in the target team

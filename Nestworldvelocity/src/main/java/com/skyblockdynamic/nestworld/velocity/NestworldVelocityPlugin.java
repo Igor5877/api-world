@@ -1,8 +1,9 @@
 package com.skyblockdynamic.nestworld.velocity;
 
 import com.google.inject.Inject;
-import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
+import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.command.CommandManager;
 import com.velocitypowered.api.command.CommandMeta;
@@ -13,6 +14,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import com.skyblockdynamic.nestworld.velocity.network.WebSocketManager;
 
 import java.nio.file.Path;
@@ -42,6 +46,7 @@ public class NestworldVelocityPlugin {
     private PluginConfig pluginConfig;
     private ApiClient apiClient;
     private LocaleManager localeManager;
+    private ExecutorService executorService;
     private final Map<UUID, WebSocketManager> webSocketManagers = new ConcurrentHashMap<>();
     private final Set<UUID> awaitingConnection = ConcurrentHashMap.newKeySet();
 
@@ -60,6 +65,7 @@ public class NestworldVelocityPlugin {
         logger.info("NestworldVelocityPlugin onProxyInitialization started...");
         this.pluginConfig = PluginConfig.load(dataDirectory, logger);
         this.localeManager = new LocaleManager(dataDirectory, logger);
+        this.executorService = Executors.newCachedThreadPool();
         
         this.apiClient = new ApiClient(logger, pluginConfig);
 
@@ -105,7 +111,26 @@ public class NestworldVelocityPlugin {
         logger.info("API URL configured to: {}", pluginConfig.getApiUrl());
         logger.info("Fallback server configured to: {}", pluginConfig.getFallbackServerName());
     }
+
+    @Subscribe
+    public void onProxyShutdown(ProxyShutdownEvent event) {
+        logger.info("Shutting down NestworldVelocityPlugin's executor service.");
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
+                logger.warn("Executor service did not terminate in 5 seconds. Forcing shutdown.");
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            logger.error("Interrupted while waiting for executor service to terminate.", e);
+            executorService.shutdownNow();
+        }
+    }
     
+    public ExecutorService getExecutorService() {
+        return executorService;
+    }
+
     public PluginConfig getPluginConfig() {
         return pluginConfig;
     }

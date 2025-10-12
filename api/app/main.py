@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -193,28 +194,46 @@ async def reconcile_island_states():
             await db_session.close()
             logger.info("Reconciliation: Database session closed.")
 
+from app.core.redis import init_redis_pool, close_redis_pool, get_redis_client
 from app.services.creation_worker import start_creation_worker
 from app.services.start_worker import start_start_worker
+
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Code to run on startup
-    logger.info("Starting up SkyBlock LXD Manager API...") # Changed from print to logger
+    logger.info("Starting up SkyBlock LXD Manager API worker...")
     
-    # Initialize database (if needed and not using Alembic for migrations)
-    # logger.info("Initializing database (if configured)...")
-    # await init_db() 
+    # Initialize Redis for all workers
+    await init_redis_pool()
     
-    # Perform island state reconciliation
-    await reconcile_island_states()
-    await start_creation_worker()
-    await start_start_worker()
+    # Start the Redis listener for WebSocket messages on all workers
+    redis_listener_task = asyncio.create_task(websocket_manager.redis_listener())
+    
+    # Use Redis to ensure that heavy startup tasks are only run by one worker.
+    redis_client = get_redis_client()
+    # Attempt to acquire a lock. The first worker to set this key wins.
+    # The lock expires after 60 seconds to prevent deadlocks if the worker crashes.
+    is_startup_leader = await redis_client.set("startup_lock", "1", ex=60, nx=True)
+    
+    if is_startup_leader:
+        logger.info("This worker is the startup leader. Running initial tasks...")
+        # Perform island state reconciliation
+        await reconcile_island_states()
+        
+        # Start background workers
+        await start_creation_worker()
+        await start_start_worker()
+        logger.info("Startup leader has finished initial tasks.")
+    else:
+        logger.info("This worker is not the startup leader. Skipping initial tasks.")
+
     yield
+    
     # Code to run on shutdown
-    logger.info("Shutting down SkyBlock LXD Manager API...") # Changed from print to logger
-    # Example: Disconnect from LXD (if lxd_service had explicit connect/close)
-    # logger.info("Disconnecting from LXD...")
-    # await lxd_service.close()
+    logger.info("Shutting down SkyBlock LXD Manager API worker...")
+    redis_listener_task.cancel()
+    await close_redis_pool()
 
 app = FastAPI(
     title="SkyBlock LXD Manager API",
