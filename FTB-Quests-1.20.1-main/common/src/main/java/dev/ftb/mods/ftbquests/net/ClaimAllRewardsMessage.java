@@ -32,6 +32,10 @@ public class ClaimAllRewardsMessage extends BaseC2SMessage {
 		ServerPlayer player = (ServerPlayer) context.getPlayer();
 		IslandData data = IslandData.get(player);
 
+		if (!data.isMember(player.getUUID())) {
+			return;
+		}
+
 		ServerQuestFile.INSTANCE.forAllQuests(quest -> {
 			if (data.isCompleted(quest)) {
 				quest.getRewards().stream()

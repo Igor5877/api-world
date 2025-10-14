@@ -9,6 +9,7 @@ import dev.ftb.mods.ftbquests.client.ClientQuestFile;
 import dev.ftb.mods.ftbquests.net.TogglePinnedMessage;
 import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.theme.property.ThemeProperties;
+import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 
 public class OtherButtonsPanelTop extends OtherButtonsPanel {
@@ -18,7 +19,9 @@ public class OtherButtonsPanelTop extends OtherButtonsPanel {
 
 	@Override
 	public void addWidgets() {
-		add(new CollectRewardsButton(this));
+		if (questScreen.file.selfTeamData.isMember(Minecraft.getInstance().player.getUUID())) {
+			add(new CollectRewardsButton(this));
+		}
 
 		add(new AutopinButton(this));
 
