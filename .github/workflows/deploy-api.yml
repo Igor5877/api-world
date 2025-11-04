@@ -1,0 +1,35 @@
+name: Deploy API to Host Server
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  deploy-api:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Deploy API via SSH
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          set -e
+          echo "--- Starting API Deployment ---"
+          cd ${{ secrets.API_PATH }}
+          echo "--- Pulling latest changes from git ---"
+          git pull
+          echo "--- Installing dependencies ---"
+          # Assuming you have a virtual environment set up
+          # If not, you might need to adjust this path
+          source ${{ secrets.API_PATH }}/venv/bin/activate
+          pip install -r requirements.txt
+          echo "--- Restarting API service ---"
+          sudo systemctl restart skyblock_api.service
+          echo "--- Waiting for API to start ---"
+          sleep 10
+          echo "--- Performing health check ---"
+          curl -f http://localhost:8000/ || (echo "API Health Check Failed" && exit 1)
+          echo "--- API Deployment Successful ---"

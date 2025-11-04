@@ -1,0 +1,91 @@
+name: Build and Deploy Mod
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      container_name:
+        description: 'Target LXC container name (optional, uses default if empty)'
+        required: false
+        default: ''
+
+jobs:
+  build-and-deploy-mod:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v3
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x ./mods-server/gradlew
+
+    - name: Build with Gradle
+      run: ./mods-server/gradlew -p mods-server build
+
+    - name: Find the JAR file
+      id: find_jar
+      run: |
+        JAR_FILE=$(find mods-server/build/libs -name "*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar")
+        echo "Found JAR: $JAR_FILE"
+        echo "JAR_FILE_PATH=$JAR_FILE" >> $GITHUB_ENV
+        
+    - name: Set target container name
+      id: set_container
+      run: |
+        if [ -n "${{ github.event.inputs.container_name }}" ]; then
+          echo "CONTAINER=${{ github.event.inputs.container_name }}" >> $GITHUB_ENV
+        else
+          echo "CONTAINER=${{ secrets.MOD_CONTAINER_NAME }}" >> $GITHUB_ENV
+        fi
+
+    - name: Deploy to Server Host
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          set -e
+          JAR_NAME=$(basename "${{ env.JAR_FILE_PATH }}")
+          TEMP_DEST="/tmp/$JAR_NAME"
+          
+          echo "--- Copying JAR to host at $TEMP_DEST ---"
+          # First, use scp-action to get the file to the host
+          # This is a bit of a workaround: ssh-action doesn't support file transfers directly
+          # We'll use a separate action for the actual copy
+          
+    - name: Copy JAR to Host via SCP
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        source: "${{ env.JAR_FILE_PATH }}"
+        target: "/tmp/"
+
+    - name: Push JAR to LXC Container
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          set -e
+          JAR_NAME=$(basename "${{ env.JAR_FILE_PATH }}")
+          TEMP_SRC="/tmp/$JAR_NAME"
+          LXC_CONTAINER="${{ env.CONTAINER }}"
+          LXC_DEST_PATH="${{ secrets.MOD_DEST_PATH }}/$JAR_NAME"
+          
+          echo "--- Pushing $JAR_NAME to LXC container '$LXC_CONTAINER' at '$LXC_DEST_PATH' ---"
+          lxc file push "$TEMP_SRC" "$LXC_CONTAINER/$LXC_DEST_PATH"
+          echo "--- Cleaning up temporary file on host ---"
+          rm "$TEMP_SRC"
+          echo "--- Mod Deployment Successful ---"
