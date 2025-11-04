@@ -73,7 +73,7 @@ jobs:
           LXC_DEST_PATH="${{ secrets.VELOCITY_DEST_PATH }}/$JAR_NAME"
           
           echo "--- Pushing $JAR_NAME from host path '$JAR_FULL_REMOTE_PATH' to LXC container '$LXC_CONTAINER' at '$LXC_DEST_PATH' ---"
-          lxc file push "$JAR_FULL_REMOTE_PATH" "$LXC_CONTAINER/$LXC_DEST_PATH"
+          lxc file push --project "${{ secrets.LXD_PROJECT_NAME }}" "$JAR_FULL_REMOTE_PATH" "$LXC_CONTAINER/$LXC_DEST_PATH"
           
           echo "--- Cleaning up temporary directory on host ---"
           # This removes the top-level directory created by scp (e.g., /tmp/Nestworldvelocity)
