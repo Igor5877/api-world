@@ -65,13 +65,17 @@ jobs:
         port: ${{ secrets.SERVER_PORT }}
         script: |
           set -e
+          # The scp action preserves the directory structure, so we need the full path
+          JAR_FULL_REMOTE_PATH="/tmp/${{ env.JAR_FILE_PATH }}"
           JAR_NAME=$(basename "${{ env.JAR_FILE_PATH }}")
-          TEMP_SRC="/tmp/$JAR_NAME"
           LXC_CONTAINER="${{ env.CONTAINER }}"
+          # The destination path inside the container only needs the JAR name
           LXC_DEST_PATH="${{ secrets.VELOCITY_DEST_PATH }}/$JAR_NAME"
           
-          echo "--- Pushing $JAR_NAME to LXC container '$LXC_CONTAINER' at '$LXC_DEST_PATH' ---"
-          lxc file push "$TEMP_SRC" "$LXC_CONTAINER/$LXC_DEST_PATH"
-          echo "--- Cleaning up temporary file on host ---"
-          rm "$TEMP_SRC"
+          echo "--- Pushing $JAR_NAME from host path '$JAR_FULL_REMOTE_PATH' to LXC container '$LXC_CONTAINER' at '$LXC_DEST_PATH' ---"
+          lxc file push "$JAR_FULL_REMOTE_PATH" "$LXC_CONTAINER/$LXC_DEST_PATH"
+          
+          echo "--- Cleaning up temporary directory on host ---"
+          # This removes the top-level directory created by scp (e.g., /tmp/Nestworldvelocity)
+          rm -rf "/tmp/Nestworldvelocity"
           echo "--- Plugin Deployment Successful ---"
