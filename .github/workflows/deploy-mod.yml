@@ -68,6 +68,7 @@ jobs:
         host: ${{ secrets.SERVER_HOST }}
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: ${{ secrets.SERVER_PORT }}
         source: "${{ env.JAR_FILE_PATH }}"
         target: "/tmp/"
 
@@ -77,6 +78,7 @@ jobs:
         host: ${{ secrets.SERVER_HOST }}
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: ${{ secrets.SERVER_PORT }}
         script: |
           set -e
           JAR_NAME=$(basename "${{ env.JAR_FILE_PATH }}")
