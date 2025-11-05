@@ -2,7 +2,8 @@ fastapi
 uvicorn[standard] # Includes websockets and http tools
 pydantic
 pydantic-settings
-
+redis
+pylxd
 # Database (choose one or more based on your DB)
 sqlalchemy[asyncio] # Core SQLAlchemy with asyncio support
 asyncpg # For PostgreSQL (if using)
@@ -25,4 +26,3 @@ aiomysql # For MySQL (if using)
 # pytest # For testing
 # httpx # For testing FastAPI endpoints asynchronously
 # pytest-asyncio # For testing async code with pytest
-
