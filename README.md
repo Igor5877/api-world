@@ -68,23 +68,7 @@ b. **Configure the environment**:
 
 c. **Prepare the Database**:
    - Ensure the database specified in `DATABASE_URL` exists.
-   - Create the necessary tables. The initial schema is in `sql/schema.sql`. You also need to create the `update_queue` table:
-     ```sql
-     CREATE TABLE `update_queue` (
-         `id` INTEGER NOT NULL AUTO_INCREMENT,
-         `island_id` INTEGER NOT NULL,
-         `player_uuid` VARCHAR(36) NOT NULL,
-         `status` VARCHAR(50) NOT NULL DEFAULT 'PENDING',
-         `added_to_queue_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-         `processing_started_at` DATETIME,
-         `completed_at` DATETIME,
-         `retry_count` INTEGER DEFAULT 0,
-         `error_message` TEXT,
-         PRIMARY KEY (`id`),
-         UNIQUE (`island_id`),
-         FOREIGN KEY(`island_id`) REFERENCES `islands` (`id`) ON DELETE CASCADE
-     );
-     ```
+   - The initial schema is in `sql/schema.sql`.
 
 d. **Prepare the LXD Base Image**:
    - Create an LXD container that will serve as the template for all player islands.
