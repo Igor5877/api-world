@@ -80,8 +80,8 @@ jobs:
           if [ -n "${{ secrets.MINECRAFT_RESTART_COMMAND }}" ]; then
             echo "--- Restarting server ---"
             lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- ${{ secrets.MINECRAFT_RESTART_COMMAND }}
-            echo "--- Waiting for server to initialize (30s) ---"
-            sleep 30
+            echo "--- Waiting for server to initialize (50m) ---"
+            sleep 3000
           else
             echo "--- WARNING: MINECRAFT_RESTART_COMMAND not set. Skipping server restart. ---"
           fi
