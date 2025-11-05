@@ -1,8 +1,9 @@
 name: Build and Deploy Plugin
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'plugin-V****'
   workflow_dispatch:
     inputs:
       container_name:

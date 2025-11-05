@@ -1,8 +1,9 @@
 name: Deploy API to Host Server
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'api-V****'
 
 jobs:
   deploy-api:
