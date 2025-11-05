@@ -25,7 +25,7 @@ jobs:
           echo "--- Installing dependencies ---"
           # Assuming you have a virtual environment set up
           # If not, you might need to adjust this path
-          source ${{ secrets.API_PATH }}api//venv/bin/activate
+          source ${{ secrets.API_PATH }}api/venv/bin/activate
           pip install -r requirements.txt
           echo "--- Restarting API service ---"
           sudo systemctl restart skyblock_api.service
