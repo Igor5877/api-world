@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'mod-v*'
+  pull_request:
+    branches:
+      - 'main'
   workflow_dispatch:
     inputs:
       container_name:
