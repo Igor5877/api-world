@@ -68,10 +68,13 @@ jobs:
           LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
           PLUGIN_DIR="${{ secrets.VELOCITY_DEST_PATH }}"
           NEW_JAR_HOST_PATH="/tmp/${{ env.JAR_NAME }}"
+          DEPLOYED_JAR_PATH="${PLUGIN_DIR}/${{ env.JAR_NAME }}"
 
-          BACKUP_DIR="${PLUGIN_DIR}/backup_$(date +%s)"
-          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- mkdir -p "$BACKUP_DIR"
-          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$PLUGIN_DIR' -maxdepth 1 -name '*.jar' -exec mv {} '$BACKUP_DIR/' \\;"
+          # Check if the file exists in the container and back it up
+          if lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- test -f "$DEPLOYED_JAR_PATH"; then
+            echo "--- Backing up existing JAR: ${DEPLOYED_JAR_PATH} ---"
+            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- mv "$DEPLOYED_JAR_PATH" "${DEPLOYED_JAR_PATH}.bak"
+          fi
 
           lxc file push --project "$LXC_PROJECT" "$NEW_JAR_HOST_PATH" "$LXC_CONTAINER/${PLUGIN_DIR}/"
 
@@ -83,7 +86,7 @@ jobs:
           fi
 
           echo "--- Installing mcstatus ---"
-          pip install -U mcstatus
+          pip install -U mcstatus --break-system-packages
 
           CONTAINER_IP=$(lxc list "$LXC_CONTAINER" --project "$LXC_PROJECT" -c 4 --format csv | awk 'NR==1{print $1}')
           MC_PORT="${{ secrets.VELOCITY_PORT }}"
@@ -93,7 +96,7 @@ jobs:
           for i in {1..6}; do
             if mcstatus "$CONTAINER_IP:$MC_PORT" check; then
               echo "Velocity is healthy"
-              lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -rf "$BACKUP_DIR"
+              lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -f "${DEPLOYED_JAR_PATH}.bak"
               exit 0
             fi
             sleep 10
@@ -114,12 +117,16 @@ jobs:
           LXC_CONTAINER="${{ env.CONTAINER }}"
           LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
           PLUGIN_DIR="${{ secrets.VELOCITY_DEST_PATH }}"
-          BACKUP_DIR=$(lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$PLUGIN_DIR' -maxdepth 1 -type d -name 'backup_*' | sort -r | head -n 1")
-          if [ -n "$BACKUP_DIR" ]; then
-            echo "Restoring from $BACKUP_DIR"
-            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$PLUGIN_DIR' -maxdepth 1 -name '*.jar' -delete"
-            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "mv '$BACKUP_DIR'/*.jar '$PLUGIN_DIR' || true"
-            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -rf "$BACKUP_DIR"
+          DEPLOYED_JAR_PATH="${PLUGIN_DIR}/${{ env.JAR_NAME }}"
+          BACKUP_JAR_PATH="${DEPLOYED_JAR_PATH}.bak"
+
+          # Remove the failed JAR
+          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -f "$DEPLOYED_JAR_PATH"
+          
+          # Restore the backup if it exists
+          if lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- test -f "$BACKUP_JAR_PATH"; then
+            echo "--- Restoring backup ---"
+            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- mv "$BACKUP_JAR_PATH" "$DEPLOYED_JAR_PATH"
           else
             echo "--- No backup found ---"
           fi
