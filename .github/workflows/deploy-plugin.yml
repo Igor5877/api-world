@@ -34,10 +34,11 @@ jobs:
     - name: Prepare variables
       id: prep
       run: |
-        JAR_PATH=$(find Nestworldvelocity/build/libs -name "*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar")
+        JAR_PATH=$(find Nestworldvelocity/build/libs -name "*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar" | head -n 1)
         JAR_NAME=$(basename "$JAR_PATH")
         echo "JAR_PATH=$JAR_PATH" >> $GITHUB_ENV
         echo "JAR_NAME=$JAR_NAME" >> $GITHUB_ENV
+
         if [ -n "${{ github.event.inputs.container_name }}" ]; then
           echo "CONTAINER=${{ github.event.inputs.container_name }}" >> $GITHUB_ENV
         else
@@ -54,7 +55,7 @@ jobs:
         source: "${{ env.JAR_PATH }}"
         target: "/tmp/"
 
-    - name: Deploy, Restart, and Check
+    - name: Deploy Plugin and Restart
       uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.SERVER_HOST }}
@@ -66,76 +67,39 @@ jobs:
           LXC_CONTAINER="${{ env.CONTAINER }}"
           LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
           PLUGIN_DIR="${{ secrets.VELOCITY_DEST_PATH }}"
-          NEW_JAR_HOST_PATH="/tmp/${{ env.JAR_PATH }}"
-          
-          echo "--- Preparing deployment for container: $LXC_CONTAINER ---"
+          NEW_JAR_HOST_PATH="/tmp/${{ env.JAR_NAME }}"
+
           BACKUP_DIR="${PLUGIN_DIR}/backup_$(date +%s)"
           lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- mkdir -p "$BACKUP_DIR"
           lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$PLUGIN_DIR' -maxdepth 1 -name '*.jar' -exec mv {} '$BACKUP_DIR/' \\;"
-          
-          echo "--- Pushing new JAR ---"
-          lxc file push --project "$LXC_PROJECT" "$NEW_JAR_HOST_PATH" "$LXC_CONTAINER/${PLUGIN_DIR}/"
-          
-          if [ -n "${{ secrets.VELOCITY_RESTART_COMMAND }}" ]; then
-            echo "--- Restarting server ---"
-            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- ${{ secrets.VELOCITY_RESTART_COMMAND }}
-            
-            echo "--- Waiting for server to be ready (max 3 minutes)... ---"
-            TMUX_SESSION="${{ secrets.VELOCITY_TMUX_SESSION_NAME || 'velocity' }}"
-            SUCCESS=false
-            for i in $(seq 1 18); do
-              # Velocity startup message is "Done" as well or similar. Adjust if needed.
-              TMUX_LOG=$(lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- tmux capture-pane -p -t "$TMUX_SESSION" || true)
-              if echo "$TMUX_LOG" | grep -q "Done"; then
-                echo "--- Server is ready! ---"
-                SUCCESS=true
-                break
-              fi
-              echo "--- Server not ready yet, waiting 10 seconds... ---"
-              sleep 10
-            done
 
-            if [ "$SUCCESS" = false ]; then
-              echo "!!! Server did not start within 3 minutes. Aborting. !!!"
-              exit 1
-            fi
+          lxc file push --project "$LXC_PROJECT" "$NEW_JAR_HOST_PATH" "$LXC_CONTAINER/${PLUGIN_DIR}/"
+
+          if [ -n "${{ secrets.VELOCITY_RESTART_COMMAND }}" ]; then
+            echo "--- Restarting Velocity ---"
+            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- ${{ secrets.VELOCITY_RESTART_COMMAND }}
           else
-            echo "--- WARNING: VELOCITY_RESTART_COMMAND not set. Skipping server restart. ---"
+            echo "--- WARNING: VELOCITY_RESTART_COMMAND not set ---"
           fi
-          
-          MC_PORT="${{ secrets.VELOCITY_PORT || 25577 }}"
-          echo "--- Installing/Updating mcstatus on host ---"
+
+          echo "--- Installing mcstatus ---"
           pip install -U mcstatus
-          
-          echo "--- Getting container IP address ---"
-          CONTAINER_IP=$(lxc list "$LXC_CONTAINER" --project "$LXC_PROJECT" -c 4 --format csv | awk '!/IPV4/{print $1}')
-          
-          HEALTHY=false
-          if [ -n "$CONTAINER_IP" ]; then
-            echo "--- Found IP: $CONTAINER_IP. Starting health check loop (up to 1 minute) ---"
-            for i in {1..6}; do
-              if mcstatus "$CONTAINER_IP:$MC_PORT" check; then
-                HEALTHY=true
-                break
-              fi
-              sleep 10
-            done
-          else
-            echo "!!! Could not retrieve IP. Health check skipped. Assuming success. !!!"
-            HEALTHY=true
-          fi
-          
-          if [ "$HEALTHY" = true ]; then
-            echo "--- Health check successful. Cleaning up backup. ---"
-            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -rf "$BACKUP_DIR"
-            echo "--- Plugin Deployment Successful ---"
-          else
-            echo "!!! Health check failed. Rolling back now. !!!"
-            exit 1
-          fi
-          
-          echo "--- Cleaning up host ---"
-          rm -rf "/tmp/Nestworldvelocity"
+
+          CONTAINER_IP=$(lxc list "$LXC_CONTAINER" --project "$LXC_PROJECT" -c 4 --format csv | awk 'NR==1{print $1}')
+          MC_PORT="${{ secrets.VELOCITY_PORT }}"
+          [ -z "$MC_PORT" ] && MC_PORT=25577
+
+          echo "--- Checking Velocity health ---"
+          for i in {1..6}; do
+            if mcstatus "$CONTAINER_IP:$MC_PORT" check; then
+              echo "Velocity is healthy"
+              lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -rf "$BACKUP_DIR"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "!!! Velocity health check failed, triggering rollback !!!"
+          exit 1
 
     - name: Rollback on Failure
       if: failure()
@@ -150,15 +114,12 @@ jobs:
           LXC_CONTAINER="${{ env.CONTAINER }}"
           LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
           PLUGIN_DIR="${{ secrets.VELOCITY_DEST_PATH }}"
-          
-          echo "!!! Deployment Failed, executing rollback... !!!"
-          BACKUP_DIR=$(lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$PLUGIN_DIR' -maxdepth 1 -type d -name 'backup_*' -print | sort -r | head -n 1")
-          
+          BACKUP_DIR=$(lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$PLUGIN_DIR' -maxdepth 1 -type d -name 'backup_*' | sort -r | head -n 1")
           if [ -n "$BACKUP_DIR" ]; then
+            echo "Restoring from $BACKUP_DIR"
             lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$PLUGIN_DIR' -maxdepth 1 -name '*.jar' -delete"
-            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$BACKUP_DIR' -name '*.jar' -exec mv {} '$PLUGIN_DIR/' \\;"
+            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "mv '$BACKUP_DIR'/*.jar '$PLUGIN_DIR' || true"
             lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -rf "$BACKUP_DIR"
-            echo "--- Rollback successful. Previous version restored. ---"
           else
-            echo "--- No backup directory found to restore from. ---"
+            echo "--- No backup found ---"
           fi

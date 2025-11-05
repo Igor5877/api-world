@@ -42,7 +42,7 @@ Dynamic SkyBlock — це мод для керування острівними 
 # MATCH_VERSION — клієнт і сервер повинні мати однакову версію моду
 # IGNORE_SERVER_VERSION — мод може бути лише на клієнті
 # IGNORE_ALL_VERSION — мод може бути де завгодно, без перевірки
-displayTest = "MATCH_VERSION"
+displayTest = "IGNORE_ALL_VERSION"
 
 
 # Залежності моду
