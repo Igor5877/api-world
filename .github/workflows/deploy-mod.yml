@@ -45,93 +45,111 @@ jobs:
           echo "CONTAINER=${{ secrets.MOD_CONTAINER_NAME }}" >> $GITHUB_ENV
         fi
 
-    - name: Copy JAR to Host via SCP
-      uses: appleboy/scp-action@master
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        port: ${{ secrets.SERVER_PORT }}
-        source: "${{ env.JAR_PATH }}"
-        target: "/tmp/"
-        strip_components: 3
-
-    - name: Deploy, Restart, and Check
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        port: ${{ secrets.SERVER_PORT }}
-        script: |
-          set -e
-          LXC_CONTAINER="${{ env.CONTAINER }}"
-          LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
-          MOD_DIR="${{ secrets.MOD_DEST_PATH }}"
-          NEW_JAR_HOST_PATH="/tmp/${{ env.JAR_NAME }}"
-          DEPLOYED_JAR_PATH="${MOD_DIR}/${{ env.JAR_NAME }}"
-
-          echo "--- Preparing deployment for container: $LXC_CONTAINER ---"
-          # Check if the file exists in the container and back it up
-          if lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- test -f "$DEPLOYED_JAR_PATH"; then
-            echo "--- Backing up existing JAR: ${DEPLOYED_JAR_PATH} ---"
-            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- mv "$DEPLOYED_JAR_PATH" "${DEPLOYED_JAR_PATH}.bak"
+    - name: Copy JAR to Host via SCP with Retries
+      run: |
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > private_key.pem
+        chmod 600 private_key.pem
+        
+        for i in {1..3}; do
+          scp -i ./private_key.pem -P ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no "${{ env.JAR_PATH }}" ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
+          if [ $? -eq 0 ]; then
+            echo "SCP successful on attempt $i"
+            rm private_key.pem
+            exit 0
           fi
+          echo "SCP failed on attempt $i. Retrying in 10 seconds..."
+          sleep 10
+        done
+        
+        echo "SCP failed after 3 attempts."
+        rm private_key.pem
+        exit 1
 
-          echo "--- Pushing new JAR ---"
-          lxc file push --project "$LXC_PROJECT" "$NEW_JAR_HOST_PATH" "$LXC_CONTAINER/${MOD_DIR}/"
+    - name: Deploy, Restart, Check, and Rollback with Retries
+      run: |
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > private_key.pem
+        chmod 600 private_key.pem
 
-          if [ -n "${{ secrets.MINECRAFT_RESTART_COMMAND }}" ]; then
-            echo "--- Restarting server ---"
-            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- ${{ secrets.MINECRAFT_RESTART_COMMAND }}
-          else
-            echo "--- WARNING: Restart command not set ---"
+        run_ssh_command() {
+          ssh -i ./private_key.pem -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "$@"
+        }
+
+        DEPLOY_SCRIPT=$(cat <<'EOF'
+        set -e
+        LXC_CONTAINER="${{ env.CONTAINER }}"
+        LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
+        MOD_DIR="${{ secrets.MOD_DEST_PATH }}"
+        NEW_JAR_HOST_PATH="/tmp/${{ env.JAR_NAME }}"
+        DEPLOYED_JAR_PATH="${MOD_DIR}/${{ env.JAR_NAME }}"
+
+        echo "--- Preparing deployment for container: $LXC_CONTAINER ---"
+        if lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- test -f "$DEPLOYED_JAR_PATH"; then
+          echo "--- Backing up existing JAR: ${DEPLOYED_JAR_PATH} ---"
+          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- mv "$DEPLOYED_JAR_PATH" "${DEPLOYED_JAR_PATH}.bak"
+        fi
+
+        echo "--- Pushing new JAR ---"
+        lxc file push --project "$LXC_PROJECT" "$NEW_JAR_HOST_PATH" "$LXC_CONTAINER/${MOD_DIR}/"
+
+        if [ -n "${{ secrets.MINECRAFT_RESTART_COMMAND }}" ]; then
+          echo "--- Restarting server ---"
+          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- ${{ secrets.MINECRAFT_RESTART_COMMAND }}
+        else
+          echo "--- WARNING: Restart command not set ---"
+        fi
+
+        echo "--- Installing mcstatus ---"
+        pip install -U mcstatus --break-system-packages
+        export PATH="$HOME/.local/bin:$PATH"
+
+        CONTAINER_IP=$(lxc list "$LXC_CONTAINER" --project "$LXC_PROJECT" -c 4 --format csv | awk 'NR==1{print $1}')
+        MC_PORT="${{ secrets.MINECRAFT_PORT }}"
+        [ -z "$MC_PORT" ] && MC_PORT=25565
+
+        echo "--- Checking health ---"
+        for i in {1..12}; do
+          if mcstatus "$CONTAINER_IP:$MC_PORT" check; then
+            echo "Server is healthy"
+            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -f "${DEPLOYED_JAR_PATH}.bak"
+            exit 0
           fi
+          echo "Waiting 10s..."
+          sleep 10
+        done
+        echo "!!! Health check failed, triggering rollback !!!"
+        exit 1
+        EOF
+        )
 
-          echo "--- Installing mcstatus ---"
-          pip install -U mcstatus --break-system-packages
+        ROLLBACK_SCRIPT=$(cat <<'EOF'
+        set -e
+        LXC_CONTAINER="${{ env.CONTAINER }}"
+        LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
+        MOD_DIR="${{ secrets.MOD_DEST_PATH }}"
+        DEPLOYED_JAR_PATH="${MOD_DIR}/${{ env.JAR_NAME }}"
+        BACKUP_JAR_PATH="${DEPLOYED_JAR_PATH}.bak"
 
-          CONTAINER_IP=$(lxc list "$LXC_CONTAINER" --project "$LXC_PROJECT" -c 4 --format csv | awk 'NR==1{print $1}')
-          MC_PORT="${{ secrets.MINECRAFT_PORT }}"
-          [ -z "$MC_PORT" ] && MC_PORT=25565
+        lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -f "$DEPLOYED_JAR_PATH"
+        if lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- test -f "$BACKUP_JAR_PATH"; then
+          echo "--- Restoring backup ---"
+          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- mv "$BACKUP_JAR_PATH" "$DEPLOYED_JAR_PATH"
+        else
+          echo "--- No backup found ---"
+        fi
+        EOF
+        )
 
-          echo "--- Checking health ---"
-          for i in {1..12}; do
-            if mcstatus "$CONTAINER_IP:$MC_PORT" check; then
-              echo "Server is healthy"
-              # On success, remove the backup
-              lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -f "${DEPLOYED_JAR_PATH}.bak"
-              exit 0
-            fi
-            echo "Waiting 10s..."
-            sleep 10
-          done
-          echo "!!! Health check failed, triggering rollback !!!"
-          exit 1
-
-    - name: Rollback on Failure
-      if: failure()
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        port: ${{ secrets.SERVER_PORT }}
-        script: |
-          set -e
-          LXC_CONTAINER="${{ env.CONTAINER }}"
-          LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
-          MOD_DIR="${{ secrets.MOD_DEST_PATH }}"
-          DEPLOYED_JAR_PATH="${MOD_DIR}/${{ env.JAR_NAME }}"
-          BACKUP_JAR_PATH="${DEPLOYED_JAR_PATH}.bak"
-
-          # Remove the failed JAR
-          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -f "$DEPLOYED_JAR_PATH"
-          
-          # Restore the backup if it exists
-          if lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- test -f "$BACKUP_JAR_PATH"; then
-            echo "--- Restoring backup ---"
-            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- mv "$BACKUP_JAR_PATH" "$DEPLOYED_JAR_PATH"
-          else
-            echo "--- No backup found ---"
+        for i in {1..3}; do
+          if run_ssh_command "$DEPLOY_SCRIPT"; then
+            echo "Deployment successful on attempt $i"
+            rm private_key.pem
+            exit 0
           fi
+          echo "Deployment failed on attempt $i. Retrying in 10 seconds..."
+          sleep 10
+        done
+
+        echo "Deployment failed after 3 attempts. Running rollback..."
+        run_ssh_command "$ROLLBACK_SCRIPT"
+        rm private_key.pem
+        exit 1
