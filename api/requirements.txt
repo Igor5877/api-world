@@ -4,6 +4,8 @@ pydantic
 pydantic-settings
 redis
 pylxd
+gunicorn
+
 # Database (choose one or more based on your DB)
 sqlalchemy[asyncio] # Core SQLAlchemy with asyncio support
 asyncpg # For PostgreSQL (if using)
