@@ -1,0 +1,64 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check-api:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest pytest-asyncio httpx sqlalchemy aiosqlite fakeredis
+
+    - name: Run API tests
+      run: |
+        export PYTHONPATH=$PYTHONPATH:$(pwd)/api
+        python -m pytest api/app/tests
+
+  build-mod:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v3
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x ./mods-server/gradlew
+
+    - name: Build mod with Gradle
+      run: ./mods-server/gradlew -p mods-server build
+
+  build-plugin:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v3
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x ./Nestworldvelocity/gradlew
+
+    - name: Build plugin with Gradle
+      run: ./Nestworldvelocity/gradlew -p Nestworldvelocity build
