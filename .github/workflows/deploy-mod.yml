@@ -108,7 +108,7 @@ jobs:
 
         echo "--- Checking health ---"
         for i in {1..12}; do
-          if mcstatus "$CONTAINER_IP:$MC_PORT" check; then
+          if mcstatus "$CONTAINER_IP:$MC_PORT" ping; then
             echo "Server is healthy"
             lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -f "${DEPLOYED_JAR_PATH}.bak"
             exit 0
