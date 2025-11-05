@@ -106,7 +106,7 @@ jobs:
 
         echo "--- Checking Velocity health ---"
         for i in {1..6}; do
-          if mcstatus "$CONTAINER_IP:$MC_PORT" check; then
+          if mcstatus "$CONTAINER_IP:$MC_PORT" ping; then
             echo "Velocity is healthy"
             lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -f "${DEPLOYED_JAR_PATH}.bak"
             exit 0
