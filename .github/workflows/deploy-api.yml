@@ -21,7 +21,7 @@ jobs:
           echo "--- Starting API Deployment ---"
           cd ${{ secrets.API_PATH }}
           echo "--- Pulling latest changes from git ---"
-          git pull
+          git fetch && git reset --hard origin/main
           echo "--- Installing dependencies ---"
           # Assuming you have a virtual environment set up
           # If not, you might need to adjust this path
