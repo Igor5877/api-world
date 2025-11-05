@@ -14,11 +14,23 @@ from app.db.base_class import Base
 import uuid
 
 class RoleEnum(str, enum.Enum):
+    """Represents the role of a team member."""
     owner = "owner"
     moderator = "moderator"
     member = "member"
 
 class Team(Base):
+    """Represents a team of players.
+
+    Attributes:
+        id: The unique identifier for the team.
+        name: The name of the team.
+        owner_uuid: The UUID of the player who owns the team.
+        island: The island associated with the team.
+        created_at: The timestamp when the team was created.
+        updated_at: The timestamp when the team was last updated.
+        members: The members of the team.
+    """
     __tablename__ = "teams"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -39,6 +51,16 @@ class Team(Base):
     members = relationship("TeamMember", back_populates="team", cascade="all, delete-orphan")
 
 class TeamMember(Base):
+    """Represents a member of a team.
+
+    Attributes:
+        id: The unique identifier for the team member.
+        team_id: The ID of the team this member belongs to.
+        player_uuid: The UUID of the player.
+        role: The role of the team member.
+        joined_at: The timestamp when the member joined the team.
+        team: The team this member belongs to.
+    """
     __tablename__ = "team_members"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

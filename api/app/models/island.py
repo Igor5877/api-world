@@ -6,6 +6,7 @@ from app.schemas.island import IslandStatusEnum # Use the same Enum for consiste
 import enum
 
 class IslandStatusEnum(str, enum.Enum):
+    """Represents the status of an island."""
     CREATING = "CREATING"
     STOPPED = "STOPPED"
     RUNNING = "RUNNING"
@@ -24,11 +25,32 @@ class IslandStatusEnum(str, enum.Enum):
     UPDATE_FAILED = "UPDATE_FAILED"
 
 class QueueItemStatusEnum(str, enum.Enum):
+    """Represents the status of a queue item."""
     PENDING = "PENDING"
     PROCESSING = "PROCESSING"
     FAILED = "FAILED"
 
 class Island(Base):
+    """Represents a SkyBlock island.
+
+    Attributes:
+        id: The unique identifier for the island.
+        player_uuid: The UUID of the player who owns the island. (deprecated)
+        player_name: The name of the player who owns the island. (deprecated)
+        team_id: The ID of the team that owns the island.
+        container_name: The name of the LXD container for the island.
+        status: The status of the island.
+        internal_ip_address: The internal IP address of the island.
+        internal_port: The internal port of the island.
+        external_port: The external port of the island.
+        world_seed: The seed of the island's world.
+        minecraft_ready: Whether the Minecraft server is ready to accept
+            players.
+        created_at: The timestamp when the island was created.
+        updated_at: The timestamp when the island was last updated.
+        last_seen_at: The timestamp when the island was last seen.
+        team: The team that owns the island.
+    """
     __tablename__ = "islands"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -64,6 +86,15 @@ class Island(Base):
 
 
 class IslandQueue(Base):
+    """Represents a queue of players waiting for an island.
+
+    Attributes:
+        id: The unique identifier for the queue item.
+        player_uuid: The UUID of the player in the queue.
+        player_name: The name of the player in the queue.
+        status: The status of the queue item.
+        requested_at: The timestamp when the player was added to the queue.
+    """
     __tablename__ = "island_queue"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -80,6 +111,13 @@ class IslandQueue(Base):
 
 
 class IslandSetting(Base):
+    """Represents a setting for an island.
+
+    Attributes:
+        island_id: The ID of the island this setting belongs to.
+        setting_key: The key of the setting.
+        setting_value: The value of the setting.
+    """
     __tablename__ = "island_settings"
 
     # Using island.id as foreign key as per schema.sql
@@ -92,6 +130,15 @@ class IslandSetting(Base):
 
 
 class IslandBackup(Base):
+    """Represents a backup of an island.
+
+    Attributes:
+        id: The unique identifier for the backup.
+        island_id: The ID of the island this backup belongs to.
+        snapshot_name: The name of the snapshot.
+        created_at: The timestamp when the backup was created.
+        description: A description of the backup.
+    """
     __tablename__ = "island_backups"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -103,17 +150,3 @@ class IslandBackup(Base):
 
     # Relationship to Island (optional)
     # island = relationship("Island", back_populates="backups")
-
-# Note on Enum:
-# The `SQLAlchemyEnum` uses a VARCHAR on the database side.
-# `name="island_status_enum"` helps in some DBs to name the type if it creates one (e.g. PostgreSQL ENUM type).
-# `create_constraint=True` ensures the ENUM constraint is created on the DB if the DB supports it.
-# `validate_strings=True` ensures that only valid enum values are accepted from Python side.
-
-# Note on Timestamps:
-# `server_default=func.now()` makes the DB generate the timestamp on insert.
-# `onupdate=func.now()` makes the DB update the timestamp on update (works well in MySQL).
-# For cross-DB compatibility or more control, you might handle `updated_at` in your application logic
-# using SQLAlchemy event listeners (e.g., before_update).
-# For `DateTime` without `timezone=True`, it's naive. If you need timezone awareness, add `timezone=True`.
-# MySQL stores TIMESTAMP in UTC and converts to session timezone. PostgreSQL stores as UTC if using TIMESTAMPTZ.

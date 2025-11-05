@@ -7,8 +7,16 @@ from app.models.team import Team, TeamMember, RoleEnum
 from app.schemas.team import TeamCreate
 
 async def get_team_by_name(db: AsyncSession, *, name: str) -> Team | None:
-    """
-    Fetch a single team by its name, eagerly loading its island and members.
+    """Fetches a single team by its name.
+
+    This function eagerly loads the team's island and members.
+
+    Args:
+        db: The database session.
+        name: The name of the team to fetch.
+
+    Returns:
+        The team, or None if not found.
     """
     result = await db.execute(
         select(Team)
@@ -18,8 +26,16 @@ async def get_team_by_name(db: AsyncSession, *, name: str) -> Team | None:
     return result.scalars().first()
 
 async def get_team_by_owner_with_relations(db: AsyncSession, *, owner_uuid: str) -> Team | None:
-    """
-    Fetch a team by its owner's UUID, eagerly loading island and members.
+    """Fetches a team by its owner's UUID.
+
+    This function eagerly loads the team's island and members.
+
+    Args:
+        db: The database session.
+        owner_uuid: The UUID of the team owner.
+
+    Returns:
+        The team, or None if not found.
     """
     # This function is functionally identical to get_team_by_owner but named for clarity
     # on its behavior of loading relationships, as used in island_service.
@@ -31,8 +47,16 @@ async def get_team_by_owner_with_relations(db: AsyncSession, *, owner_uuid: str)
     return result.scalars().first()
 
 async def get_team_by_player(db: AsyncSession, *, player_uuid: str) -> Team | None:
-    """
-    Fetch the team a player belongs to, eagerly loading its island and members.
+    """Fetches the team a player belongs to.
+
+    This function eagerly loads the team's island and members.
+
+    Args:
+        db: The database session.
+        player_uuid: The UUID of the player.
+
+    Returns:
+        The team, or None if the player is not in a team.
     """
     result = await db.execute(
         select(Team)
@@ -43,6 +67,15 @@ async def get_team_by_player(db: AsyncSession, *, player_uuid: str) -> Team | No
     return result.scalars().first()
 
 async def get_team_by_owner(db: AsyncSession, *, owner_uuid: str) -> Team | None:
+    """Fetches a team by its owner's UUID.
+
+    Args:
+        db: The database session.
+        owner_uuid: The UUID of the team owner.
+
+    Returns:
+        The team, or None if not found.
+    """
     result = await db.execute(
         select(Team)
         .where(Team.owner_uuid == owner_uuid)
@@ -51,9 +84,17 @@ async def get_team_by_owner(db: AsyncSession, *, owner_uuid: str) -> Team | None
     return result.scalars().first()
 
 async def create_team(db: AsyncSession, *, team_in: TeamCreate) -> Team:
-    """
-    Create a new team and add the owner as the first member.
-    This function does NOT commit. The calling service is responsible for the transaction.
+    """Creates a new team and adds the owner as the first member.
+
+    This function does NOT commit the transaction. The calling service is
+    responsible for the transaction.
+
+    Args:
+        db: The database session.
+        team_in: The team creation data.
+
+    Returns:
+        The created team.
     """
     # Create the Team object
     new_team = Team(name=team_in.name, owner_uuid=team_in.owner_uuid)
@@ -73,8 +114,16 @@ async def create_team(db: AsyncSession, *, team_in: TeamCreate) -> Team:
     return new_team
 
 async def add_member(db: AsyncSession, *, team: Team, player_uuid: str, role: RoleEnum = RoleEnum.member) -> TeamMember:
-    """
-    Add a new member to a team.
+    """Adds a new member to a team.
+
+    Args:
+        db: The database session.
+        team: The team to add the member to.
+        player_uuid: The UUID of the player to add.
+        role: The role of the new member.
+
+    Returns:
+        The created team member.
     """
     new_member = TeamMember(
         team_id=team.id,
@@ -86,8 +135,12 @@ async def add_member(db: AsyncSession, *, team: Team, player_uuid: str, role: Ro
     return new_member
 
 async def remove_member(db: AsyncSession, *, team: Team, player_uuid: str) -> None:
-    """
-    Remove a member from a team.
+    """Removes a member from a team.
+
+    Args:
+        db: The database session.
+        team: The team to remove the member from.
+        player_uuid: The UUID of the player to remove.
     """
     result = await db.execute(
         select(TeamMember)
@@ -100,8 +153,15 @@ async def remove_member(db: AsyncSession, *, team: Team, player_uuid: str) -> No
         await db.commit()
         
 async def get_member(db: AsyncSession, *, team: Team, player_uuid: str) -> TeamMember | None:
-    """
-    Get a specific member from a team.
+    """Gets a specific member from a team.
+
+    Args:
+        db: The database session.
+        team: The team to get the member from.
+        player_uuid: The UUID of the player to get.
+
+    Returns:
+        The team member, or None if not found.
     """
     result = await db.execute(
         select(TeamMember)
@@ -110,8 +170,15 @@ async def get_member(db: AsyncSession, *, team: Team, player_uuid: str) -> TeamM
     return result.scalars().first()
 
 async def rename_team(db: AsyncSession, *, team: Team, new_name: str) -> Team:
-    """
-    Renames an existing team.
+    """Renames an existing team.
+
+    Args:
+        db: The database session.
+        team: The team to rename.
+        new_name: The new name for the team.
+
+    Returns:
+        The renamed team.
     """
     team_id = team.id  # Get ID before commit, as team object expires after commit
     team.name = new_name

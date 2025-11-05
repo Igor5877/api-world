@@ -22,9 +22,21 @@ async def create_solo_island_and_team(
     player_info: dict, # Expects {"player_uuid": "...", "player_name": "..."}
     background_tasks: BackgroundTasks
 ):
-    """
-    Creates a new solo island for a player.
+    """Creates a new solo island for a player.
+
     This implicitly creates a team of one for the player.
+
+    Args:
+        db: The database session.
+        player_info: A dictionary containing the player's UUID and name.
+        background_tasks: The background tasks to run.
+
+    Returns:
+        The created team.
+
+    Raises:
+        HTTPException: If the player's UUID or name is not provided, or if an
+            error occurs during island creation.
     """
     player_uuid = player_info.get("player_uuid")
     player_name = player_info.get("player_name")
@@ -51,8 +63,17 @@ async def get_my_team(
     player_uuid: str,
     db: AsyncSession = Depends(get_db_session)
 ):
-    """
-    Get the details of the team a player belongs to.
+    """Gets the details of the team a player belongs to.
+
+    Args:
+        player_uuid: The UUID of the player.
+        db: The database session.
+
+    Returns:
+        The team details.
+
+    Raises:
+        HTTPException: If the player is not in a team.
     """
     team = await crud_team.get_team_by_player(db, player_uuid=player_uuid)
     if not team:
@@ -70,6 +91,21 @@ async def rename_team_endpoint(
     player_uuid: str, # This should come from an auth token
     db: AsyncSession = Depends(get_db_session)
 ):
+    """Renames a team.
+
+    Args:
+        team_id: The ID of the team to rename.
+        team_in: The updated team data.
+        player_uuid: The UUID of the player performing the action.
+        db: The database session.
+
+    Returns:
+        The updated team data.
+
+    Raises:
+        HTTPException: If the team is not found, the player is not the owner,
+            or the new team name is already taken.
+    """
     result = await db.execute(
         select(Team)
         .where(Team.id == team_id)
@@ -102,9 +138,22 @@ async def accept_invite(
     player_uuid: str, # In a real app, this would come from an auth token
     background_tasks: BackgroundTasks
 ):
-    """
-    Allows a player to accept an invitation to a team.
+    """Allows a player to accept an invitation to a team.
+
     This triggers the deletion of their old island.
+
+    Args:
+        db: The database session.
+        invite_data: The invitation data.
+        player_uuid: The UUID of the player accepting the invite.
+        background_tasks: The background tasks to run.
+
+    Returns:
+        The updated team data.
+
+    Raises:
+        HTTPException: If the team is not found or an error occurs during the
+            join process.
     """
     team = await crud_team.get_team_by_name(db, name=invite_data.team_name)
     if not team:
@@ -129,9 +178,18 @@ async def leave_team(
     player_uuid: str, # In a real app, this would come from an auth token
     db: AsyncSession = Depends(get_db_session)
 ):
-    """
-    Allows a player to leave a team.
+    """Allows a player to leave a team.
+
     If the owner leaves, the team is disbanded.
+
+    Args:
+        team_id: The ID of the team to leave.
+        player_uuid: The UUID of the player leaving the team.
+        db: The database session.
+
+    Raises:
+        HTTPException: If the team is not found, the player is not a member of
+            the team, or the owner tries to leave.
     """
     team = await db.get(Team, team_id)
     if not team:

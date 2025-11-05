@@ -11,9 +11,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def trigger_creation_worker():
-    """
-    Processes the island creation queue.
-    """
+    """Processes the island creation queue."""
     from app.services.island_service import island_service
     logger.info("Creation queue worker started.")
     try:
@@ -66,7 +64,5 @@ async def trigger_creation_worker():
         logger.error(f"An error occurred in the creation queue worker: {e}", exc_info=True)
 
 async def start_creation_worker():
-    """
-    Starts the creation queue worker in the background.
-    """
+    """Starts the creation queue worker in the background."""
     pass

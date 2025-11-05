@@ -16,8 +16,17 @@ async def get_island_status_endpoint(
     player_uuid: str,
     db_session: AsyncSession = Depends(get_db_session) # Added DB session dependency
 ):
-    """
-    Get the status and network address of a player's island.
+    """Gets the status and network address of a player's island.
+
+    Args:
+        player_uuid: The UUID of the player.
+        db_session: The database session.
+
+    Returns:
+        The island status and network address.
+
+    Raises:
+        HTTPException: If the island is not found for the player.
     """
     logger.info(f"Endpoint: Received request to get status for island UUID: {player_uuid}")
     island = await island_service.get_island_by_player_uuid(db_session=db_session, player_uuid=player_uuid)
@@ -35,8 +44,21 @@ async def start_island_endpoint(
     player_name: str, # Passed as a query parameter or in a request body
     db_session: AsyncSession = Depends(get_db_session)
 ):
-    """
-    Endpoint to start a player's island. If it doesn't exist, it will be created.
+    """Starts a player's island.
+
+    If the island does not exist, it will be created.
+
+    Args:
+        player_uuid: The UUID of the player.
+        background_tasks: The background tasks to run.
+        player_name: The name of the player.
+        db_session: The database session.
+
+    Returns:
+        The updated island data.
+
+    Raises:
+        HTTPException: If the island cannot be started.
     """
     logger.info(f"Endpoint: Player {player_uuid} ({player_name}) requesting to start their island.")
     try:
@@ -66,8 +88,18 @@ async def stop_island_endpoint(
     background_tasks: BackgroundTasks,
     db_session: AsyncSession = Depends(get_db_session)
 ):
-    """
-    Endpoint to stop a player's team island.
+    """Stops a player's team island.
+
+    Args:
+        player_uuid: The UUID of the player.
+        background_tasks: The background tasks to run.
+        db_session: The database session.
+
+    Returns:
+        The updated island data.
+
+    Raises:
+        HTTPException: If the island cannot be stopped.
     """
     logger.info(f"Endpoint: Player {player_uuid} requesting to stop their island.")
     try:
@@ -97,11 +129,22 @@ async def freeze_island_endpoint(
     background_tasks: BackgroundTasks,
     db_session: AsyncSession = Depends(get_db_session)
 ):
-    """
-    Endpoint to freeze a player's island.
+    """Freezes a player's island.
+
     This is an asynchronous process. The initial response indicates acceptance.
     The actual LXD freeze happens in the background.
     The response will reflect the island's status (e.g., PENDING_FREEZE).
+
+    Args:
+        player_uuid: The UUID of the player.
+        background_tasks: The background tasks to run.
+        db_session: The database session.
+
+    Returns:
+        The updated island data.
+
+    Raises:
+        HTTPException: If the island cannot be frozen.
     """
     logger.info(f"Endpoint: Received request to freeze island UUID: {player_uuid}")
     try:
@@ -125,23 +168,25 @@ async def freeze_island_endpoint(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while freezing the island.")
 
 
-# TODO: Add more endpoints from Stage 1 & 2:
-# POST /islands/{uuid}/freeze
-# POST /islands/{uuid}/stop
-# DELETE /islands/{uuid}
-
-# Note: The `player_uuid` in the path is typically a string representation of a UUID.
-# FastAPI will automatically validate it if you type hint it as `uuid.UUID`.
-# For example: `player_uuid: uuid.UUID` in function parameters.
-# For this initial setup, string is fine.
-
 @router.post("/{owner_uuid}/ready", response_model=MessageResponse, status_code=status.HTTP_200_OK)
 async def mark_island_ready_endpoint(
     owner_uuid: str,
     db_session: AsyncSession = Depends(get_db_session)
 ):
-    """
-    Endpoint for a Minecraft server to signal that its team island is fully loaded.
+    """Marks a team island as fully loaded.
+
+    This endpoint is intended to be called by a Minecraft server to signal that it
+    is ready to accept players.
+
+    Args:
+        owner_uuid: The UUID of the island owner.
+        db_session: The database session.
+
+    Returns:
+        A message indicating that the island has been marked as ready.
+
+    Raises:
+        HTTPException: If the island cannot be marked as ready.
     """
     logger.info(f"Endpoint: Received request to mark island ready for owner_uuid: {owner_uuid}")
     try:

@@ -4,6 +4,15 @@ from app.db.base_class import Base
 from app.models.island import QueueItemStatusEnum
 
 class IslandStartQueue(Base):
+    """Represents a queue of players waiting for their island to start.
+
+    Attributes:
+        id: The unique identifier for the queue item.
+        player_uuid: The UUID of the player in the queue.
+        player_name: The name of the player in the queue.
+        status: The status of the queue item.
+        requested_at: The timestamp when the player was added to the queue.
+    """
     __tablename__ = "island_start_queue"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
