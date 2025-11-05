@@ -34,8 +34,12 @@ import net.minecraftforge.event.server.ServerStoppingEvent;
 import java.net.URI;
 import java.net.URISyntaxException;
 
+/**
+ * The main class for the SkyBlock mod.
+ */
 @Mod(SkyBlockMod.MODID)
 public class SkyBlockMod {
+    /** The mod ID. */
     public static final String MODID = "skyblock";
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new Gson();
@@ -45,6 +49,9 @@ public class SkyBlockMod {
     private static boolean playerJoinedWithinFirstHour = false;
     private static com.skyblock.dynamic.utils.IslandWebSocketClient webSocketClient;
 
+    /**
+     * The constructor for the SkyBlock mod.
+     */
     public SkyBlockMod() {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
         modEventBus.addListener(this::commonSetup);
@@ -54,10 +61,20 @@ public class SkyBlockMod {
         FMLJavaModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, Config.SPEC, MODID + "-common.toml");
     }
 
+    /**
+     * Handles the common setup event.
+     *
+     * @param event The common setup event.
+     */
     private void commonSetup(final FMLCommonSetupEvent event) {
         LOGGER.info("SkyBlockMod: Common Setup Initialized.");
     }
 
+    /**
+     * Handles the mod configuration event.
+     *
+     * @param configEvent The mod configuration event.
+     */
     public void onModConfigEvent(final ModConfigEvent configEvent) {
         if (configEvent.getConfig().getSpec() == Config.SPEC) {
             Config.bake();
@@ -65,6 +82,11 @@ public class SkyBlockMod {
         }
     }
 
+    /**
+     * Handles the server about to start event.
+     *
+     * @param event The server about to start event.
+     */
     @SubscribeEvent
     public void onServerAboutToStart(ServerAboutToStartEvent event) {
         serverStartTime = System.currentTimeMillis();
@@ -79,6 +101,11 @@ public class SkyBlockMod {
         }
     }
 
+    /**
+     * Handles the server started event.
+     *
+     * @param event The server started event.
+     */
     @SubscribeEvent
     public void onServerStarted(ServerStartedEvent event) {
         if (islandContext.isIslandServer()) {
@@ -90,6 +117,11 @@ public class SkyBlockMod {
         }
     }
 
+    /**
+     * Handles the server stopping event.
+     *
+     * @param event The server stopping event.
+     */
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         if (webSocketClient != null && webSocketClient.isOpen()) {
@@ -98,6 +130,9 @@ public class SkyBlockMod {
         }
     }
 
+    /**
+     * Initializes the WebSocket client.
+     */
     private void initializeWebSocket() {
         if (!islandContext.isIslandServer() || islandContext.getOwnerUuid() == null) {
             return;
@@ -112,6 +147,9 @@ public class SkyBlockMod {
         }
     }
 
+    /**
+     * Sends a signal to the API that the island is ready for players.
+     */
     private void sendIslandReadyForPlayersSignal() {
         if (!islandContext.isIslandServer() || islandContext.getOwnerUuid() == null) {
             LOGGER.warn("SkyBlockMod: Attempted to send ready signal, but not an island server or UUID is missing.");
@@ -132,6 +170,11 @@ public class SkyBlockMod {
         }
     }
 
+    /**
+     * Loads the island context data from the configuration file.
+     *
+     * @param serverBasePath The base path of the server.
+     */
     private void loadIslandContextData(Path serverBasePath) {
         Path islandDataPath = serverBasePath.resolve("world").resolve("serverconfig").resolve("skyblock_island_data.toml");
         LOGGER.info("SkyBlockMod: Attempting to load island context from: {}", islandDataPath.toString());
@@ -170,18 +213,38 @@ public class SkyBlockMod {
         }
     }
 
+    /**
+     * Checks if the server is an island server.
+     *
+     * @return True if the server is an island server, false otherwise.
+     */
     public static boolean isIslandServer() {
         return islandContext.isIslandServer();
     }
 
+    /**
+     * Gets the UUID of the island owner.
+     *
+     * @return The UUID of the island owner.
+     */
     public static String getOwnerUuid() {
         return islandContext.getOwnerUuid();
     }
 
+    /**
+     * Checks if a player has joined within the first hour of the server starting.
+     *
+     * @return True if a player has joined within the first hour, false otherwise.
+     */
     public static boolean hasPlayerJoinedWithinFirstHour() {
         return playerJoinedWithinFirstHour;
     }
 
+    /**
+     * Handles the player login event.
+     *
+     * @param event The player login event.
+     */
     @SubscribeEvent
     public void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (isIslandServer() && !playerJoinedWithinFirstHour) {
@@ -194,8 +257,16 @@ public class SkyBlockMod {
         // The refresh is now handled by getCachedTeamId on demand, so this explicit call is no longer needed.
     }
 
+    /**
+     * Handles client-side mod events.
+     */
     @Mod.EventBusSubscriber(modid = MODID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
     public static class ClientModEvents {
+        /**
+         * Handles the client setup event.
+         *
+         * @param event The client setup event.
+         */
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
             LOGGER.info("SkyBlockMod: Client Setup");
