@@ -151,8 +151,12 @@ dependencies {
     implementation 'com.electronwill.night-config:toml:3.6.6'
 }
 shadowJar {
-    // (опціонально) перерелейтуй пакети, щоб уникнути конфліктів з іншими модами
     relocate 'org.java_websocket', 'com.yournamespace.libs.org.java_websocket'
+    
+    dependencies {
+        exclude(dependency('org.apache.maven:.*'))
+    }
+    
     archiveBaseName.set('nestworld-mods-server')
     archiveClassifier.set('')
     archiveVersion.set('1.2.2')
