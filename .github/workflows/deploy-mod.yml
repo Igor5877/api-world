@@ -80,8 +80,25 @@ jobs:
           if [ -n "${{ secrets.MINECRAFT_RESTART_COMMAND }}" ]; then
             echo "--- Restarting server ---"
             lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- ${{ secrets.MINECRAFT_RESTART_COMMAND }}
-            echo "--- Waiting for server to initialize (50m) ---"
-            sleep 3000
+            
+            echo "--- Waiting for server to be ready (max 15 minutes)... ---"
+            SUCCESS=false
+            for i in $(seq 1 90); do
+              # Grep for the server startup message in tmux. The `|| true` prevents the command from failing if the session doesn't exist yet.
+              TMUX_LOG=$(lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- tmux capture-pane -p -t test-mods || true)
+              if echo "$TMUX_LOG" | grep -q "Done"; then
+                echo "--- Server is ready! ---"
+                SUCCESS=true
+                break
+              fi
+              echo "--- Server not ready yet, waiting 10 seconds... ---"
+              sleep 10
+            done
+
+            if [ "$SUCCESS" = false ]; then
+              echo "!!! Server did not start within 15 minutes. Aborting. !!!"
+              exit 1
+            fi
           else
             echo "--- WARNING: MINECRAFT_RESTART_COMMAND not set. Skipping server restart. ---"
           fi
