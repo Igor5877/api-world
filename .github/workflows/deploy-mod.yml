@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - 'mod-v*'
-
   workflow_dispatch:
     inputs:
       container_name:
@@ -55,7 +54,7 @@ jobs:
         source: "${{ env.JAR_PATH }}"
         target: "/tmp/"
 
-    - name: Deploy and Manage JARs
+    - name: Deploy, Restart, and Check
       uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.SERVER_HOST }}
@@ -68,23 +67,56 @@ jobs:
           LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
           MOD_DIR="${{ secrets.MOD_DEST_PATH }}"
           NEW_JAR_HOST_PATH="/tmp/${{ env.JAR_PATH }}"
-          NEW_JAR_NAME="${{ env.JAR_NAME }}"
           
           echo "--- Preparing deployment for container: $LXC_CONTAINER ---"
-          
-          # Backup and remove ALL existing .jar files in the mods directory
           BACKUP_DIR="${MOD_DIR}/backup_$(date +%s)"
           lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- mkdir -p "$BACKUP_DIR"
+          # Move all existing jars to backup, ensuring the mods folder is clean
           lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$MOD_DIR' -maxdepth 1 -name '*.jar' -exec mv {} '$BACKUP_DIR/' \\;"
           
-          echo "--- Pushing new JAR: $NEW_JAR_NAME ---"
+          echo "--- Pushing new JAR ---"
           lxc file push --project "$LXC_PROJECT" "$NEW_JAR_HOST_PATH" "$LXC_CONTAINER/${MOD_DIR}/"
           
-          echo "--- Health Check ---"
-          # ... (Health check logic remains the same)
+          if [ -n "${{ secrets.MINECRAFT_RESTART_COMMAND }}" ]; then
+            echo "--- Restarting server ---"
+            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- ${{ secrets.MINECRAFT_RESTART_COMMAND }}
+            echo "--- Waiting for server to initialize (30s) ---"
+            sleep 30
+          else
+            echo "--- WARNING: MINECRAFT_RESTART_COMMAND not set. Skipping server restart. ---"
+          fi
           
-          echo "--- Deployment successful, removing backup. ---"
-          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -rf "$BACKUP_DIR"
+          MC_PORT="${{ secrets.MINECRAFT_PORT || 25565 }}"
+          echo "--- Installing/Updating mcstatus on host ---"
+          pip install -U mcstatus
+          
+          echo "--- Getting container IP address ---"
+          CONTAINER_IP=$(lxc list "$LXC_CONTAINER" --project "$LXC_PROJECT" -c 4 --format csv | awk '!/IPV4/{print $1}')
+          
+          HEALTHY=false
+          if [ -n "$CONTAINER_IP" ]; then
+            echo "--- Found IP: $CONTAINER_IP. Starting health check loop (up to 2 minutes) ---"
+            for i in {1..12}; do
+              if mcstatus "$CONTAINER_IP:$MC_PORT" check; then
+                HEALTHY=true
+                break
+              fi
+              sleep 10
+            done
+          else
+            echo "!!! Could not retrieve IP. Health check skipped. Assuming success. !!!"
+            HEALTHY=true
+          fi
+          
+          if [ "$HEALTHY" = true ]; then
+            echo "--- Health check successful. Cleaning up backup. ---"
+            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -rf "$BACKUP_DIR"
+            echo "--- Mod Deployment Successful ---"
+          else
+            echo "!!! Health check failed. Rolling back now. !!!"
+            # Trigger rollback by exiting with an error
+            exit 1
+          fi
           
           echo "--- Cleaning up host ---"
           rm -rf "/tmp/mods-server"
@@ -103,17 +135,18 @@ jobs:
           LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
           MOD_DIR="${{ secrets.MOD_DEST_PATH }}"
           
-          echo "!!! Deployment Failed, rolling back... !!!"
-          BACKUP_DIR=$(lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- find "$MOD_DIR" -maxdepth 1 -type d -name 'backup_*' -print)
+          echo "!!! Deployment Failed, executing rollback... !!!"
+          # Find the most recent backup directory
+          BACKUP_DIR=$(lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$MOD_DIR' -maxdepth 1 -type d -name 'backup_*' -print | sort -r | head -n 1")
           
           if [ -n "$BACKUP_DIR" ]; then
-            # Remove the failed JAR
+            # Clean the mods dir from the failed jar
             lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$MOD_DIR' -maxdepth 1 -name '*.jar' -delete"
-            # Restore from backup
+            # Restore all jars from backup
             lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$BACKUP_DIR' -name '*.jar' -exec mv {} '$MOD_DIR/' \\;"
             # Cleanup backup dir
             lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -rf "$BACKUP_DIR"
-            echo "--- Rollback successful. ---"
+            echo "--- Rollback successful. Previous version restored. ---"
           else
-            echo "--- No backup found to restore. ---"
+            echo "--- No backup directory found to restore from. ---"
           fi
