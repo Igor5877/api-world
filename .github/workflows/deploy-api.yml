@@ -3,7 +3,7 @@ name: Deploy API to Host Server
 on:
   push:
     tags:
-      - 'api-V****'
+      - 'api-v*'
 
 jobs:
   deploy-api:
@@ -23,15 +23,14 @@ jobs:
           cd ${{ secrets.API_PATH }}
           echo "--- Pulling latest changes from git ---"
           git fetch && git reset --hard origin/main
-          echo "--- Installing dependencies ---"
-          # Assuming you have a virtual environment set up
-          # If not, you might need to adjust this path
+          echo "--- Installing dependencies into venv ---"
+          # Chain commands to ensure pip runs inside the activated venv
           source ${{ secrets.API_PATH }}api/venv/bin/activate
           pip install -r requirements.txt
           echo "--- Restarting API service ---"
           sudo systemctl restart skyblock_api.service
-          echo "--- Waiting for API to start ---"
-          sleep 10
+          echo "--- Waiting for API to start (15s) ---"
+          sleep 15
           echo "--- Performing health check ---"
-          curl -f http://localhost:8000/ || (echo "API Health Check Failed" && exit 1)
+          curl -fsL http://localhost:8000/ > /dev/null || (echo "API Health Check Failed" && exit 1)
           echo "--- API Deployment Successful ---"

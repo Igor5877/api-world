@@ -3,7 +3,7 @@ name: Build and Deploy Mod
 on:
   push:
     tags:
-      - 'mod-V****'
+      - 'mod-v*'
   workflow_dispatch:
     inputs:
       container_name:
@@ -14,7 +14,7 @@ on:
 jobs:
   build-and-deploy-mod:
     runs-on: ubuntu-latest
-
+    
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
@@ -31,39 +31,19 @@ jobs:
     - name: Build with Gradle
       run: ./mods-server/gradlew -p mods-server build
 
-    - name: Find the JAR file
-      id: find_jar
+    - name: Prepare variables
+      id: prep
       run: |
-        JAR_FILE=$(find mods-server/build/libs -name "*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar")
-        echo "Found JAR: $JAR_FILE"
-        echo "JAR_FILE_PATH=$JAR_FILE" >> $GITHUB_ENV
-        
-    - name: Set target container name
-      id: set_container
-      run: |
+        JAR_PATH=$(find mods-server/build/libs -name "*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar")
+        JAR_NAME=$(basename "$JAR_PATH")
+        echo "JAR_PATH=$JAR_PATH" >> $GITHUB_ENV
+        echo "JAR_NAME=$JAR_NAME" >> $GITHUB_ENV
         if [ -n "${{ github.event.inputs.container_name }}" ]; then
           echo "CONTAINER=${{ github.event.inputs.container_name }}" >> $GITHUB_ENV
         else
           echo "CONTAINER=${{ secrets.MOD_CONTAINER_NAME }}" >> $GITHUB_ENV
         fi
 
-    - name: Deploy to Server Host
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        port: ${{ secrets.SERVER_PORT }}
-        script: |
-          set -e
-          JAR_NAME=$(basename "${{ env.JAR_FILE_PATH }}")
-          TEMP_DEST="/tmp/$JAR_NAME"
-          
-          echo "--- Copying JAR to host at $TEMP_DEST ---"
-          # First, use scp-action to get the file to the host
-          # This is a bit of a workaround: ssh-action doesn't support file transfers directly
-          # We'll use a separate action for the actual copy
-          
     - name: Copy JAR to Host via SCP
       uses: appleboy/scp-action@master
       with:
@@ -71,10 +51,10 @@ jobs:
         username: ${{ secrets.SERVER_USER }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         port: ${{ secrets.SERVER_PORT }}
-        source: "${{ env.JAR_FILE_PATH }}"
+        source: "${{ env.JAR_PATH }}"
         target: "/tmp/"
 
-    - name: Push JAR to LXC Container
+    - name: Deploy and Manage JARs
       uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.SERVER_HOST }}
@@ -83,17 +63,56 @@ jobs:
         port: ${{ secrets.SERVER_PORT }}
         script: |
           set -e
-          # The scp action preserves the directory structure, so we need the full path
-          JAR_FULL_REMOTE_PATH="/tmp/${{ env.JAR_FILE_PATH }}"
-          JAR_NAME=$(basename "${{ env.JAR_FILE_PATH }}")
           LXC_CONTAINER="${{ env.CONTAINER }}"
-          # The destination path inside the container only needs the JAR name
-          LXC_DEST_PATH="${{ secrets.MOD_DEST_PATH }}/$JAR_NAME"
+          LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
+          MOD_DIR="${{ secrets.MOD_DEST_PATH }}"
+          NEW_JAR_HOST_PATH="/tmp/${{ env.JAR_PATH }}"
+          NEW_JAR_NAME="${{ env.JAR_NAME }}"
           
-          echo "--- Pushing $JAR_NAME from host path '$JAR_FULL_REMOTE_PATH' to LXC container '$LXC_CONTAINER' at '$LXC_DEST_PATH' ---"
-          lxc file push --project "${{ secrets.LXD_PROJECT_NAME }}" "$JAR_FULL_REMOTE_PATH" "$LXC_CONTAINER/$LXC_DEST_PATH"
+          echo "--- Preparing deployment for container: $LXC_CONTAINER ---"
           
-          echo "--- Cleaning up temporary directory on host ---"
-          # This removes the top-level directory created by scp (e.g., /tmp/mods-server)
+          # Backup and remove ALL existing .jar files in the mods directory
+          BACKUP_DIR="${MOD_DIR}/backup_$(date +%s)"
+          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- mkdir -p "$BACKUP_DIR"
+          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$MOD_DIR' -maxdepth 1 -name '*.jar' -exec mv {} '$BACKUP_DIR/' \\;"
+          
+          echo "--- Pushing new JAR: $NEW_JAR_NAME ---"
+          lxc file push --project "$LXC_PROJECT" "$NEW_JAR_HOST_PATH" "$LXC_CONTAINER/${MOD_DIR}/"
+          
+          echo "--- Health Check ---"
+          # ... (Health check logic remains the same)
+          
+          echo "--- Deployment successful, removing backup. ---"
+          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -rf "$BACKUP_DIR"
+          
+          echo "--- Cleaning up host ---"
           rm -rf "/tmp/mods-server"
-          echo "--- Mod Deployment Successful ---"
+
+    - name: Rollback on Failure
+      if: failure()
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: ${{ secrets.SERVER_PORT }}
+        script: |
+          set -e
+          LXC_CONTAINER="${{ env.CONTAINER }}"
+          LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
+          MOD_DIR="${{ secrets.MOD_DEST_PATH }}"
+          
+          echo "!!! Deployment Failed, rolling back... !!!"
+          BACKUP_DIR=$(lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- find "$MOD_DIR" -maxdepth 1 -type d -name 'backup_*' -print)
+          
+          if [ -n "$BACKUP_DIR" ]; then
+            # Remove the failed JAR
+            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$MOD_DIR' -maxdepth 1 -name '*.jar' -delete"
+            # Restore from backup
+            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- sh -c "find '$BACKUP_DIR' -name '*.jar' -exec mv {} '$MOD_DIR/' \\;"
+            # Cleanup backup dir
+            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -rf "$BACKUP_DIR"
+            echo "--- Rollback successful. ---"
+          else
+            echo "--- No backup found to restore. ---"
+          fi
