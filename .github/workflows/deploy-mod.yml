@@ -29,13 +29,28 @@ jobs:
       run: chmod +x ./mods-server/gradlew
 
     - name: Build with Gradle
-      run: ./mods-server/gradlew -p mods-server clean shadowJar
+      run: |
+        cd mods-server
+        chmod +x gradlew
+        ./gradlew clean build
+        # Використовуємо shadowJar який був створений під час build
+        # Build автоматично викликає reobfJar, що є критично важливим для Forge модів
 
     - name: Prepare variables
       id: prep
       run: |
-        JAR_PATH=$(find mods-server/build/libs -name "*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar" | head -n 1)
+        # Шукаємо тільки reobfuscated shadowJar (має бути nestworld-mods-server-1.2.2.jar)
+        JAR_PATH=$(find mods-server/build/libs -name "nestworld-mods-server-*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar" ! -name "*-dev.jar" | head -n 1)
+        
+        if [ -z "$JAR_PATH" ]; then
+          echo "ERROR: Reobfuscated JAR not found!"
+          echo "Available files:"
+          ls -la mods-server/build/libs/
+          exit 1
+        fi
+        
         JAR_NAME=$(basename "$JAR_PATH")
+        echo "Found JAR: $JAR_NAME"
         echo "JAR_PATH=$JAR_PATH" >> $GITHUB_ENV
         echo "JAR_NAME=$JAR_NAME" >> $GITHUB_ENV
 

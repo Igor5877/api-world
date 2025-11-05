@@ -150,3 +150,4 @@ jobs:
         run_ssh_command "$ROLLBACK_SCRIPT"
         rm private_key.pem
         exit 1
+
