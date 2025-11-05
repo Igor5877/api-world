@@ -79,8 +79,26 @@ jobs:
           if [ -n "${{ secrets.VELOCITY_RESTART_COMMAND }}" ]; then
             echo "--- Restarting server ---"
             lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- ${{ secrets.VELOCITY_RESTART_COMMAND }}
-            echo "--- Waiting for server to initialize (15s) ---"
-            sleep 15
+            
+            echo "--- Waiting for server to be ready (max 3 minutes)... ---"
+            TMUX_SESSION="${{ secrets.VELOCITY_TMUX_SESSION_NAME || 'velocity' }}"
+            SUCCESS=false
+            for i in $(seq 1 18); do
+              # Velocity startup message is "Done" as well or similar. Adjust if needed.
+              TMUX_LOG=$(lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- tmux capture-pane -p -t "$TMUX_SESSION" || true)
+              if echo "$TMUX_LOG" | grep -q "Done"; then
+                echo "--- Server is ready! ---"
+                SUCCESS=true
+                break
+              fi
+              echo "--- Server not ready yet, waiting 10 seconds... ---"
+              sleep 10
+            done
+
+            if [ "$SUCCESS" = false ]; then
+              echo "!!! Server did not start within 3 minutes. Aborting. !!!"
+              exit 1
+            fi
           else
             echo "--- WARNING: VELOCITY_RESTART_COMMAND not set. Skipping server restart. ---"
           fi
