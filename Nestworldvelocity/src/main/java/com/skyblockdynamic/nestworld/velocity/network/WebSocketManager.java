@@ -14,6 +14,9 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
 
+/**
+ * Manages the WebSocket connection for a player.
+ */
 public class WebSocketManager implements WebSocket.Listener {
 
     private final Logger logger;
@@ -25,6 +28,16 @@ public class WebSocketManager implements WebSocket.Listener {
     private WebSocket webSocket;
     private final URI uri;
 
+    /**
+     * Constructs a new WebSocketManager.
+     *
+     * @param uri           The URI of the WebSocket server.
+     * @param logger        The logger.
+     * @param player        The player.
+     * @param proxyServer   The proxy server.
+     * @param onIslandReady A callback to be executed when the island is ready.
+     * @param plugin        The plugin instance.
+     */
     public WebSocketManager(URI uri, Logger logger, Player player, ProxyServer proxyServer, Consumer<JsonObject> onIslandReady, com.skyblockdynamic.nestworld.velocity.NestworldVelocityPlugin plugin) {
         this.uri = uri;
         this.logger = logger;
@@ -34,6 +47,9 @@ public class WebSocketManager implements WebSocket.Listener {
         this.plugin = plugin;
     }
 
+    /**
+     * Connects to the WebSocket server.
+     */
     public void connect() {
         HttpClient.newHttpClient().newWebSocketBuilder().buildAsync(uri, this);
     }
@@ -78,6 +94,9 @@ public class WebSocketManager implements WebSocket.Listener {
         latch.countDown();
     }
 
+    /**
+     * Closes the WebSocket connection.
+     */
     public void close() {
         if (webSocket != null) {
             webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "Client closing connection");

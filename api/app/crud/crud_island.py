@@ -14,9 +14,19 @@ from app.schemas.island import IslandCreate, IslandUpdate, IslandStatusEnum # Py
 logger = logging.getLogger(__name__)
 
 class CRUDisland:
+    """CRUD operations for islands."""
     async def get(self, db_session: AsyncSession, *, island_id: int) -> Optional[IslandModel]:
-        """
-        Get an island by its ID.
+        """Gets an island by its ID.
+
+        Args:
+            db_session: The database session.
+            island_id: The ID of the island to get.
+
+        Returns:
+            The island, or None if not found.
+
+        Raises:
+            SQLAlchemyError: If a database error occurs.
         """
         try:
             result = await db_session.execute(select(IslandModel).filter(IslandModel.id == island_id))
@@ -27,9 +37,20 @@ class CRUDisland:
             raise
 
     async def get_by_player_uuid(self, db_session: AsyncSession, *, player_uuid: str) -> Optional[IslandModel]:
-        """
-        Get an island by player UUID. This is now a legacy-support method.
-        The primary method should be to get island via team.
+        """Gets an island by player UUID.
+
+        This is now a legacy-support method. The primary method should be to get
+        the island via the team.
+
+        Args:
+            db_session: The database session.
+            player_uuid: The UUID of the player.
+
+        Returns:
+            The island, or None if not found.
+
+        Raises:
+            SQLAlchemyError: If a database error occurs.
         """
         try:
             result = await db_session.execute(
@@ -41,8 +62,17 @@ class CRUDisland:
             raise
 
     async def get_by_team_id(self, db_session: AsyncSession, *, team_id: int) -> Optional[IslandModel]:
-        """
-        Get an island by team ID.
+        """Gets an island by team ID.
+
+        Args:
+            db_session: The database session.
+            team_id: The ID of the team.
+
+        Returns:
+            The island, or None if not found.
+
+        Raises:
+            SQLAlchemyError: If a database error occurs.
         """
         try:
             result = await db_session.execute(
@@ -54,8 +84,20 @@ class CRUDisland:
             raise
 
     async def create(self, db_session: AsyncSession, *, team_id: int, container_name: str, player_uuid: Optional[str] = None, player_name: Optional[str] = None, initial_status: IslandStatusEnum = IslandStatusEnum.PENDING_CREATION) -> IslandModel:
-        """
-        Create a new island for a team. Does NOT commit.
+        """Creates a new island for a team.
+
+        This method does not commit the transaction.
+
+        Args:
+            db_session: The database session.
+            team_id: The ID of the team.
+            container_name: The name of the container.
+            player_uuid: The UUID of the player.
+            player_name: The name of the player.
+            initial_status: The initial status of the island.
+
+        Returns:
+            The created island.
         """
         db_obj_data = {
             "team_id": team_id,
@@ -77,10 +119,18 @@ class CRUDisland:
         db_obj: IslandModel, # The SQLAlchemy model instance to update
         obj_in: Union[IslandUpdate, Dict[str, Any]] # Pydantic schema or dict with update data
     ) -> IslandModel:
-        """
-        Update an existing island.
-        `db_obj` is the current database object.
-        `obj_in` contains the fields to update.
+        """Updates an existing island.
+
+        Args:
+            db_session: The database session.
+            db_obj: The island to update.
+            obj_in: The data to update the island with.
+
+        Returns:
+            The updated island.
+
+        Raises:
+            SQLAlchemyError: If a database error occurs.
         """
         if isinstance(obj_in, dict):
             update_data = obj_in
@@ -115,9 +165,22 @@ class CRUDisland:
         self, db_session: AsyncSession, *, player_uuid: str, status: IslandStatusEnum, 
         extra_fields: Optional[Dict[str, Any]] = None
     ) -> Optional[IslandModel]:
-        """
-        Atomically update the status of an island and optionally other fields.
-        This uses an UPDATE statement directly for efficiency, especially for status changes.
+        """Atomically updates the status of an island and optionally other fields.
+
+        This uses an UPDATE statement directly for efficiency, especially for status
+        changes.
+
+        Args:
+            db_session: The database session.
+            player_uuid: The UUID of the player.
+            status: The new status.
+            extra_fields: A dictionary of extra fields to update.
+
+        Returns:
+            The updated island, or None if not found.
+
+        Raises:
+            SQLAlchemyError: If a database error occurs.
         """
         values_to_update = {"status": status}
         if extra_fields:
@@ -151,8 +214,17 @@ class CRUDisland:
 
 
     async def remove_by_player_uuid(self, db_session: AsyncSession, *, player_uuid: str) -> Optional[IslandModel]:
-        """
-        Remove an island by player UUID. Returns the removed island object or None if not found.
+        """Removes an island by player UUID.
+
+        Args:
+            db_session: The database session.
+            player_uuid: The UUID of the player.
+
+        Returns:
+            The removed island object, or None if not found.
+
+        Raises:
+            SQLAlchemyError: If a database error occurs.
         """
         # First, get the object to ensure it exists and to return it
         island_to_delete = await self.get_by_player_uuid(db_session, player_uuid=player_uuid)
@@ -169,8 +241,17 @@ class CRUDisland:
             raise
             
     async def remove_by_id(self, db_session: AsyncSession, *, island_id: int) -> Optional[IslandModel]:
-        """
-        Remove an island by its ID. Returns the removed island object or None if not found.
+        """Removes an island by its ID.
+
+        Args:
+            db_session: The database session.
+            island_id: The ID of the island to remove.
+
+        Returns:
+            The removed island object, or None if not found.
+
+        Raises:
+            SQLAlchemyError: If a database error occurs.
         """
         island_to_delete = await self.get(db_session, island_id=island_id)
         if not island_to_delete:
@@ -189,8 +270,18 @@ class CRUDisland:
     async def get_multi(
         self, db_session: AsyncSession, *, skip: int = 0, limit: int = 100
     ) -> List[IslandModel]:
-        """
-        Get multiple islands with pagination.
+        """Gets multiple islands with pagination.
+
+        Args:
+            db_session: The database session.
+            skip: The number of islands to skip.
+            limit: The maximum number of islands to return.
+
+        Returns:
+            A list of islands.
+
+        Raises:
+            SQLAlchemyError: If a database error occurs.
         """
         try:
             result = await db_session.execute(
@@ -202,8 +293,18 @@ class CRUDisland:
             raise
 
     async def get_islands_by_status(self, db_session: AsyncSession, *, status: IslandStatusEnum, limit: int = 100) -> List[IslandModel]:
-        """
-        Get islands by a specific status.
+        """Gets islands by a specific status.
+
+        Args:
+            db_session: The database session.
+            status: The status to filter by.
+            limit: The maximum number of islands to return.
+
+        Returns:
+            A list of islands.
+
+        Raises:
+            SQLAlchemyError: If a database error occurs.
         """
         try:
             result = await db_session.execute(
@@ -215,8 +316,18 @@ class CRUDisland:
             raise
 
     async def get_islands_by_statuses(self, db_session: AsyncSession, *, statuses: List[IslandStatusEnum], limit: int = 1000) -> List[IslandModel]:
-        """
-        Get islands by a list of specific statuses.
+        """Gets islands by a list of specific statuses.
+
+        Args:
+            db_session: The database session.
+            statuses: The statuses to filter by.
+            limit: The maximum number of islands to return.
+
+        Returns:
+            A list of islands.
+
+        Raises:
+            SQLAlchemyError: If a database error occurs.
         """
         try:
             # Ensure statuses are actual enum members if string names are passed, though type hint should enforce IslandStatusEnum
@@ -231,8 +342,16 @@ class CRUDisland:
             raise
 
     async def get_running_islands_count(self, db_session: AsyncSession) -> int:
-        """
-        Get the number of islands that are currently running.
+        """Gets the number of islands that are currently running.
+
+        Args:
+            db_session: The database session.
+
+        Returns:
+            The number of running islands.
+
+        Raises:
+            SQLAlchemyError: If a database error occurs.
         """
         try:
             result = await db_session.execute(
@@ -244,8 +363,18 @@ class CRUDisland:
             raise
 
     async def update_by_id(self, db_session: AsyncSession, *, island_id: int, obj_in: Union[IslandUpdate, Dict[str, Any]]) -> Optional[IslandModel]:
-        """
-        Update an island by its ID.
+        """Updates an island by its ID.
+
+        Args:
+            db_session: The database session.
+            island_id: The ID of the island to update.
+            obj_in: The data to update the island with.
+
+        Returns:
+            The updated island, or None if not found.
+
+        Raises:
+            SQLAlchemyError: If a database error occurs.
         """
         if isinstance(obj_in, dict):
             update_data = obj_in

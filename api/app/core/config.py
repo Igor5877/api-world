@@ -2,6 +2,32 @@ from pydantic_settings import BaseSettings
 import os
 
 class Settings(BaseSettings):
+    """Represents the application settings.
+
+    Attributes:
+        API_V1_STR: The prefix for the API v1 routes.
+        DATABASE_URL: The URL for the database connection.
+        LXD_SOCKET_PATH: The path to the LXD socket.
+        LXD_PROJECT: The LXD project to use.
+        LXD_BASE_IMAGE: The name of the published LXD image to use for islands.
+        LXD_OPERATION_TIMEOUT: The timeout in seconds for LXD operations.
+        LXD_IP_RETRY_ATTEMPTS: The number of times to retry fetching an IP address.
+        LXD_IP_RETRY_DELAY: The delay in seconds between IP fetch attempts.
+        LXD_DEFAULT_PROFILES: A list of default LXD profiles to apply to islands.
+        MAX_RUNNING_SERVERS: The maximum number of concurrent running islands.
+        FREEZE_TIMER_SECONDS: The number of seconds of inactivity before freezing an
+            island.
+        STOP_TIMER_SECONDS: The number of seconds of inactivity before stopping an
+            island.
+        CLEANUP_INTERVAL_HOURS: The interval in hours to check for old islands.
+        MAX_ISLAND_INACTIVITY_DAYS: The maximum number of days an island can be
+            inactive before being deleted.
+        CREATION_QUEUE_WORKER_INTERVAL: The interval in seconds between creation
+            queue checks.
+        DEFAULT_MC_PORT_INTERNAL: The default internal Minecraft server port.
+        REDIS_URL: The URL for the Redis connection.
+        REDIS_CHANNEL: The Redis channel for island notifications.
+    """
     API_V1_STR: str = "/api/v1"
     
     # Database settings
@@ -37,6 +63,13 @@ class Settings(BaseSettings):
 
 
     class Config:
+        """Represents the configuration for the settings.
+
+        Attributes:
+            env_file: The name of the environment file to load.
+            env_file_encoding: The encoding of the environment file.
+            case_sensitive: Whether the settings are case-sensitive.
+        """
         # If you have a .env file, pydantic-settings will load it automatically.
         env_file = ".env"
         env_file_encoding = 'utf-8'

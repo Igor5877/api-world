@@ -12,10 +12,20 @@ from app.core.redis import get_redis_client
 logger = logging.getLogger(__name__)
 
 class ConnectionManager:
+    """Manages WebSocket connections and communication."""
     def __init__(self):
+        """Initializes the ConnectionManager."""
         self.active_connections: Dict[str, WebSocket] = {}
 
     async def connect(self, websocket: WebSocket, client_id: str):
+        """Connects a new client.
+
+        If a connection for this client_id already exists, it is closed first.
+
+        Args:
+            websocket: The WebSocket connection.
+            client_id: The ID of the client.
+        """
         # If a connection for this client_id already exists, close it first.
         if client_id in self.active_connections:
             logger.warning(f"Client {client_id} is reconnecting. Closing the old connection.")
@@ -31,14 +41,24 @@ class ConnectionManager:
         logger.info(f"WebSocket Manager: New connection for client_id: {client_id} on this worker.")
 
     def disconnect(self, client_id: str):
+        """Disconnects a client.
+
+        Args:
+            client_id: The ID of the client.
+        """
         if client_id in self.active_connections:
             del self.active_connections[client_id]
             logger.info(f"WebSocket Manager: Disconnected client_id: {client_id} on this worker.")
 
     async def _send_direct_personal_message(self, data: Any, websocket: WebSocket):
-        """
-        Sends a message directly to a websocket connection.
-        This method is used by the redis_listener to send messages to locally connected clients.
+        """Sends a message directly to a WebSocket connection.
+
+        This method is used by the redis_listener to send messages to locally
+        connected clients.
+
+        Args:
+            data: The data to send.
+            websocket: The WebSocket connection.
         """
         try:
             message_text = json.dumps(data) if isinstance(data, (dict, list)) else str(data)
@@ -54,8 +74,13 @@ class ConnectionManager:
             logger.error(f"WebSocket Manager: Unexpected error sending direct message: {e}", exc_info=True)
 
     async def publish_to_redis(self, client_ids: List[str], data: Any):
-        """
-        Publishes a message to the Redis channel, which will be picked up by all workers.
+        """Publishes a message to the Redis channel.
+
+        This will be picked up by all workers.
+
+        Args:
+            client_ids: The IDs of the clients to send the message to.
+            data: The data to send.
         """
         redis = get_redis_client()
         payload = {
@@ -66,17 +91,28 @@ class ConnectionManager:
         logger.info(f"WebSocket Manager: Published message to Redis for clients: {client_ids}")
 
     async def send_personal_message(self, data: Any, client_id: str):
-        """Publishes a message for a single client to Redis."""
+        """Publishes a message for a single client to Redis.
+
+        Args:
+            data: The data to send.
+            client_id: The ID of the client.
+        """
         await self.publish_to_redis([client_id], data)
 
     async def send_message_to_clients(self, client_ids: List[str], data: Any):
-        """Publishes a message for multiple clients to Redis."""
+        """Publishes a message for multiple clients to Redis.
+
+        Args:
+            client_ids: The IDs of the clients to send the message to.
+            data: The data to send.
+        """
         await self.publish_to_redis(client_ids, data)
 
     async def redis_listener(self):
-        """
-        Listens for messages on the Redis Pub/Sub channel and sends them
-        to clients connected to this specific worker process.
+        """Listens for messages on the Redis Pub/Sub channel.
+
+        This function sends messages to clients connected to this specific worker
+        process.
         """
         redis = get_redis_client()
         pubsub = redis.pubsub()

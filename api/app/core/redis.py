@@ -10,8 +10,13 @@ logger = logging.getLogger(__name__)
 redis_client: Redis | None = None
 
 async def init_redis_pool():
-    """
-    Initializes the Redis connection pool with timeouts and robust error handling.
+    """Initializes the Redis connection pool.
+
+    This function initializes the Redis connection pool with timeouts and robust
+    error handling.
+
+    Raises:
+        ConnectionError: If the connection to Redis fails.
     """
     global redis_client
     try:
@@ -39,17 +44,21 @@ async def init_redis_pool():
         raise ConnectionError(f"An unexpected error occurred while connecting to Redis: {e}")
 
 async def close_redis_pool():
-    """
-    Closes the Redis connection pool.
-    """
+    """Closes the Redis connection pool."""
     global redis_client
     if redis_client:
         await redis_client.close()
         logger.info("Redis connection pool closed.")
 
 def get_redis_client() -> Redis:
-    """
-    Returns the application's Redis client instance.
+    """Returns the application's Redis client instance.
+
+    Returns:
+        The Redis client instance.
+
+    Raises:
+        RuntimeError: If the Redis client has not been initialized or the
+            connection failed.
     """
     if redis_client is None:
         raise RuntimeError("Redis client has not been initialized or the connection failed.")

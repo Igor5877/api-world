@@ -5,18 +5,28 @@ from uuid import UUID as pyUUID
 from typing import Optional, List
 
 # Correctly import IslandQueue and QueueItemStatusEnum from app.models.island
-from app.models.island import IslandQueue, QueueItemStatusEnum 
+from app.models.island import IslandQueue, QueueItemStatusEnum
 # from app.schemas.island import IslandStatusEnum as MainIslandStatus # Not needed here
 
 import logging
 logger = logging.getLogger(__name__)
 
-class CRUDMainIslandQueue: # Renamed class to reflect it's for the main IslandQueue
+class CRUDMainIslandQueue:
+    """CRUD operations for the main island queue."""
     async def add_to_queue(self, db_session: AsyncSession, *, player_uuid: str, player_name: Optional[str] = None) -> IslandQueue:
-        """
-        Adds a player to the island_queue.
-        If player already in queue with PENDING, returns existing.
-        If player in queue with e.g. PROCESSING, updates to PENDING and refreshes requested_at.
+        """Adds a player to the island_queue.
+
+        If the player is already in the queue with a PENDING status, it returns the
+        existing entry. If the player is in the queue with a different status, it
+        updates the status to PENDING and refreshes the requested_at timestamp.
+
+        Args:
+            db_session: The database session.
+            player_uuid: The UUID of the player.
+            player_name: The name of the player.
+
+        Returns:
+            The created or updated queue item.
         """
         existing_entry = await self.get_by_player_uuid(db_session, player_uuid=player_uuid)
 
@@ -46,12 +56,19 @@ class CRUDMainIslandQueue: # Renamed class to reflect it's for the main IslandQu
         db_session.add(new_queue_item)
         await db_session.commit()
         await db_session.refresh(new_queue_item)
-        logger.info(f"Added player {player_uuid_str} ({player_name}) to island_queue.")
+        logger.info(f"Added player {player_uuid} ({player_name}) to island_queue.")
         return new_queue_item
 
     async def get_next_in_queue(self, db_session: AsyncSession) -> Optional[IslandQueue]:
-        """
-        Gets the next player in the queue (oldest PENDING request).
+        """Gets the next player in the queue.
+
+        This returns the oldest PENDING request.
+
+        Args:
+            db_session: The database session.
+
+        Returns:
+            The next queue item, or None if the queue is empty.
         """
         result = await db_session.execute(
             select(IslandQueue)
@@ -62,9 +79,14 @@ class CRUDMainIslandQueue: # Renamed class to reflect it's for the main IslandQu
         return result.scalars().first()
 
     async def remove_from_queue(self, db_session: AsyncSession, *, player_uuid: str) -> bool:
-        """
-        Removes a player from the queue by player_uuid.
-        Returns True if an item was deleted, False otherwise.
+        """Removes a player from the queue by player_uuid.
+
+        Args:
+            db_session: The database session.
+            player_uuid: The UUID of the player to remove.
+
+        Returns:
+            True if an item was deleted, False otherwise.
         """
         stmt = (
             delete(IslandQueue)
@@ -80,8 +102,15 @@ class CRUDMainIslandQueue: # Renamed class to reflect it's for the main IslandQu
         return deleted_count > 0
 
     async def update_queue_item_status(self, db_session: AsyncSession, *, player_uuid: str, status: QueueItemStatusEnum) -> Optional[IslandQueue]:
-        """
-        Updates the status of a specific queue item by player_uuid.
+        """Updates the status of a specific queue item by player_uuid.
+
+        Args:
+            db_session: The database session.
+            player_uuid: The UUID of the player.
+            status: The new status.
+
+        Returns:
+            The updated queue item, or None if not found.
         """
         stmt = (
             update(IslandQueue)
@@ -101,8 +130,16 @@ class CRUDMainIslandQueue: # Renamed class to reflect it's for the main IslandQu
             return None
 
     async def get_queue_size(self, db_session: AsyncSession, status: Optional[QueueItemStatusEnum] = None) -> int:
-        """
-        Gets the current size of the queue. Can be filtered by status.
+        """Gets the current size of the queue.
+
+        Can be filtered by status.
+
+        Args:
+            db_session: The database session.
+            status: The status to filter by.
+
+        Returns:
+            The size of the queue.
         """
         query = select(func.count(IslandQueue.id)) # Use IslandQueue.id or any other PK
         if status:
@@ -113,8 +150,14 @@ class CRUDMainIslandQueue: # Renamed class to reflect it's for the main IslandQu
         return count if count is not None else 0
 
     async def get_by_player_uuid(self, db_session: AsyncSession, *, player_uuid: str) -> Optional[IslandQueue]:
-        """
-        Gets a queue entry by player UUID.
+        """Gets a queue entry by player UUID.
+
+        Args:
+            db_session: The database session.
+            player_uuid: The UUID of the player.
+
+        Returns:
+            The queue item, or None if not found.
         """
         result = await db_session.execute(
             select(IslandQueue).filter(IslandQueue.player_uuid == player_uuid)
@@ -122,7 +165,15 @@ class CRUDMainIslandQueue: # Renamed class to reflect it's for the main IslandQu
         return result.scalars().first()
 
     async def get_all_pending(self, db_session: AsyncSession, limit: int = 100) -> List[IslandQueue]:
-        """Gets all PENDING items in the queue, ordered by request time."""
+        """Gets all PENDING items in the queue.
+
+        Args:
+            db_session: The database session.
+            limit: The maximum number of items to return.
+
+        Returns:
+            A list of PENDING queue items.
+        """
         result = await db_session.execute(
             select(IslandQueue)
             .filter(IslandQueue.status == QueueItemStatusEnum.PENDING)

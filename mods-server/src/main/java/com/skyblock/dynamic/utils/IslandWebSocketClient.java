@@ -12,17 +12,31 @@ import org.slf4j.Logger;
 import java.net.URI;
 import java.util.UUID;
 
+/**
+ * A WebSocket client for island-related communication.
+ */
 public class IslandWebSocketClient extends org.java_websocket.client.WebSocketClient {
 
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new Gson();
     private final String ownerUuid;
 
+    /**
+     * Constructs a new IslandWebSocketClient.
+     *
+     * @param serverUri The URI of the WebSocket server.
+     * @param ownerUuid The UUID of the island owner.
+     */
     public IslandWebSocketClient(URI serverUri, String ownerUuid) {
         super(serverUri);
         this.ownerUuid = ownerUuid;
     }
 
+    /**
+     * Called when the WebSocket connection is opened.
+     *
+     * @param handshakedata The handshake data.
+     */
     @Override
     public void onOpen(ServerHandshake handshakedata) {
         LOGGER.info("WebSocket connection opened for owner: {}", ownerUuid);
@@ -30,6 +44,11 @@ public class IslandWebSocketClient extends org.java_websocket.client.WebSocketCl
         // send("{\"type\":\"IDENTIFY\",\"owner_uuid\":\"" + ownerUuid + "\"}");
     }
 
+    /**
+     * Called when a message is received from the WebSocket server.
+     *
+     * @param message The message.
+     */
     @Override
     public void onMessage(String message) {
         LOGGER.info("Received WebSocket message: {}", message);
@@ -49,17 +68,34 @@ public class IslandWebSocketClient extends org.java_websocket.client.WebSocketCl
         }
     }
 
+    /**
+     * Called when the WebSocket connection is closed.
+     *
+     * @param code   The status code.
+     * @param reason The reason for closing.
+     * @param remote Whether the connection was closed by the remote peer.
+     */
     @Override
     public void onClose(int code, String reason, boolean remote) {
         LOGGER.warn("WebSocket connection closed. Code: {}, Reason: {}, Remote: {}. Will attempt to reconnect...", code, reason, remote);
         // Implement reconnection logic here if needed
     }
 
+    /**
+     * Called when an error occurs on the WebSocket connection.
+     *
+     * @param ex The exception.
+     */
     @Override
     public void onError(Exception ex) {
         LOGGER.error("WebSocket error", ex);
     }
 
+    /**
+     * Gets the current Minecraft server instance.
+     *
+     * @return The current Minecraft server instance.
+     */
     private net.minecraft.server.MinecraftServer getServer() {
         return net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
     }

@@ -18,10 +18,11 @@ from app.services.websocket_manager import manager as websocket_manager
 logger = logging.getLogger(__name__) # Get logger for main module
 
 async def reconcile_island_states():
-    """
-    Checks islands in active/transient DB states against actual LXD container states
-    and updates the DB to reflect reality or a safe error state.
-    This is intended to run at API startup.
+    """Reconciles island states between the database and LXD.
+
+    This function checks islands in active/transient database states against the
+    actual LXD container states and updates the database to reflect reality or a
+    safe error state. This is intended to run at API startup.
     """
     logger.info("Starting island state reconciliation...")
     
@@ -201,6 +202,17 @@ from app.services.start_worker import start_start_worker
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Manages the application's lifespan.
+
+    This function handles startup and shutdown events. On startup, it
+    initializes the Redis connection pool, starts the Redis listener for
+    WebSocket messages, and runs initial tasks such as island state
+    reconciliation and starting background workers. On shutdown, it cancels the
+    Redis listener task and closes the Redis connection pool.
+
+    Args:
+        app: The FastAPI application.
+    """
     # Code to run on startup
     logger.info("Starting up SkyBlock LXD Manager API worker...")
     
@@ -252,6 +264,12 @@ app.add_middleware(
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    """Handles WebSocket connections.
+
+    Args:
+        websocket: The WebSocket connection.
+        client_id: The ID of the client.
+    """
     await websocket_manager.connect(websocket, client_id)
     try:
         while True:
@@ -261,6 +279,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
 @app.get("/")
 async def read_root():
+    """Returns a welcome message."""
     return {"message": "Welcome to the SkyBlock LXD Manager API"}
 
 # Include your API routers

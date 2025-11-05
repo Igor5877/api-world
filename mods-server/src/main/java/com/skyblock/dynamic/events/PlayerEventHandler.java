@@ -14,12 +14,20 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Handles player events.
+ */
 public class PlayerEventHandler {
 
     private static final Logger LOGGER = LogUtils.getLogger();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> freezeTask;
 
+    /**
+     * Handles the player login event.
+     *
+     * @param event The player login event.
+     */
     @SubscribeEvent
     public void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (freezeTask != null && !freezeTask.isDone()) {
@@ -28,6 +36,11 @@ public class PlayerEventHandler {
         }
     }
 
+    /**
+     * Handles the player logout event.
+     *
+     * @param event The player logout event.
+     */
     @SubscribeEvent
     public void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         MinecraftServer server = event.getEntity().getServer();
@@ -41,6 +54,11 @@ public class PlayerEventHandler {
         }
     }
 
+    /**
+     * Schedules a task to freeze the island.
+     *
+     * @param ownerUuidStr The UUID of the island owner.
+     */
     private void scheduleFreezeTask(String ownerUuidStr) {
         if (ownerUuidStr == null) {
             LOGGER.error("Cannot schedule freeze task: owner UUID is null.");

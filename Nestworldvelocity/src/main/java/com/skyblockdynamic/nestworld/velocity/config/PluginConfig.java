@@ -8,6 +8,9 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+/**
+ * Represents the plugin's configuration.
+ */
 public class PluginConfig {
 
     private final String apiUrl;
@@ -18,6 +21,17 @@ public class PluginConfig {
     private final boolean autoRedirectToIslandEnabled;
     private final int tpaTimeoutSeconds;
 
+    /**
+     * Constructs a new PluginConfig.
+     *
+     * @param apiUrl                      The API URL.
+     * @param fallbackServerName          The name of the fallback server.
+     * @param apiRequestTimeoutSeconds    The timeout for API requests in seconds.
+     * @param pollingIntervalMillis       The polling interval in milliseconds.
+     * @param maxPollingAttempts          The maximum number of polling attempts.
+     * @param autoRedirectToIslandEnabled Whether to automatically redirect players to their island on login.
+     * @param tpaTimeoutSeconds           The timeout for TPA requests in seconds.
+     */
     private PluginConfig(String apiUrl, String fallbackServerName, int apiRequestTimeoutSeconds, int pollingIntervalMillis, int maxPollingAttempts, boolean autoRedirectToIslandEnabled, int tpaTimeoutSeconds) {
         this.apiUrl = apiUrl;
         this.fallbackServerName = fallbackServerName;
@@ -28,14 +42,62 @@ public class PluginConfig {
         this.tpaTimeoutSeconds = tpaTimeoutSeconds;
     }
 
+    /**
+     * Gets the API URL.
+     *
+     * @return The API URL.
+     */
     public String getApiUrl() { return apiUrl; }
+
+    /**
+     * Gets the name of the fallback server.
+     *
+     * @return The name of the fallback server.
+     */
     public String getFallbackServerName() { return fallbackServerName; }
+
+    /**
+     * Gets the timeout for API requests in seconds.
+     *
+     * @return The timeout for API requests in seconds.
+     */
     public int getApiRequestTimeoutSeconds() { return apiRequestTimeoutSeconds; }
+
+    /**
+     * Gets the polling interval in milliseconds.
+     *
+     * @return The polling interval in milliseconds.
+     */
     public int getPollingIntervalMillis() { return pollingIntervalMillis; }
+
+    /**
+     * Gets the maximum number of polling attempts.
+     *
+     * @return The maximum number of polling attempts.
+     */
     public int getMaxPollingAttempts() { return maxPollingAttempts; }
+
+    /**
+     * Checks if auto-redirect to island is enabled.
+     *
+     * @return True if auto-redirect is enabled, false otherwise.
+     */
     public boolean isAutoRedirectToIslandEnabled() { return autoRedirectToIslandEnabled; }
+
+    /**
+     * Gets the timeout for TPA requests in seconds.
+     *
+     * @return The timeout for TPA requests in seconds.
+     */
     public int getTpaTimeoutSeconds() { return tpaTimeoutSeconds; }
 
+    /**
+     * Loads the plugin configuration.
+     *
+     * @param dataDirectory The data directory for the plugin.
+     * @param logger        The logger.
+     * @return The loaded plugin configuration.
+     */
     public static PluginConfig load(Path dataDirectory, Logger logger) {
         try {
             Path configPath = dataDirectory.resolve("nestworldvelocity.toml");
@@ -83,6 +145,13 @@ public class PluginConfig {
         }
     }
     
+    /**
+     * Creates and saves a minimal configuration file.
+     *
+     * @param configPath The path to the configuration file.
+     * @param logger     The logger.
+     * @return The created plugin configuration.
+     */
     private static PluginConfig createAndSaveMinimalConfig(Path configPath, Logger logger) {
         String defaultApiUrl = "http://127.0.0.1:8000/api/v1";
         String defaultFallback = "hub";
@@ -113,6 +182,12 @@ public class PluginConfig {
         return new PluginConfig(defaultApiUrl, defaultFallback, defaultTimeout, defaultInterval, defaultAttempts, defaultAutoRedirect, defaultTpaTimeout);
     }
 
+    /**
+     * Creates a minimal hardcoded configuration.
+     *
+     * @param logger The logger.
+     * @return The created plugin configuration.
+     */
     private static PluginConfig createMinimalHardcodedConfig(Logger logger) {
         logger.warn("Creating a minimal hardcoded config due to previous errors.");
         return new PluginConfig("http://127.0.0.1:8000/api/v1", "hub", 10, 2000, 15, false, 60);

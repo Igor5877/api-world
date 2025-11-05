@@ -11,8 +11,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def trigger_start_worker():
-    """
-    Processes the island start queue.
+    """Processes the island start queue.
+
+    This function checks if the number of running islands is below the maximum
+    limit. If it is, it fetches the next player from the start queue, updates
+    their status to 'PROCESSING', starts their island, and then removes them
+    from the queue. If an error occurs, the player's status is updated to
+    'FAILED'.
     """
     from app.services.island_service import island_service
     logger.info("Start queue worker started.")
@@ -67,7 +72,5 @@ async def trigger_start_worker():
         logger.error(f"An error occurred in the start queue worker: {e}", exc_info=True)
 
 async def start_start_worker():
-    """
-    Starts the start queue worker in the background.
-    """
+    """Starts the start queue worker in the background."""
     pass

@@ -15,18 +15,33 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * The /spawn command.
+ */
 public class SpawnCommand implements SimpleCommand {
 
     private final ProxyServer proxyServer;
     private final Logger logger;
     private final PluginConfig config;
 
+    /**
+     * Constructs a new SpawnCommand.
+     *
+     * @param proxyServer The proxy server.
+     * @param logger      The logger.
+     * @param config      The plugin configuration.
+     */
     public SpawnCommand(ProxyServer proxyServer, Logger logger, PluginConfig config) {
         this.proxyServer = proxyServer;
         this.logger = logger;
         this.config = config;
     }
 
+    /**
+     * Executes the /spawn command.
+     *
+     * @param invocation The command invocation.
+     */
     @Override
     public void execute(Invocation invocation) {
         CommandSource source = invocation.source();
@@ -64,6 +79,12 @@ public class SpawnCommand implements SimpleCommand {
             });
     }
     
+    /**
+     * Checks if the command source has permission to execute the command.
+     *
+     * @param invocation The command invocation.
+     * @return True if the command source has permission, false otherwise.
+     */
     @Override
     public boolean hasPermission(Invocation invocation) {
         // Дозволяємо всім гравцям використовувати цю команду

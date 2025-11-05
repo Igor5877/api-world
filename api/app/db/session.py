@@ -56,9 +56,16 @@ except Exception as e:
 
 
 async def get_db_session() -> AsyncSession:
-    """
-    FastAPI dependency to get an SQLAlchemy asynchronous database session.
-    Ensures the session is closed after the request.
+    """Gets an SQLAlchemy asynchronous database session.
+
+    This is a FastAPI dependency that ensures the session is closed after the
+    request.
+
+    Yields:
+        The database session.
+
+    Raises:
+        RuntimeError: If the database session factory is not available.
     """
     if AsyncSessionLocal is None:
         logger.error("AsyncSessionLocal is not initialized. Database connection might have failed during startup.")
@@ -85,10 +92,11 @@ async def get_db_session() -> AsyncSession:
 # Optional: Function to initialize database (create tables)
 # This is more for development/testing. Production usually uses migrations (Alembic).
 async def init_db():
-    """
-    Initializes the database by creating all tables defined in Base.metadata.
-    This should typically be called once at application startup.
-    Make sure all your SQLAlchemy models are imported into app.db.base so Base.metadata knows them.
+    """Initializes the database by creating all tables.
+
+    This function should typically be called once at application startup. It
+    ensures that all SQLAlchemy models are imported into `app.db.base` so that
+    `Base.metadata` knows about them.
     """
     if not engine:
         logger.error("Database engine not initialized. Cannot run init_db().")

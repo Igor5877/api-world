@@ -13,6 +13,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
+/**
+ * A client for interacting with the SkyBlock API.
+ */
 public class ApiClient {
 
     private final HttpClient httpClient;
@@ -21,6 +24,12 @@ public class ApiClient {
     private final Duration requestTimeout;
     private final Gson gson = new Gson();
 
+    /**
+     * Constructs a new ApiClient.
+     *
+     * @param logger The logger.
+     * @param config The plugin configuration.
+     */
     public ApiClient(Logger logger, PluginConfig config) {
         this.logger = logger;
         this.apiUrlBase = config.getApiUrl();
@@ -36,6 +45,12 @@ public class ApiClient {
         }
     }
 
+    /**
+     * Gets the details of a player's island.
+     *
+     * @param playerUuid The UUID of the player.
+     * @return A CompletableFuture that completes with the API response.
+     */
     public CompletableFuture<ApiResponse> getIslandDetails(UUID playerUuid) {
         String path = "/islands/" + playerUuid.toString();
         HttpRequest request = HttpRequest.newBuilder()
@@ -59,6 +74,13 @@ public class ApiClient {
                 });
     }
 
+    /**
+     * Requests to start a player's island.
+     *
+     * @param playerUuid The UUID of the player.
+     * @param playerName The name of the player.
+     * @return A CompletableFuture that completes with the API response.
+     */
     public CompletableFuture<ApiResponse> requestIslandStart(UUID playerUuid, String playerName) {
         String path = "/islands/start/" + playerUuid.toString() + "?player_name=" + playerName;
         HttpRequest request = HttpRequest.newBuilder()
@@ -82,6 +104,12 @@ public class ApiClient {
                 });
     }
 
+    /**
+     * Requests to stop a player's island.
+     *
+     * @param playerUuid The UUID of the player.
+     * @return A CompletableFuture that completes with the API response.
+     */
     public CompletableFuture<ApiResponse> requestIslandStop(UUID playerUuid) {
         String path = "/islands/stop/" + playerUuid.toString();
         HttpRequest request = HttpRequest.newBuilder()
@@ -105,6 +133,13 @@ public class ApiClient {
                 });
     }
 
+    /**
+     * Creates a solo island for a player.
+     *
+     * @param playerUuid The UUID of the player.
+     * @param playerName The name of the player.
+     * @return A CompletableFuture that completes with the API response.
+     */
     public CompletableFuture<ApiResponse> createSoloIsland(UUID playerUuid, String playerName) {
         String path = "/teams/create_solo";
         String jsonPayload = gson.toJson(Map.of("player_uuid", playerUuid.toString(), "player_name", playerName));
@@ -121,6 +156,14 @@ public class ApiClient {
                 .exceptionally(ex -> new ApiResponse(ex.getMessage()));
     }
 
+    /**
+     * Creates a team.
+     *
+     * @param teamName  The name of the team.
+     * @param ownerUuid The UUID of the team owner.
+     * @param ownerName The name of the team owner.
+     * @return A CompletableFuture that completes with the API response.
+     */
     public CompletableFuture<ApiResponse> createTeam(String teamName, UUID ownerUuid, String ownerName) {
         String path = "/teams/create_solo";
         // The API endpoint expects the player_info to be a nested dictionary.
@@ -138,6 +181,13 @@ public class ApiClient {
                 .exceptionally(ex -> new ApiResponse(ex.getMessage()));
     }
 
+    /**
+     * Accepts a team invitation.
+     *
+     * @param teamName   The name of the team.
+     * @param playerUuid The UUID of the player.
+     * @return A CompletableFuture that completes with the API response.
+     */
     public CompletableFuture<ApiResponse> acceptInvite(String teamName, UUID playerUuid) {
         String path = "/teams/accept_invite?player_uuid=" + playerUuid.toString();
         String jsonPayload = gson.toJson(Map.of("team_name", teamName));
@@ -152,6 +202,13 @@ public class ApiClient {
                 .exceptionally(ex -> new ApiResponse(ex.getMessage()));
     }
 
+    /**
+     * Leaves a team.
+     *
+     * @param teamId     The ID of the team.
+     * @param playerUuid The UUID of the player.
+     * @return A CompletableFuture that completes with the API response.
+     */
     public CompletableFuture<ApiResponse> leaveTeam(int teamId, UUID playerUuid) {
         String path = "/teams/" + teamId + "/leave?player_uuid=" + playerUuid.toString();
         HttpRequest request = HttpRequest.newBuilder()
@@ -165,6 +222,12 @@ public class ApiClient {
                 .exceptionally(ex -> new ApiResponse(ex.getMessage()));
     }
 
+    /**
+     * Gets a player's team.
+     *
+     * @param playerUuid The UUID of the player.
+     * @return A CompletableFuture that completes with the API response.
+     */
     public CompletableFuture<ApiResponse> getTeam(UUID playerUuid) {
         String path = "/teams/my_team/" + playerUuid.toString();
         HttpRequest request = HttpRequest.newBuilder()
@@ -177,6 +240,14 @@ public class ApiClient {
                 .exceptionally(ex -> new ApiResponse(ex.getMessage()));
     }
     
+    /**
+     * Renames a team.
+     *
+     * @param teamId     The ID of the team.
+     * @param newName    The new name for the team.
+     * @param playerUuid The UUID of the player.
+     * @return A CompletableFuture that completes with the API response.
+     */
     public CompletableFuture<ApiResponse> renameTeam(int teamId, String newName, UUID playerUuid) {
         String path = "/teams/" + teamId + "/rename?player_uuid=" + playerUuid.toString();
         String jsonPayload = gson.toJson(Map.of("name", newName));

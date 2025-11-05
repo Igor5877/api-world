@@ -20,6 +20,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * The /tpa, /tpaccept, and /tpdeny commands.
+ */
 public class TpaCommand {
 
     private final NestworldVelocityPlugin plugin;
@@ -41,6 +44,16 @@ public class TpaCommand {
 
     private final Map<UUID, TpaRequest> pendingRequests = new ConcurrentHashMap<>();
 
+    /**
+     * Constructs a new TpaCommand.
+     *
+     * @param plugin         The plugin instance.
+     * @param proxy          The proxy server.
+     * @param logger         The logger.
+     * @param config         The plugin configuration.
+     * @param myIslandCommand The /myisland command.
+     * @param localeManager  The locale manager.
+     */
     public TpaCommand(NestworldVelocityPlugin plugin, ProxyServer proxy, Logger logger, PluginConfig config, MyIslandCommand myIslandCommand, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager) {
         this.plugin = plugin;
         this.proxy = proxy;
@@ -50,6 +63,11 @@ public class TpaCommand {
         this.localeManager = localeManager;
     }
 
+    /**
+     * Creates the /tpa command.
+     *
+     * @return The /tpa command.
+     */
     public BrigadierCommand createTpaCommand() {
         LiteralCommandNode<CommandSource> node = literal("tpa")
             .then(argument("player", string())
@@ -66,6 +84,11 @@ public class TpaCommand {
         return new BrigadierCommand(node);
     }
 
+    /**
+     * Creates the /tpaccept command.
+     *
+     * @return The /tpaccept command.
+     */
     public BrigadierCommand createTpAcceptCommand() {
         LiteralCommandNode<CommandSource> node = literal("tpaccept")
             .executes(this::tpaccept)
@@ -73,6 +96,11 @@ public class TpaCommand {
         return new BrigadierCommand(node);
     }
 
+    /**
+     * Creates the /tpdeny command.
+     *
+     * @return The /tpdeny command.
+     */
     public BrigadierCommand createTpDenyCommand() {
         LiteralCommandNode<CommandSource> node = literal("tpdeny")
             .executes(this::tpdeny)
@@ -80,6 +108,12 @@ public class TpaCommand {
         return new BrigadierCommand(node);
     }
     
+    /**
+     * Executes the /tpa command.
+     *
+     * @param context The command context.
+     * @return The result of the command.
+     */
     private int tpa(com.mojang.brigadier.context.CommandContext<CommandSource> context) {
         if (!(context.getSource() instanceof Player)) {
             context.getSource().sendMessage(localeManager.getComponent("en", "command.player_only", NamedTextColor.RED));
@@ -117,6 +151,12 @@ public class TpaCommand {
         return Command.SINGLE_SUCCESS;
     }
 
+    /**
+     * Executes the /tpaccept command.
+     *
+     * @param context The command context.
+     * @return The result of the command.
+     */
     private int tpaccept(com.mojang.brigadier.context.CommandContext<CommandSource> context) {
         if (!(context.getSource() instanceof Player)) {
             context.getSource().sendMessage(localeManager.getComponent("en", "command.player_only", NamedTextColor.RED));
@@ -152,6 +192,12 @@ public class TpaCommand {
         return Command.SINGLE_SUCCESS;
     }
 
+    /**
+     * Executes the /tpdeny command.
+     *
+     * @param context The command context.
+     * @return The result of the command.
+     */
     private int tpdeny(com.mojang.brigadier.context.CommandContext<CommandSource> context) {
         if (!(context.getSource() instanceof Player)) {
             context.getSource().sendMessage(localeManager.getComponent("en", "command.player_only", NamedTextColor.RED));

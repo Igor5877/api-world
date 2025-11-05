@@ -8,6 +8,9 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.regex.Pattern;
 
+/**
+ * Manages the configuration for the SkyBlock mod.
+ */
 @Mod.EventBusSubscriber(modid = SkyBlockMod.MODID, bus = Mod.EventBusSubscriber.Bus.MOD) // Fixed MODID reference
 public class Config {
     private static final ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
@@ -29,6 +32,12 @@ public class Config {
     private static String apiBaseUrl;
     private static int apiRequestTimeoutSeconds; // Field to store the baked value
 
+    /**
+     * Validates a URL.
+     *
+     * @param obj The object to validate.
+     * @return True if the object is a valid URL, false otherwise.
+     */
     private static boolean validateUrl(final Object obj) {
         if (obj instanceof final String urlString) {
             return !StringUtils.isBlank(urlString) && URL_PATTERN.matcher(urlString).matches();
@@ -36,6 +45,11 @@ public class Config {
         return false;
     }
     
+    /**
+     * Gets the base URL for the SkyBlock API.
+     *
+     * @return The base URL for the SkyBlock API.
+     */
     public static String getApiBaseUrl() {
         if (apiBaseUrl == null) {
             // Attempt to load it if not baked yet (e.g. direct call before config event)
@@ -45,6 +59,11 @@ public class Config {
         return apiBaseUrl;
     }
 
+    /**
+     * Gets the timeout in seconds for API requests.
+     *
+     * @return The timeout in seconds for API requests.
+     */
     public static int getApiRequestTimeoutSeconds() {
         // Return the baked value. If called before baking, this might be 0 or the previous value.
         // SkyBlockMod's HTTP_CLIENT initialization is static, but the timeout for the *request*
@@ -52,8 +71,9 @@ public class Config {
         return apiRequestTimeoutSeconds > 0 ? apiRequestTimeoutSeconds : 10; // Fallback to 10 if not baked or invalid
     }
 
-    // This method is called by Forge when the config is loaded or reloaded.
-    // We "bake" the values into static fields for easy access.
+    /**
+     * Bakes the configuration values into static fields.
+     */
     public static void bake() {
         apiBaseUrl = API_BASE_URL.get();
         apiRequestTimeoutSeconds = API_REQUEST_TIMEOUT_SECONDS.get();
@@ -63,9 +83,11 @@ public class Config {
         }
     }
 
-    // This is not strictly necessary if using the ModConfigEvent listener in the main mod class,
-    // but can be kept if you prefer config loading logic centralized here.
-    // If SkyBlockMod.onModConfigEvent calls Config.bake(), this specific listener might be redundant.
+    /**
+     * Handles the loading of the mod configuration.
+     *
+     * @param event The mod configuration event.
+     */
     @SubscribeEvent
     static void onLoad(final ModConfigEvent.Loading event) {
         if (event.getConfig().getSpec() == SPEC) {
@@ -73,6 +95,11 @@ public class Config {
         }
     }
 
+    /**
+     * Handles the reloading of the mod configuration.
+     *
+     * @param event The mod configuration event.
+     */
     @SubscribeEvent
     static void onReload(final ModConfigEvent.Reloading event) {
         if (event.getConfig().getSpec() == SPEC) {

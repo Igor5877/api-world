@@ -4,6 +4,9 @@ import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 
+/**
+ * The /island command.
+ */
 public class IslandCommand {
 
     // public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {

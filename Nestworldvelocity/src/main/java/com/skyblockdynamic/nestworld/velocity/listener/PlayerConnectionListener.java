@@ -35,6 +35,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Listens for player connection events.
+ */
 public class PlayerConnectionListener {
 
     private final NestworldVelocityPlugin plugin;
@@ -46,6 +49,15 @@ public class PlayerConnectionListener {
     private final Set<UUID> pendingStartPlayers = ConcurrentHashMap.newKeySet();
     private final Gson gson = new Gson();
 
+    /**
+     * Constructs a new PlayerConnectionListener.
+     *
+     * @param plugin      The plugin instance.
+     * @param proxyServer The proxy server.
+     * @param logger      The logger.
+     * @param apiClient   The API client.
+     * @param config      The plugin configuration.
+     */
     public PlayerConnectionListener(NestworldVelocityPlugin plugin, ProxyServer proxyServer, Logger logger, ApiClient apiClient, PluginConfig config) {
         this.plugin = plugin;
         this.proxyServer = proxyServer;
@@ -54,6 +66,11 @@ public class PlayerConnectionListener {
         this.config = config;
     }
 
+    /**
+     * Handles the player choose initial server event.
+     *
+     * @param event The player choose initial server event.
+     */
     @Subscribe
     public void onPlayerChooseInitialServer(PlayerChooseInitialServerEvent event) {
         Player player = event.getPlayer();
@@ -93,6 +110,12 @@ public class PlayerConnectionListener {
         pollForRunningAndConnect(player, 0);
     }
     
+    /**
+     * Polls for a running island and connects the player to it.
+     *
+     * @param player  The player.
+     * @param attempt The current attempt number.
+     */
     private void pollForRunningAndConnect(Player player, int attempt) {
         if (attempt >= config.getMaxPollingAttempts()) {
             pendingStartPlayers.remove(player.getUniqueId());
@@ -156,6 +179,12 @@ public class PlayerConnectionListener {
         });
     }
     
+    /**
+     * Schedules the next poll for a player's island.
+     *
+     * @param player      The player.
+     * @param nextAttempt The next attempt number.
+     */
     private void scheduleNextPoll(Player player, int nextAttempt) {
         proxyServer.getScheduler()
             .buildTask(plugin, () -> pollForRunningAndConnect(player, nextAttempt))
@@ -163,7 +192,13 @@ public class PlayerConnectionListener {
             .schedule();
     }
     
-    // FIX 1: Нова логіка з єдиною спробою підключення
+    /**
+     * Attempts to connect a player to their island.
+     *
+     * @param player The player.
+     * @param ip     The IP address of the island.
+     * @param port   The port of the island.
+     */
     private void attemptSingleConnection(Player player, String ip, int port) {
         if (!player.isActive()) {
             pendingStartPlayers.remove(player.getUniqueId());
@@ -191,6 +226,11 @@ public class PlayerConnectionListener {
             });
     }
     
+    /**
+     * Handles the player disconnect event.
+     *
+     * @param event The player disconnect event.
+     */
     @Subscribe
     public void onPlayerDisconnect(DisconnectEvent event) {
         Player player = event.getPlayer();

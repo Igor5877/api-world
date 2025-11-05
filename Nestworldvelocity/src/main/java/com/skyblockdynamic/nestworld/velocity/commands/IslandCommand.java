@@ -17,6 +17,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * The /island command.
+ */
 public class IslandCommand implements SimpleCommand {
 
     private final ApiClient apiClient;
@@ -25,6 +28,14 @@ public class IslandCommand implements SimpleCommand {
     private final ScheduledExecutorService pollingExecutor;
     private final com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager;
 
+    /**
+     * Constructs a new IslandCommand.
+     *
+     * @param plugin        The plugin instance.
+     * @param apiClient     The API client.
+     * @param logger        The logger.
+     * @param localeManager The locale manager.
+     */
     public IslandCommand(NestworldVelocityPlugin plugin, ApiClient apiClient, Logger logger, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager) {
         this.apiClient = apiClient;
         this.logger = logger;
@@ -36,6 +47,11 @@ public class IslandCommand implements SimpleCommand {
         });
     }
 
+    /**
+     * Executes the /island command.
+     *
+     * @param invocation The command invocation.
+     */
     @Override
     public void execute(final Invocation invocation) {
         CommandSource source = invocation.source();
@@ -62,6 +78,11 @@ public class IslandCommand implements SimpleCommand {
         }
     }
 
+    /**
+     * Handles the /island create subcommand.
+     *
+     * @param player The player who executed the command.
+     */
     private void handleCreate(Player player) {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
         player.sendMessage(localeManager.getComponent(lang, "island.create.requesting", NamedTextColor.YELLOW));
@@ -88,6 +109,12 @@ public class IslandCommand implements SimpleCommand {
             });
     }
 
+    /**
+     * Polls the status of an island.
+     *
+     * @param player   The player to poll the status for.
+     * @param attempts The number of attempts.
+     */
     private void pollIslandStatus(Player player, AtomicInteger attempts) {
         final int MAX_POLLING_ATTEMPTS = 15;
         final int POLLING_INTERVAL_SECONDS = 2;

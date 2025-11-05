@@ -1,92 +1,102 @@
 package com.skyblock.dynamic.utils;
 
-import dev.ftb.mods.ftbquests.quest.IslandData;
-import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
-import dev.ftb.mods.ftbquests.quest.team.TeamData;
-import dev.ftb.mods.ftbquests.quest.team.TeamManager;
-import net.minecraft.server.MinecraftServer;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonSyntaxException;
+import com.mojang.logging.LogUtils;
+import com.skyblock.dynamic.nestworld.mods.NestworldModsServer;
+import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.handshake.ServerHandshake;
+import org.slf4j.Logger;
 
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.Set;
+import java.net.URI;
 import java.util.UUID;
 
-public class QuestTeamBridge {
+/**
+ * A WebSocket client for island-related communication.
+ */
+public class IslandWebSocketClient extends org.java_websocket.client.WebSocketClient {
 
-    private static final QuestTeamBridge INSTANCE = new QuestTeamBridge();
+    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Gson GSON = new Gson();
+    private final String ownerUuid;
 
-    private QuestTeamBridge() {
-    }
-
-    public static QuestTeamBridge getInstance() {
-        return INSTANCE;
+    /**
+     * Constructs a new IslandWebSocketClient.
+     *
+     * @param serverUri The URI of the WebSocket server.
+     * @param ownerUuid The UUID of the island owner.
+     */
+    public IslandWebSocketClient(URI serverUri, String ownerUuid) {
+        super(serverUri);
+        this.ownerUuid = ownerUuid;
     }
 
     /**
-     * Synchronizes the team data from an external source (like an API) with both the native FTB Quests TeamData
-     * and the custom IslandData. This ensures both systems are aware of the team structure.
+     * Called when the WebSocket connection is opened.
      *
-     * @param ownerUuid The UUID of the team's owner.
-     * @param memberUuids A collection of UUIDs for all members of the team (including the owner).
+     * @param handshakedata The handshake data.
      */
-    public void syncTeamData(UUID ownerUuid, Collection<UUID> memberUuids) {
-        ServerQuestFile file = ServerQuestFile.INSTANCE;
-        if (file == null || file.server == null) {
-            // Can't do anything without the server instance
-            return;
-        }
-        MinecraftServer server = file.server;
-        TeamManager teamManager = TeamManager.getInstance(server);
+    @Override
+    public void onOpen(ServerHandshake handshakedata) {
+        LOGGER.info("WebSocket connection opened for owner: {}", ownerUuid);
+        // You could send an identification message here if the API requires it
+        // send("{\"type\":\"IDENTIFY\",\"owner_uuid\":\"" + ownerUuid + "\"}");
+    }
 
-        // --- Step 1: Synchronize with native FTB Quests TeamData ---
-        TeamData teamData = teamManager.getTeam(ownerUuid);
-        if (teamData == null) {
-            // Team doesn't exist, so create it. The owner is automatically added as a leader.
-            teamData = teamManager.createTeam("Island of " + ownerUuid.toString().substring(0, 8), ownerUuid);
-        }
-
-        if (teamData != null) {
-            Set<UUID> apiMembers = new HashSet<>(memberUuids);
-            Set<UUID> currentMembers = new HashSet<>(teamData.getMembers().keySet());
-
-            // Add new members
-            for (UUID apiMember : apiMembers) {
-                if (!currentMembers.contains(apiMember)) {
-                    teamManager.addPlayerToTeam(apiMember, teamData);
+    /**
+     * Called when a message is received from the WebSocket server.
+     *
+     * @param message The message.
+     */
+    @Override
+    public void onMessage(String message) {
+        LOGGER.info("Received WebSocket message: {}", message);
+        try {
+            JsonObject json = GSON.fromJson(message, JsonObject.class);
+            if (json.has("event") && json.get("event").getAsString().equals("TEAM_UPDATED")) {
+                if (json.has("payload")) {
+                    JsonObject payload = json.getAsJsonObject("payload");
+                    // Since this is on a network thread, we need to schedule the task on the main server thread
+                    getServer().execute(() -> {
+                        NestworldModsServer.ISLAND_PROVIDER.processTeamData(payload);
+                    });
                 }
             }
-
-            // Remove old members
-            for (UUID currentMember : currentMembers) {
-                if (!apiMembers.contains(currentMember) && !currentMember.equals(ownerUuid)) {
-                    teamManager.removePlayerFromTeam(currentMember);
-                }
-            }
-        }
-
-        // --- Step 2: Synchronize with custom IslandData ---
-        // This maintains compatibility with any existing code that directly checks IslandData.
-        IslandData islandData = file.getOrCreateIslandData(ownerUuid);
-        if (islandData != null) {
-            islandData.setMembers(memberUuids);
-            islandData.markDirty(); // Ensure it gets saved
+        } catch (JsonSyntaxException e) {
+            LOGGER.warn("Failed to parse WebSocket message as JSON: {}", message, e);
         }
     }
 
     /**
-     * Checks if a player is a member of a given team using the authoritative FTB Quests team data.
+     * Called when the WebSocket connection is closed.
      *
-     * @param playerUuid The UUID of the player to check.
-     * @param islandOwnerUuid The UUID of the island's owner, which is also the team ID.
-     * @return true if the player is on the team, false otherwise.
+     * @param code   The status code.
+     * @param reason The reason for closing.
+     * @param remote Whether the connection was closed by the remote peer.
      */
-    public boolean isPlayerOnTeam(UUID playerUuid, UUID islandOwnerUuid) {
-        ServerQuestFile file = ServerQuestFile.INSTANCE;
-        if (file == null || file.server == null) {
-            return false;
-        }
-        TeamManager teamManager = TeamManager.getInstance(file.server);
-        TeamData teamData = teamManager.getTeam(islandOwnerUuid);
-        return teamData != null && teamData.isMember(playerUuid);
+    @Override
+    public void onClose(int code, String reason, boolean remote) {
+        LOGGER.warn("WebSocket connection closed. Code: {}, Reason: {}, Remote: {}. Will attempt to reconnect...", code, reason, remote);
+        // Implement reconnection logic here if needed
+    }
+
+    /**
+     * Called when an error occurs on the WebSocket connection.
+     *
+     * @param ex The exception.
+     */
+    @Override
+    public void onError(Exception ex) {
+        LOGGER.error("WebSocket error", ex);
+    }
+
+    /**
+     * Gets the current Minecraft server instance.
+     *
+     * @return The current Minecraft server instance.
+     */
+    private net.minecraft.server.MinecraftServer getServer() {
+        return net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
     }
 }
