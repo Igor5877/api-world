@@ -102,7 +102,7 @@ jobs:
 
         CONTAINER_IP=$(lxc list "$LXC_CONTAINER" --project "$LXC_PROJECT" -c 4 --format csv | awk 'NR==1{print $1}')
         MC_PORT="${{ secrets.VELOCITY_PORT }}"
-        [ -z "$MC_PORT" ] && MC_PORT=25577
+        [ -z "$MC_PORT" ] && MC_PORT=25565
 
         echo "--- Checking Velocity health ---"
         for i in {1..6}; do
