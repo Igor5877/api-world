@@ -17,6 +17,9 @@ import java.util.ResourceBundle;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 
+/**
+ * Manages the plugin's locales.
+ */
 public class LocaleManager {
 
     private final Path dataDirectory;
@@ -24,12 +27,21 @@ public class LocaleManager {
     private final Map<String, Properties> langMessages = new ConcurrentHashMap<>();
     private final String defaultLang = "en";
 
+    /**
+     * Constructs a new LocaleManager.
+     *
+     * @param dataDirectory The data directory for the plugin.
+     * @param logger        The logger.
+     */
     public LocaleManager(Path dataDirectory, Logger logger) {
         this.dataDirectory = dataDirectory;
         this.logger = logger;
         loadLocales();
     }
 
+    /**
+     * Loads the locales from the configuration files.
+     */
     private void loadLocales() {
         try {
             Path langDir = dataDirectory.resolve("lang");
@@ -61,6 +73,11 @@ public class LocaleManager {
         }
     }
 
+    /**
+     * Loads a language from the plugin's resources.
+     *
+     * @param langCode The language code.
+     */
     private void loadLangFromResources(String langCode) {
         try (InputStream is = getClass().getClassLoader().getResourceAsStream("lang/messages_" + langCode + ".properties")) {
             if (is != null) {
@@ -76,14 +93,36 @@ public class LocaleManager {
         }
     }
 
+    /**
+     * Gets a message from the locale.
+     *
+     * @param lang The language.
+     * @param key  The key of the message.
+     * @return The message.
+     */
     public String getMessage(String lang, String key) {
         return langMessages.getOrDefault(lang, langMessages.get(defaultLang)).getProperty(key, key);
     }
 
+    /**
+     * Gets a message from the locale as a TextComponent.
+     *
+     * @param lang The language.
+     * @param key  The key of the message.
+     * @return The message as a TextComponent.
+     */
     public TextComponent getComponent(String lang, String key) {
         return Component.text(getMessage(lang, key));
     }
     
+    /**
+     * Gets a message from the locale as a TextComponent with a specified color.
+     *
+     * @param lang  The language.
+     * @param key   The key of the message.
+     * @param color The color of the message.
+     * @return The message as a TextComponent.
+     */
     public TextComponent getComponent(String lang, String key, NamedTextColor color) {
         return Component.text(getMessage(lang, key), color);
     }

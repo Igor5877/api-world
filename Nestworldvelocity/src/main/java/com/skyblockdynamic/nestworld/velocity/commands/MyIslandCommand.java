@@ -20,6 +20,9 @@ import java.net.URI;
 import java.util.UUID;
 import com.skyblockdynamic.nestworld.velocity.network.WebSocketManager;
 
+/**
+ * The /myisland command.
+ */
 public class MyIslandCommand implements SimpleCommand {
 
     private final NestworldVelocityPlugin plugin;
@@ -29,6 +32,16 @@ public class MyIslandCommand implements SimpleCommand {
     private final PluginConfig config;
     private final com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager;
 
+    /**
+     * Constructs a new MyIslandCommand.
+     *
+     * @param plugin        The plugin instance.
+     * @param proxyServer   The proxy server.
+     * @param logger        The logger.
+     * @param apiClient     The API client.
+     * @param config        The plugin configuration.
+     * @param localeManager The locale manager.
+     */
     public MyIslandCommand(NestworldVelocityPlugin plugin, ProxyServer proxyServer, Logger logger, ApiClient apiClient, PluginConfig config, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager) {
         this.plugin = plugin;
         this.proxyServer = proxyServer;
@@ -38,6 +51,11 @@ public class MyIslandCommand implements SimpleCommand {
         this.localeManager = localeManager;
     }
 
+    /**
+     * Executes the /myisland command.
+     *
+     * @param invocation The command invocation.
+     */
     @Override
     public void execute(Invocation invocation) {
         CommandSource source = invocation.source();
@@ -57,6 +75,11 @@ public class MyIslandCommand implements SimpleCommand {
         initiateIslandConnection(player);
     }
 
+    /**
+     * Initiates the connection to the player's island.
+     *
+     * @param player The player.
+     */
     private void initiateIslandConnection(Player player) {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
         player.sendMessage(localeManager.getComponent(lang, "myisland.status.checking", NamedTextColor.YELLOW));
@@ -89,6 +112,11 @@ public class MyIslandCommand implements SimpleCommand {
         });
     }
 
+    /**
+     * Starts the island and listens for its status.
+     *
+     * @param player The player.
+     */
     private void startAndListen(Player player) {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
         player.sendMessage(localeManager.getComponent(lang, "myisland.status.not_ready", NamedTextColor.YELLOW));
@@ -112,6 +140,11 @@ public class MyIslandCommand implements SimpleCommand {
             });
     }
 
+    /**
+     * Connects to the WebSocket.
+     *
+     * @param player The player.
+     */
     private void connectToWebSocket(Player player) {
         UUID playerUuid = player.getUniqueId();
         
@@ -137,6 +170,13 @@ public class MyIslandCommand implements SimpleCommand {
         }
     }
     
+    /**
+     * Attempts to connect the player to their island.
+     *
+     * @param player The player.
+     * @param ip     The IP address of the island server.
+     * @param port   The port of the island server.
+     */
     private void attemptSingleConnection(Player player, String ip, int port) {
         String serverName = "island-" + player.getUniqueId();
         ServerInfo serverInfo = new ServerInfo(serverName, new InetSocketAddress(ip, port));
@@ -154,11 +194,23 @@ public class MyIslandCommand implements SimpleCommand {
             });
     }
     
+    /**
+     * Checks if the command source has permission to execute the command.
+     *
+     * @param invocation The command invocation.
+     * @return True if the command source has permission, false otherwise.
+     */
     @Override
     public boolean hasPermission(Invocation invocation) {
         return true;
     }
 
+    /**
+     * Teleports a player to another player's island.
+     *
+     * @param player           The player to teleport.
+     * @param targetPlayerName The name of the player whose island to teleport to.
+     */
     public void teleportToIsland(Player player, String targetPlayerName) {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
         proxyServer.getPlayer(targetPlayerName).ifPresent(targetPlayer -> {

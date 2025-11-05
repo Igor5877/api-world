@@ -16,6 +16,9 @@ import org.slf4j.Logger;
 import java.util.Arrays;
 import java.util.UUID;
 
+/**
+ * The /team command.
+ */
 public class TeamCommand implements SimpleCommand {
 
     private final ApiClient apiClient;
@@ -23,12 +26,25 @@ public class TeamCommand implements SimpleCommand {
     private final Gson gson = new Gson();
     private final com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager;
 
+    /**
+     * Constructs a new TeamCommand.
+     *
+     * @param plugin        The plugin instance.
+     * @param apiClient     The API client.
+     * @param logger        The logger.
+     * @param localeManager The locale manager.
+     */
     public TeamCommand(NestworldVelocityPlugin plugin, ApiClient apiClient, Logger logger, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager) {
         this.apiClient = apiClient;
         this.logger = logger;
         this.localeManager = localeManager;
     }
 
+    /**
+     * Executes the /team command.
+     *
+     * @param invocation The command invocation.
+     */
     @Override
     public void execute(Invocation invocation) {
         CommandSource source = invocation.source();
@@ -67,6 +83,12 @@ public class TeamCommand implements SimpleCommand {
         }
     }
 
+    /**
+     * Handles the /team create subcommand.
+     *
+     * @param player The player who executed the command.
+     * @param args   The command arguments.
+     */
     private void handleCreate(Player player, String[] args) {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
         if (args.length < 2) {
@@ -84,6 +106,12 @@ public class TeamCommand implements SimpleCommand {
                 });
     }
 
+    /**
+     * Handles the /team accept subcommand.
+     *
+     * @param player The player who executed the command.
+     * @param args   The command arguments.
+     */
     private void handleAccept(Player player, String[] args) {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
         if (args.length < 2) {
@@ -101,6 +129,11 @@ public class TeamCommand implements SimpleCommand {
                 });
     }
 
+    /**
+     * Handles the /team leave subcommand.
+     *
+     * @param player The player who executed the command.
+     */
     private void handleLeave(Player player) {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
         apiClient.getTeam(player.getUniqueId()).thenAccept(response -> {
@@ -121,6 +154,12 @@ public class TeamCommand implements SimpleCommand {
         });
     }
     
+    /**
+     * Handles the /team rename subcommand.
+     *
+     * @param player The player who executed the command.
+     * @param args   The command arguments.
+     */
     private void handleRename(Player player, String[] args) {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
         if (args.length < 2) {
@@ -146,6 +185,11 @@ public class TeamCommand implements SimpleCommand {
         });
     }
 
+    /**
+     * Handles the /team info subcommand.
+     *
+     * @param player The player who executed the command.
+     */
     private void handleInfo(Player player) {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
         apiClient.getTeam(player.getUniqueId()).thenAccept(response -> {
@@ -175,6 +219,11 @@ public class TeamCommand implements SimpleCommand {
         });
     }
 
+    /**
+     * Sends the help message for the /team command.
+     *
+     * @param player The player to send the message to.
+     */
     private void sendHelp(Player player) {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
         player.sendMessage(localeManager.getComponent(lang, "team.help.header", NamedTextColor.YELLOW));
@@ -185,6 +234,12 @@ public class TeamCommand implements SimpleCommand {
         player.sendMessage(localeManager.getComponent(lang, "team.help.info", NamedTextColor.AQUA));
     }
 
+    /**
+     * Checks if the command source has permission to execute the command.
+     *
+     * @param invocation The command invocation.
+     * @return True if the command source has permission, false otherwise.
+     */
     @Override
     public boolean hasPermission(Invocation invocation) {
         return true;

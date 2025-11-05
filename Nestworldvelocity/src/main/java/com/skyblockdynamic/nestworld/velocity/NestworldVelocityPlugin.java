@@ -30,6 +30,9 @@ import com.skyblockdynamic.nestworld.velocity.commands.IslandCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.TpaCommand;
 import com.skyblockdynamic.nestworld.velocity.locale.LocaleManager;
 
+/**
+ * The main plugin class for the NestworldVelocity plugin.
+ */
 @Plugin(
     id = "nestworldvelocity",
     name = "NestworldVelocity",
@@ -51,6 +54,13 @@ public class NestworldVelocityPlugin {
     private final Set<UUID> awaitingConnection = ConcurrentHashMap.newKeySet();
 
 
+    /**
+     * Constructs a new NestworldVelocityPlugin.
+     *
+     * @param server The proxy server.
+     * @param logger The logger.
+     * @param dataDirectory The data directory for the plugin.
+     */
     @Inject
     public NestworldVelocityPlugin(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
         this.server = server;
@@ -60,6 +70,11 @@ public class NestworldVelocityPlugin {
         logger.info("NestworldVelocityPlugin is constructing...");
     }
 
+    /**
+     * Handles the proxy initialization event.
+     *
+     * @param event The proxy initialization event.
+     */
    @Subscribe
     public void onProxyInitialization(ProxyInitializeEvent event) {
         logger.info("NestworldVelocityPlugin onProxyInitialization started...");
@@ -112,6 +127,11 @@ public class NestworldVelocityPlugin {
         logger.info("Fallback server configured to: {}", pluginConfig.getFallbackServerName());
     }
 
+    /**
+     * Handles the proxy shutdown event.
+     *
+     * @param event The proxy shutdown event.
+     */
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
         logger.info("Shutting down NestworldVelocityPlugin's executor service.");
@@ -127,30 +147,65 @@ public class NestworldVelocityPlugin {
         }
     }
     
+    /**
+     * Gets the executor service.
+     *
+     * @return The executor service.
+     */
     public ExecutorService getExecutorService() {
         return executorService;
     }
 
+    /**
+     * Gets the plugin configuration.
+     *
+     * @return The plugin configuration.
+     */
     public PluginConfig getPluginConfig() {
         return pluginConfig;
     }
 
+    /**
+     * Gets the API client.
+     *
+     * @return The API client.
+     */
     public ApiClient getApiClient() {
         return apiClient;
     }
 
+    /**
+     * Gets the proxy server.
+     *
+     * @return The proxy server.
+     */
     public ProxyServer getServer() {
         return server;
     }
 
+    /**
+     * Gets the logger.
+     *
+     * @return The logger.
+     */
     public Logger getLogger() {
         return logger;
     }
 
+    /**
+     * Gets the map of WebSocket managers.
+     *
+     * @return The map of WebSocket managers.
+     */
     public Map<UUID, WebSocketManager> getWebSocketManagers() {
         return webSocketManagers;
     }
 
+    /**
+     * Gets the set of players awaiting connection.
+     *
+     * @return The set of players awaiting connection.
+     */
     public Set<UUID> getAwaitingConnection() {
         return awaitingConnection;
     }
