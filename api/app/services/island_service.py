@@ -21,24 +21,10 @@ import pathlib
 logger = logging.getLogger(__name__)
 
 class IslandService:
-    """Provides business logic for island and team management."""
     def __init__(self):
-        """Initializes the IslandService."""
         logger.info("IslandService: Initialized to use CRUD operations with DB session.")
 
     async def get_island_by_player_uuid(self, db_session: AsyncSession, *, player_uuid: str) -> IslandResponse | None:
-        """Gets an island by player UUID.
-
-        This method first checks if the player is in a team and gets the team's
-        island. If not, it checks for a legacy solo island.
-
-        Args:
-            db_session: The database session.
-            player_uuid: The UUID of the player.
-
-        Returns:
-            The island, or None if not found.
-        """
         logger.debug(f"Service: Fetching island for player_uuid: {player_uuid}")
 
         # First, check if the player is in a team and get the team's island
@@ -57,24 +43,6 @@ class IslandService:
         return None
 
     async def create_new_solo_island(self, db_session: AsyncSession, *, player_uuid: str, player_name: str, background_tasks: BackgroundTasks) -> TeamModel:
-        """Creates a new solo island for a player.
-
-        This method creates a new team for the player and a new island for the
-        team.
-
-        Args:
-            db_session: The database session.
-            player_uuid: The UUID of the player.
-            player_name: The name of the player.
-            background_tasks: The background tasks to run.
-
-        Returns:
-            The created team.
-
-        Raises:
-            ValueError: If the player is already in a team or has a legacy solo
-                island.
-        """
         logger.info(f"Service: Explicitly creating a new solo island for player {player_uuid}.")
         if await crud_team.get_team_by_player(db=db_session, player_uuid=player_uuid):
             raise ValueError("Player is already in a team.")
@@ -104,17 +72,14 @@ class IslandService:
         await db_session.flush()
         await db_session.refresh(team_db_model, attribute_names=['island', 'members'])
         
-        background_tasks.add_task(self._perform_lxd_clone_and_update_status, team_id=team_db_model.id, container_name=container_name)
+        background_tasks.add_task(self._perform_lxd_clone_and_update_status, team_id=team_db_model.id, container_name=container_name, player_name=player_name)
         logger.info(f"Service: Background task scheduled for new solo island for player {player_uuid}.")
         
         return team_db_model
 
     async def _send_update_notification(self, team: Optional[TeamModel], island: IslandModel):
-        """Sends an island status update to team members or an individual player.
-
-        Args:
-            team: The team to send the notification to.
-            island: The island that was updated.
+        """
+        Централізовано надсилає оновлення стану острова членам команди або окремому гравцеві.
         """
         island_data = IslandResponse.model_validate(island).model_dump_json()
         
@@ -122,16 +87,10 @@ class IslandService:
             member_uuids = [member.player_uuid for member in team.members]
             await websocket_manager.send_message_to_clients(member_uuids, island_data)
         elif island.player_uuid:
-            # For legacy solo islands
+            # Для застарілих "соло" островів
             await websocket_manager.send_personal_message(island_data, str(island.player_uuid))
 
-    async def _perform_lxd_clone_and_update_status(self, team_id: int, container_name: str):
-        """Performs the LXD clone and updates the island status.
-
-        Args:
-            team_id: The ID of the team.
-            container_name: The name of the container.
-        """
+    async def _perform_lxd_clone_and_update_status(self, team_id: int, container_name: str, player_name: str):
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
             team = None
@@ -183,22 +142,6 @@ class IslandService:
                         await self._send_update_notification(team_in_error, updated_island)
 
     async def start_island_instance(self, db_session: AsyncSession, *, player_uuid: str, player_name: str, background_tasks: BackgroundTasks) -> IslandResponse:
-        """Starts an island instance for a player.
-
-        If the player is in a team, it starts the team's island. If the team
-        does not have an island, it creates one. If the player is not in a
-        team, it checks for a legacy solo island. If no island is found, it
-        creates a new solo island and team.
-
-        Args:
-            db_session: The database session.
-            player_uuid: The UUID of the player.
-            player_name: The name of the player.
-            background_tasks: The background tasks to run.
-
-        Returns:
-            The island response.
-        """
         logger.info(f"Service: Player {player_uuid} attempting to start an island.")
         team = await crud_team.get_team_by_player(db=db_session, player_uuid=player_uuid)
 
@@ -213,7 +156,7 @@ class IslandService:
             # Case 1a: Team has an island. Start it.
             if island:
                 logger.info(f"Service: Found team island (ID: {island.id}) for player {player_uuid}.")
-                return await self._start_existing_island(db_session, island, team, background_tasks)
+                return await self._start_existing_island(db_session, island, team, background_tasks, player_name)
             # Case 1b: Team exists but has no island. Create one for them.
             else:
                 logger.warning(f"Service: Team {team.id} exists for player {player_uuid} but has no island. Creating one now.")
@@ -231,7 +174,7 @@ class IslandService:
                 await db_session.commit()
                 await db_session.refresh(team, attribute_names=["island"])
 
-                background_tasks.add_task(self._perform_lxd_clone_and_update_status, team_id=team.id, container_name=container_name)
+                background_tasks.add_task(self._perform_lxd_clone_and_update_status, team_id=team.id, container_name=container_name, player_name=player_name)
                 logger.info(f"Service: New island (ID: {new_island.id}) created for team {team.id}. Returning PENDING_CREATION state.")
                 return IslandResponse.model_validate(new_island)
 
@@ -239,7 +182,7 @@ class IslandService:
         solo_island = await crud_island.get_by_player_uuid(db_session, player_uuid=player_uuid)
         if solo_island:
             logger.info(f"Service: Found legacy solo island (ID: {solo_island.id}) for player {player_uuid}.")
-            return await self._start_existing_island(db_session, solo_island, None, background_tasks)
+            return await self._start_existing_island(db_session, solo_island, None, background_tasks, player_name)
 
         # Case 3: No team and no solo island. Create a new solo island and team.
         logger.info(f"Service: No island or team found for player {player_uuid}. Creating a new solo island setup.")
@@ -254,21 +197,7 @@ class IslandService:
         logger.info(f"Service: New solo island (ID: {new_solo_team.island.id}) created for player {player_uuid}. Returning PENDING_CREATION state.")
         return IslandResponse.model_validate(new_solo_team.island)
 
-    async def _start_existing_island(self, db_session: AsyncSession, island: IslandModel, team: Optional[TeamModel], background_tasks: BackgroundTasks) -> IslandResponse:
-        """Starts an existing island.
-
-        Args:
-            db_session: The database session.
-            island: The island to start.
-            team: The team that owns the island.
-            background_tasks: The background tasks to run.
-
-        Returns:
-            The island response.
-
-        Raises:
-            ValueError: If the island cannot be started from its current state.
-        """
+    async def _start_existing_island(self, db_session: AsyncSession, island: IslandModel, team: Optional[TeamModel], background_tasks: BackgroundTasks, player_name: str) -> IslandResponse:
         current_status = island.status
         container_name = island.container_name
 
@@ -290,10 +219,10 @@ class IslandService:
             await self._send_update_notification(team, updated_island)
             
             if team:
-                background_tasks.add_task(self._perform_lxd_start_and_update_status, team_id=team.id, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN))
+                background_tasks.add_task(self._perform_lxd_start_and_update_status, team_id=team.id, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN), player_name=player_name)
             else:
                 player_uuid_str = str(island.player_uuid)
-                background_tasks.add_task(self._perform_solo_lxd_start_and_update_status, player_uuid_str=player_uuid_str, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN))
+                background_tasks.add_task(self._perform_solo_lxd_start_and_update_status, player_uuid_str=player_uuid_str, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN), player_name=player_name)
             
             return IslandResponse.model_validate(updated_island)
         elif current_status == IslandStatusEnum.PENDING_START:
@@ -302,14 +231,7 @@ class IslandService:
             raise ValueError(f"Island cannot be started from its current state: {current_status.value}")
         return IslandResponse.model_validate(island)
 
-    async def _perform_solo_lxd_start_and_update_status(self, player_uuid_str: str, container_name: str, was_frozen: bool):
-        """Performs the LXD start and updates the status for a solo island.
-
-        Args:
-            player_uuid_str: The UUID of the player.
-            container_name: The name of the container.
-            was_frozen: Whether the island was frozen.
-        """
+    async def _perform_solo_lxd_start_and_update_status(self, player_uuid_str: str, container_name: str, was_frozen: bool, player_name: str):
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
             island = await crud_island.get_by_player_uuid(db, player_uuid=player_uuid_str)
@@ -333,14 +255,7 @@ class IslandService:
                 await db.refresh(updated_island)
                 await self._send_update_notification(None, updated_island)
 
-    async def _perform_lxd_start_and_update_status(self, team_id: int, container_name: str, was_frozen: bool):
-        """Performs the LXD start and updates the status for a team island.
-
-        Args:
-            team_id: The ID of the team.
-            container_name: The name of the container.
-            was_frozen: Whether the island was frozen.
-        """
+    async def _perform_lxd_start_and_update_status(self, team_id: int, container_name: str, was_frozen: bool, player_name: str):
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db_session_bg:
             team = None
@@ -381,19 +296,6 @@ class IslandService:
                     await self._send_update_notification(team, updated_island)
 
     async def stop_island_instance(self, db_session: AsyncSession, *, player_uuid: str, background_tasks: BackgroundTasks) -> IslandResponse:
-        """Stops an island instance for a player.
-
-        Args:
-            db_session: The database session.
-            player_uuid: The UUID of the player.
-            background_tasks: The background tasks to run.
-
-        Returns:
-            The island response.
-
-        Raises:
-            ValueError: If no island is found for the player.
-        """
         logger.info(f"Service: Player {player_uuid} attempting to stop an island.")
         team = await crud_team.get_team_by_player(db=db_session, player_uuid=player_uuid)
         if team and team.island:
@@ -408,20 +310,6 @@ class IslandService:
         raise ValueError("No island found for this player to stop.")
 
     async def _stop_existing_island(self, db_session: AsyncSession, island: IslandModel, team: Optional[TeamModel], background_tasks: BackgroundTasks) -> IslandResponse:
-        """Stops an existing island.
-
-        Args:
-            db_session: The database session.
-            island: The island to stop.
-            team: The team that owns the island.
-            background_tasks: The background tasks to run.
-
-        Returns:
-            The island response.
-
-        Raises:
-            ValueError: If the island cannot be stopped from its current state.
-        """
         if island.status in [IslandStatusEnum.RUNNING, IslandStatusEnum.FROZEN, IslandStatusEnum.ERROR_START]:
             updated_island = await crud_island.update(db_session, db_obj=island, obj_in={"status": IslandStatusEnum.PENDING_STOP})
             await db_session.commit()
@@ -443,11 +331,6 @@ class IslandService:
             raise ValueError(f"Island cannot be stopped from its current state: {island.status.value}")
 
     async def _perform_lxd_stop_and_update_status(self, team_id: int):
-        """Performs the LXD stop and updates the status for a team island.
-
-        Args:
-            team_id: The ID of the team.
-        """
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(TeamModel).where(TeamModel.id == team_id).options(selectinload(TeamModel.island), selectinload(TeamModel.members)))
@@ -465,11 +348,6 @@ class IslandService:
                  logger.error(f"Error stopping team island for team {team_id}: {e}")
 
     async def _perform_solo_lxd_stop_and_update_status(self, player_uuid_str: str):
-        """Performs the LXD stop and updates the status for a solo island.
-
-        Args:
-            player_uuid_str: The UUID of the player.
-        """
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
             island = await crud_island.get_by_player_uuid(db, player_uuid=player_uuid_str)
@@ -485,19 +363,6 @@ class IslandService:
                 logger.error(f"Error stopping solo island for {player_uuid_str}: {e}")
 
     async def freeze_island_instance(self, db_session: AsyncSession, *, player_uuid: str, background_tasks: BackgroundTasks) -> IslandResponse:
-        """Freezes an island instance for a player.
-
-        Args:
-            db_session: The database session.
-            player_uuid: The UUID of the player.
-            background_tasks: The background tasks to run.
-
-        Returns:
-            The island response.
-
-        Raises:
-            ValueError: If no island is found for the player.
-        """
         logger.info(f"Service: Player {player_uuid} attempting to freeze an island.")
         team = await crud_team.get_team_by_player(db=db_session, player_uuid=player_uuid)
         if team and team.island:
@@ -508,20 +373,6 @@ class IslandService:
         raise ValueError("No island found for this player to freeze.")
 
     async def _freeze_existing_island(self, db_session: AsyncSession, island: IslandModel, team: Optional[TeamModel], background_tasks: BackgroundTasks) -> IslandResponse:
-        """Freezes an existing island.
-
-        Args:
-            db_session: The database session.
-            island: The island to freeze.
-            team: The team that owns the island.
-            background_tasks: The background tasks to run.
-
-        Returns:
-            The island response.
-
-        Raises:
-            ValueError: If the island cannot be frozen from its current state.
-        """
         if island.status == IslandStatusEnum.RUNNING:
             updated_island = await crud_island.update(db_session, db_obj=island, obj_in={"status": IslandStatusEnum.PENDING_FREEZE})
             await db_session.commit()
@@ -542,11 +393,6 @@ class IslandService:
             raise ValueError(f"Island cannot be frozen from its current state: {island.status.value}")
 
     async def _perform_lxd_freeze_and_update_status(self, team_id: int):
-        """Performs the LXD freeze and updates the status for a team island.
-
-        Args:
-            team_id: The ID of the team.
-        """
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(TeamModel).where(TeamModel.id == team_id).options(selectinload(TeamModel.island), selectinload(TeamModel.members)))
@@ -563,11 +409,6 @@ class IslandService:
                  logger.error(f"Error freezing island for team {team_id}: {e}")
 
     async def _perform_solo_lxd_freeze_and_update_status(self, player_uuid_str: str):
-        """Performs the LXD freeze and updates the status for a solo island.
-
-        Args:
-            player_uuid_str: The UUID of the player.
-        """
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
             island = await crud_island.get_by_player_uuid(db, player_uuid=player_uuid_str)
@@ -582,19 +423,6 @@ class IslandService:
                 logger.error(f"Error freezing solo island for {player_uuid_str}: {e}")
 
     async def rename_team(self, db: AsyncSession, *, team: TeamModel, new_name: str) -> TeamModel:
-        """Renames a team.
-
-        Args:
-            db: The database session.
-            team: The team to rename.
-            new_name: The new name for the team.
-
-        Returns:
-            The renamed team.
-
-        Raises:
-            ValueError: If a team with the new name already exists.
-        """
         existing_name = await crud_team.get_team_by_name(db, name=new_name)
         if existing_name and existing_name.id != team.id:
             raise ValueError("A team with this name already exists.")
@@ -602,16 +430,6 @@ class IslandService:
         return updated_team
 
     async def mark_island_as_ready_for_players(self, db_session: AsyncSession, *, owner_uuid: str):
-        """Marks an island as ready for players.
-
-        Args:
-            db_session: The database session.
-            owner_uuid: The UUID of the island owner.
-
-        Raises:
-            ValueError: If the team or island is not found, or if the island
-                is not in the RUNNING state.
-        """
         logger.info(f"Service: Attempting to mark island as ready for owner_uuid: {owner_uuid}")
         
         team = await crud_team.get_team_by_owner_with_relations(db_session, owner_uuid=owner_uuid)
@@ -635,26 +453,6 @@ class IslandService:
         logger.info(f"Service: Island for team {team.id} (owner: {owner_uuid}) marked as ready and notification sent.")
 
     async def handle_join_team(self, db_session: AsyncSession, *, player_to_join_uuid: str, team_to_join: TeamModel, background_tasks: BackgroundTasks):
-        """Handles a player joining a team.
-
-        This method checks if the player is already in the team, finds the
-        player's current team, and if the player is in a solo team, deletes
-        it. It then adds the player to the new team and schedules the old
-        island for deletion.
-
-        Args:
-            db_session: The database session.
-            player_to_join_uuid: The UUID of the player to join.
-            team_to_join: The team to join.
-            background_tasks: The background tasks to run.
-
-        Returns:
-            The updated team.
-
-        Raises:
-            ValueError: If the player is already in the team, or if the player
-                is in a team with other members.
-        """
         # 1. Check if player is already in the target team
         for member in team_to_join.members:
             if member.player_uuid == player_to_join_uuid:
@@ -700,11 +498,6 @@ class IslandService:
         return team_to_join
 
     async def _perform_lxd_delete_and_cleanup(self, island_id: int):
-        """Performs the LXD deletion and cleanup for an island.
-
-        Args:
-            island_id: The ID of the island to delete.
-        """
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db_session_bg:
             try:
