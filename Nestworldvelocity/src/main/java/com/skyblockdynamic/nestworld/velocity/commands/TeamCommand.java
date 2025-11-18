@@ -5,6 +5,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.skyblockdynamic.nestworld.velocity.NestworldVelocityPlugin;
+import com.skyblockdynamic.nestworld.velocity.metrics.MetricsManager;
 import com.skyblockdynamic.nestworld.velocity.network.ApiClient;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
@@ -25,6 +26,7 @@ public class TeamCommand implements SimpleCommand {
     private final Logger logger;
     private final Gson gson = new Gson();
     private final com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager;
+    private final MetricsManager metricsManager;
 
     /**
      * Constructs a new TeamCommand.
@@ -34,10 +36,11 @@ public class TeamCommand implements SimpleCommand {
      * @param logger        The logger.
      * @param localeManager The locale manager.
      */
-    public TeamCommand(NestworldVelocityPlugin plugin, ApiClient apiClient, Logger logger, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager) {
+    public TeamCommand(NestworldVelocityPlugin plugin, ApiClient apiClient, Logger logger, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager, MetricsManager metricsManager) {
         this.apiClient = apiClient;
         this.logger = logger;
         this.localeManager = localeManager;
+        this.metricsManager = metricsManager;
     }
 
     /**
@@ -47,9 +50,13 @@ public class TeamCommand implements SimpleCommand {
      */
     @Override
     public void execute(Invocation invocation) {
+        MetricsManager.command_usage.labels("team").inc();
+        io.prometheus.client.Histogram.Timer timer = MetricsManager.command_latency.labels("team").startTimer();
+
         CommandSource source = invocation.source();
         if (!(source instanceof Player)) {
             source.sendMessage(localeManager.getComponent("en", "command.player_only", NamedTextColor.RED));
+            timer.observeDuration();
             return;
         }
 
@@ -81,6 +88,7 @@ public class TeamCommand implements SimpleCommand {
             default:
                 sendHelp(player);
         }
+        timer.observeDuration();
     }
 
     /**

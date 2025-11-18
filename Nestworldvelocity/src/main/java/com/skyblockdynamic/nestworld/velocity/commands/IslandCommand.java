@@ -3,6 +3,7 @@ package com.skyblockdynamic.nestworld.velocity.commands;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.skyblockdynamic.nestworld.velocity.NestworldVelocityPlugin;
+import com.skyblockdynamic.nestworld.velocity.metrics.MetricsManager;
 import com.skyblockdynamic.nestworld.velocity.network.ApiClient;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.command.CommandSource;
@@ -27,6 +28,7 @@ public class IslandCommand implements SimpleCommand {
     private final Gson gson = new Gson();
     private final ScheduledExecutorService pollingExecutor;
     private final com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager;
+    private final MetricsManager metricsManager;
 
     /**
      * Constructs a new IslandCommand.
@@ -36,10 +38,11 @@ public class IslandCommand implements SimpleCommand {
      * @param logger        The logger.
      * @param localeManager The locale manager.
      */
-    public IslandCommand(NestworldVelocityPlugin plugin, ApiClient apiClient, Logger logger, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager) {
+    public IslandCommand(NestworldVelocityPlugin plugin, ApiClient apiClient, Logger logger, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager, MetricsManager metricsManager) {
         this.apiClient = apiClient;
         this.logger = logger;
         this.localeManager = localeManager;
+        this.metricsManager = metricsManager;
         this.pollingExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "island-creation-poller");
             t.setDaemon(true);
@@ -54,9 +57,13 @@ public class IslandCommand implements SimpleCommand {
      */
     @Override
     public void execute(final Invocation invocation) {
+        MetricsManager.command_usage.labels("island").inc();
+        io.prometheus.client.Histogram.Timer timer = MetricsManager.command_latency.labels("island").startTimer();
+
         CommandSource source = invocation.source();
         if (!(source instanceof Player)) {
             source.sendMessage(localeManager.getComponent("en", "command.player_only", NamedTextColor.RED));
+            timer.observeDuration();
             return;
         }
 
@@ -76,6 +83,7 @@ public class IslandCommand implements SimpleCommand {
         } else {
             player.sendMessage(localeManager.getComponent(lang, "island.usage", NamedTextColor.RED));
         }
+        timer.observeDuration();
     }
 
     /**

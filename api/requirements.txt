@@ -28,3 +28,4 @@ aiomysql # For MySQL (if using)
 # pytest # For testing
 # httpx # For testing FastAPI endpoints asynchronously
 # pytest-asyncio # For testing async code with pytest
+prometheus-fastapi-instrumentator

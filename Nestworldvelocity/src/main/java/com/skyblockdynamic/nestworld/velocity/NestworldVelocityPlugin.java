@@ -29,6 +29,7 @@ import com.skyblockdynamic.nestworld.velocity.commands.TeamCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.IslandCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.TpaCommand;
 import com.skyblockdynamic.nestworld.velocity.locale.LocaleManager;
+import com.skyblockdynamic.nestworld.velocity.metrics.MetricsManager;
 
 /**
  * The main plugin class for the NestworldVelocity plugin.
@@ -50,6 +51,7 @@ public class NestworldVelocityPlugin {
     private ApiClient apiClient;
     private LocaleManager localeManager;
     private ExecutorService executorService;
+    private MetricsManager metricsManager;
     private final Map<UUID, WebSocketManager> webSocketManagers = new ConcurrentHashMap<>();
     private final Set<UUID> awaitingConnection = ConcurrentHashMap.newKeySet();
 
@@ -81,14 +83,16 @@ public class NestworldVelocityPlugin {
         this.pluginConfig = PluginConfig.load(dataDirectory, logger);
         this.localeManager = new LocaleManager(dataDirectory, logger);
         this.executorService = Executors.newCachedThreadPool();
+        this.metricsManager = new MetricsManager(logger);
+        metricsManager.startServer(pluginConfig.getMetricsPort());
         
         this.apiClient = new ApiClient(logger, pluginConfig);
 
-        server.getEventManager().register(this, new PlayerConnectionListener(this, server, logger, apiClient, pluginConfig));
+        server.getEventManager().register(this, new PlayerConnectionListener(this, server, logger, apiClient, pluginConfig, metricsManager));
 
         CommandManager commandManager = server.getCommandManager();
         
-        MyIslandCommand myIslandCommandInstance = new MyIslandCommand(this, server, logger, this.apiClient, this.pluginConfig, this.localeManager);
+        MyIslandCommand myIslandCommandInstance = new MyIslandCommand(this, server, logger, this.apiClient, this.pluginConfig, this.localeManager, metricsManager);
         CommandMeta myIslandCommandMeta = commandManager.metaBuilder("myisland")
             .plugin(this)
             .build();
@@ -99,24 +103,24 @@ public class NestworldVelocityPlugin {
             .plugin(this)
             .build();
             
-        commandManager.register(spawnCommandMeta, new SpawnCommand(server, logger, this.pluginConfig));
+        commandManager.register(spawnCommandMeta, new SpawnCommand(server, logger, this.pluginConfig, metricsManager));
         logger.info("Registered /spawn command.");
         
         CommandMeta teamCommandMeta = commandManager.metaBuilder("team")
             .plugin(this)
             .build();
             
-        commandManager.register(teamCommandMeta, new TeamCommand(this, this.apiClient, logger, this.localeManager));
+        commandManager.register(teamCommandMeta, new TeamCommand(this, this.apiClient, logger, this.localeManager, metricsManager));
         logger.info("Registered /team command.");
 
         CommandMeta islandCommandMeta = commandManager.metaBuilder("island")
             .plugin(this)
             .build();
         
-        commandManager.register(islandCommandMeta, new IslandCommand(this, this.apiClient, logger, this.localeManager));
+        commandManager.register(islandCommandMeta, new IslandCommand(this, this.apiClient, logger, this.localeManager, metricsManager));
         logger.info("Registered /island command.");
 
-        TpaCommand tpaCommand = new TpaCommand(this, server, logger, pluginConfig, myIslandCommandInstance, this.localeManager);
+        TpaCommand tpaCommand = new TpaCommand(this, server, logger, pluginConfig, myIslandCommandInstance, this.localeManager, metricsManager);
         commandManager.register(tpaCommand.createTpaCommand());
         commandManager.register(tpaCommand.createTpAcceptCommand());
         commandManager.register(tpaCommand.createTpDenyCommand());
@@ -135,6 +139,9 @@ public class NestworldVelocityPlugin {
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
         logger.info("Shutting down NestworldVelocityPlugin's executor service.");
+        if (metricsManager != null) {
+            metricsManager.stopServer();
+        }
         executorService.shutdown();
         try {
             if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {

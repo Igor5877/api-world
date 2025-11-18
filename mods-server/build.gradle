@@ -149,6 +149,11 @@ dependencies {
     // http://www.gradle.org/docs/current/userguide/dependency_management.html
     // TOML configuration parsing
     implementation 'com.electronwill.night-config:toml:3.6.6'
+
+    // Prometheus Metrics
+    implementation 'io.prometheus:simpleclient:0.16.0'
+    implementation 'io.prometheus:simpleclient_httpserver:0.16.0'
+    implementation 'io.prometheus:simpleclient_common:0.16.0'
 }
 shadowJar {
     relocate 'org.java_websocket', 'com.yournamespace.libs.org.java_websocket'

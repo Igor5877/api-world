@@ -362,6 +362,25 @@ class CRUDisland:
             logger.error(f"Database error in CRUDisland.get_running_islands_count: {e}")
             raise
 
+    async def count_by_status(self, db_session: AsyncSession) -> Dict[IslandStatusEnum, int]:
+        """Counts islands by their status.
+
+        Args:
+            db_session: The database session.
+
+        Returns:
+            A dictionary mapping each status to its count.
+        """
+        try:
+            result = await db_session.execute(
+                select(IslandModel.status, func.count(IslandModel.id))
+                .group_by(IslandModel.status)
+            )
+            return {status: count for status, count in result.all()}
+        except SQLAlchemyError as e:
+            logger.error(f"Database error in CRUDisland.count_by_status: {e}")
+            raise
+
     async def update_by_id(self, db_session: AsyncSession, *, island_id: int, obj_in: Union[IslandUpdate, Dict[str, Any]]) -> Optional[IslandModel]:
         """Updates an island by its ID.
 

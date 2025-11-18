@@ -8,6 +8,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonSyntaxException;
 import com.skyblockdynamic.nestworld.velocity.NestworldVelocityPlugin;
 import com.skyblockdynamic.nestworld.velocity.config.PluginConfig;
+import com.skyblockdynamic.nestworld.velocity.metrics.MetricsManager;
 import com.skyblockdynamic.nestworld.velocity.network.ApiClient;
 import com.skyblockdynamic.nestworld.velocity.network.ApiResponse;
 import com.velocitypowered.api.event.Subscribe;
@@ -45,6 +46,7 @@ public class PlayerConnectionListener {
     private final Logger logger;
     private final ApiClient apiClient;
     private final PluginConfig config;
+    private final MetricsManager metricsManager;
     private final Map<UUID, ScheduledTask> pendingStopTasks = new ConcurrentHashMap<>();
     private final Set<UUID> pendingStartPlayers = ConcurrentHashMap.newKeySet();
     private final Gson gson = new Gson();
@@ -58,12 +60,13 @@ public class PlayerConnectionListener {
      * @param apiClient   The API client.
      * @param config      The plugin configuration.
      */
-    public PlayerConnectionListener(NestworldVelocityPlugin plugin, ProxyServer proxyServer, Logger logger, ApiClient apiClient, PluginConfig config) {
+    public PlayerConnectionListener(NestworldVelocityPlugin plugin, ProxyServer proxyServer, Logger logger, ApiClient apiClient, PluginConfig config, MetricsManager metricsManager) {
         this.plugin = plugin;
         this.proxyServer = proxyServer;
         this.logger = logger;
         this.apiClient = apiClient;
         this.config = config;
+        this.metricsManager = metricsManager;
     }
 
     /**
@@ -119,6 +122,8 @@ public class PlayerConnectionListener {
     private void pollForRunningAndConnect(Player player, int attempt) {
         if (attempt >= config.getMaxPollingAttempts()) {
             pendingStartPlayers.remove(player.getUniqueId());
+            MetricsManager.awaiting_connection_players.dec();
+            MetricsManager.failed_connections.inc();
             player.sendMessage(Component.text("Your island took too long to start. Please use /myisland to try again.", NamedTextColor.RED));
             return;
         }
@@ -127,6 +132,7 @@ public class PlayerConnectionListener {
                 if (detailsResponse.statusCode() == 404) {
                     player.sendMessage(Component.text("Preparing your island, please wait...", NamedTextColor.YELLOW));
                     pendingStartPlayers.add(player.getUniqueId());
+                    MetricsManager.awaiting_connection_players.inc();
                     return apiClient.requestIslandStart(player.getUniqueId(), player.getUsername());
                 }
                 scheduleNextPoll(player, attempt + 1);
@@ -202,6 +208,7 @@ public class PlayerConnectionListener {
     private void attemptSingleConnection(Player player, String ip, int port) {
         if (!player.isActive()) {
             pendingStartPlayers.remove(player.getUniqueId());
+            MetricsManager.awaiting_connection_players.dec();
             return;
         }
         String serverName = "island-" + player.getUniqueId();
@@ -211,9 +218,12 @@ public class PlayerConnectionListener {
             .thenAccept(result -> {
                 if (result.isSuccessful()) {
                     pendingStartPlayers.remove(player.getUniqueId());
+                    MetricsManager.awaiting_connection_players.dec();
+                    MetricsManager.successful_connections.inc();
                     player.sendMessage(Component.text("Successfully connected to your island!", NamedTextColor.GREEN));
                     return;
                 }
+                MetricsManager.failed_connections.inc();
                 String reasonString = result.getReasonComponent()
                     .map(c -> PlainComponentSerializer.plain().serialize(c).toLowerCase())
                     .orElse("unknown reason");

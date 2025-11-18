@@ -5,9 +5,11 @@ import com.electronwill.nightconfig.core.io.WritingMode;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
+import com.skyblock.dynamic.metrics.MetricsManager;
 import com.skyblock.dynamic.nestworld.mods.NestworldModsServer;
 import com.skyblock.dynamic.utils.IslandContext;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
+import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.server.ServerAboutToStartEvent;
@@ -48,6 +50,8 @@ public class SkyBlockMod {
     private static long serverStartTime = 0L;
     private static boolean playerJoinedWithinFirstHour = false;
     private static com.skyblock.dynamic.utils.IslandWebSocketClient webSocketClient;
+    private static MetricsManager metricsManager;
+    private static Thread metricsUpdateThread;
 
     /**
      * The constructor for the SkyBlock mod.
@@ -112,6 +116,7 @@ public class SkyBlockMod {
             LOGGER.info("SkyBlockMod: Server started. Running as an ISLAND SERVER. Owner UUID: {}", islandContext.getOwnerUuid());
             sendIslandReadyForPlayersSignal();
             initializeWebSocket();
+            initializeMetrics(event.getServer());
         } else {
             LOGGER.info("SkyBlockMod: Server started. Running as a HUB SERVER.");
         }
@@ -127,6 +132,12 @@ public class SkyBlockMod {
         if (webSocketClient != null && webSocketClient.isOpen()) {
             LOGGER.info("SkyBlockMod: Closing WebSocket connection.");
             webSocketClient.close();
+        }
+        if (metricsManager != null) {
+            metricsManager.stopServer();
+        }
+        if (metricsUpdateThread != null && metricsUpdateThread.isAlive()) {
+            metricsUpdateThread.interrupt();
         }
     }
 
@@ -145,6 +156,34 @@ public class SkyBlockMod {
         } catch (URISyntaxException e) {
             LOGGER.error("SkyBlockMod: Invalid WebSocket URI syntax.", e);
         }
+    }
+
+    private void initializeMetrics(MinecraftServer server) {
+        metricsManager = new MetricsManager(LOGGER);
+        metricsManager.startServer(9092); // This should be configurable
+
+        metricsUpdateThread = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    // Update TPS
+                    double meanTickTime = server.getAverageTickTime();
+                    double tps = Math.min(20.0, 1000.0 / meanTickTime);
+                    MetricsManager.tps.set(tps);
+
+                    // Update online players
+                    MetricsManager.online_players.set(server.getPlayerCount());
+
+                    // Update WebSocket status
+                    MetricsManager.websocket_status.set(webSocketClient != null && webSocketClient.isOpen() ? 1 : 0);
+
+                    Thread.sleep(5000); // Update every 5 seconds
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        metricsUpdateThread.setName("SkyBlock-Metrics-Updater");
+        metricsUpdateThread.start();
     }
 
     /**

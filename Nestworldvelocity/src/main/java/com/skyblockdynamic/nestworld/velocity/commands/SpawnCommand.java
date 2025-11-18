@@ -1,6 +1,7 @@
 package com.skyblockdynamic.nestworld.velocity.commands;
 
 import com.skyblockdynamic.nestworld.velocity.config.PluginConfig;
+import com.skyblockdynamic.nestworld.velocity.metrics.MetricsManager;
 import com.skyblockdynamic.nestworld.velocity.network.WebSocketManager;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
@@ -23,6 +24,7 @@ public class SpawnCommand implements SimpleCommand {
     private final ProxyServer proxyServer;
     private final Logger logger;
     private final PluginConfig config;
+    private final MetricsManager metricsManager;
 
     /**
      * Constructs a new SpawnCommand.
@@ -31,10 +33,11 @@ public class SpawnCommand implements SimpleCommand {
      * @param logger      The logger.
      * @param config      The plugin configuration.
      */
-    public SpawnCommand(ProxyServer proxyServer, Logger logger, PluginConfig config) {
+    public SpawnCommand(ProxyServer proxyServer, Logger logger, PluginConfig config, MetricsManager metricsManager) {
         this.proxyServer = proxyServer;
         this.logger = logger;
         this.config = config;
+        this.metricsManager = metricsManager;
     }
 
     /**
@@ -44,9 +47,13 @@ public class SpawnCommand implements SimpleCommand {
      */
     @Override
     public void execute(Invocation invocation) {
+        MetricsManager.command_usage.labels("spawn").inc();
+        io.prometheus.client.Histogram.Timer timer = MetricsManager.command_latency.labels("spawn").startTimer();
+
         CommandSource source = invocation.source();
         if (!(source instanceof Player)) {
             source.sendMessage(Component.text("This command can only be used by players.", NamedTextColor.RED));
+            timer.observeDuration();
             return;
         }
 
@@ -76,6 +83,7 @@ public class SpawnCommand implements SimpleCommand {
                 } else {
                     player.sendMessage(Component.text("Could not connect you to spawn.", NamedTextColor.RED));
                 }
+                timer.observeDuration();
             });
     }
     

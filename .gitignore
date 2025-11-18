@@ -1,3 +1,23 @@
-playersync-common.template.toml
+# IDEs
+.idea/
+.vscode/
+
+# Build artifacts
+.gradle/
+build/
+bin/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Environment
 .env
-venv
+venv/
+*.log
+
+# Original entries
+playersync-common.template.toml

@@ -2,8 +2,11 @@ package com.skyblockdynamic.nestworld.velocity.commands;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.skyblockdynamic.nestworld.velocity.NestworldVelocityPlugin;
 import com.skyblockdynamic.nestworld.velocity.config.PluginConfig;
+import com.skyblockdynamic.nestworld.velocity.metrics.MetricsManager;
 import com.skyblockdynamic.nestworld.velocity.network.ApiClient;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
@@ -31,6 +34,7 @@ public class MyIslandCommand implements SimpleCommand {
     private final ApiClient apiClient;
     private final PluginConfig config;
     private final com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager;
+    private final MetricsManager metricsManager;
 
     /**
      * Constructs a new MyIslandCommand.
@@ -42,13 +46,14 @@ public class MyIslandCommand implements SimpleCommand {
      * @param config        The plugin configuration.
      * @param localeManager The locale manager.
      */
-    public MyIslandCommand(NestworldVelocityPlugin plugin, ProxyServer proxyServer, Logger logger, ApiClient apiClient, PluginConfig config, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager) {
+    public MyIslandCommand(NestworldVelocityPlugin plugin, ProxyServer proxyServer, Logger logger, ApiClient apiClient, PluginConfig config, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager, MetricsManager metricsManager) {
         this.plugin = plugin;
         this.proxyServer = proxyServer;
         this.logger = logger;
         this.apiClient = apiClient;
         this.config = config;
         this.localeManager = localeManager;
+        this.metricsManager = metricsManager;
     }
 
     /**
@@ -58,9 +63,13 @@ public class MyIslandCommand implements SimpleCommand {
      */
     @Override
     public void execute(Invocation invocation) {
+        MetricsManager.command_usage.labels("myisland").inc();
+        io.prometheus.client.Histogram.Timer timer = MetricsManager.command_latency.labels("myisland").startTimer();
+
         CommandSource source = invocation.source();
         if (!(source instanceof Player)) {
             source.sendMessage(localeManager.getComponent("en", "command.player_only", NamedTextColor.RED));
+            timer.observeDuration();
             return;
         }
         Player player = (Player) source;
@@ -73,6 +82,7 @@ public class MyIslandCommand implements SimpleCommand {
         }
         
         initiateIslandConnection(player);
+        timer.observeDuration();
     }
 
     /**

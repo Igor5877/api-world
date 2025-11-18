@@ -8,6 +8,7 @@ import com.velocitypowered.api.command.BrigadierCommand;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
+import com.skyblockdynamic.nestworld.velocity.metrics.MetricsManager;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -31,6 +32,7 @@ public class TpaCommand {
     private final PluginConfig config;
     private final MyIslandCommand myIslandCommand;
     private final com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager;
+    private final MetricsManager metricsManager;
 
     private static class TpaRequest {
         final UUID requester;
@@ -54,13 +56,14 @@ public class TpaCommand {
      * @param myIslandCommand The /myisland command.
      * @param localeManager  The locale manager.
      */
-    public TpaCommand(NestworldVelocityPlugin plugin, ProxyServer proxy, Logger logger, PluginConfig config, MyIslandCommand myIslandCommand, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager) {
+    public TpaCommand(NestworldVelocityPlugin plugin, ProxyServer proxy, Logger logger, PluginConfig config, MyIslandCommand myIslandCommand, com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager, MetricsManager metricsManager) {
         this.plugin = plugin;
         this.proxy = proxy;
         this.logger = logger;
         this.config = config;
         this.myIslandCommand = myIslandCommand;
         this.localeManager = localeManager;
+        this.metricsManager = metricsManager;
     }
 
     /**
@@ -115,8 +118,12 @@ public class TpaCommand {
      * @return The result of the command.
      */
     private int tpa(com.mojang.brigadier.context.CommandContext<CommandSource> context) {
+        MetricsManager.command_usage.labels("tpa").inc();
+        io.prometheus.client.Histogram.Timer timer = MetricsManager.command_latency.labels("tpa").startTimer();
+
         if (!(context.getSource() instanceof Player)) {
             context.getSource().sendMessage(localeManager.getComponent("en", "command.player_only", NamedTextColor.RED));
+            timer.observeDuration();
             return 0;
         }
 
@@ -148,6 +155,7 @@ public class TpaCommand {
             requester.sendMessage(Component.text(localeManager.getMessage(lang, "tpa.request.not_found").replace("{player_name}", targetName), NamedTextColor.RED));
         });
 
+        timer.observeDuration();
         return Command.SINGLE_SUCCESS;
     }
 
@@ -158,8 +166,12 @@ public class TpaCommand {
      * @return The result of the command.
      */
     private int tpaccept(com.mojang.brigadier.context.CommandContext<CommandSource> context) {
+        MetricsManager.command_usage.labels("tpaccept").inc();
+        io.prometheus.client.Histogram.Timer timer = MetricsManager.command_latency.labels("tpaccept").startTimer();
+
         if (!(context.getSource() instanceof Player)) {
             context.getSource().sendMessage(localeManager.getComponent("en", "command.player_only", NamedTextColor.RED));
+            timer.observeDuration();
             return 0;
         }
 
@@ -189,6 +201,7 @@ public class TpaCommand {
             target.sendMessage(localeManager.getComponent(lang, "tpa.accept.sender_offline", NamedTextColor.RED));
         });
 
+        timer.observeDuration();
         return Command.SINGLE_SUCCESS;
     }
 
@@ -199,8 +212,12 @@ public class TpaCommand {
      * @return The result of the command.
      */
     private int tpdeny(com.mojang.brigadier.context.CommandContext<CommandSource> context) {
+        MetricsManager.command_usage.labels("tpdeny").inc();
+        io.prometheus.client.Histogram.Timer timer = MetricsManager.command_latency.labels("tpdeny").startTimer();
+
         if (!(context.getSource() instanceof Player)) {
             context.getSource().sendMessage(localeManager.getComponent("en", "command.player_only", NamedTextColor.RED));
+            timer.observeDuration();
             return 0;
         }
 
@@ -220,6 +237,7 @@ public class TpaCommand {
 
         target.sendMessage(localeManager.getComponent(lang, "tpa.deny.success", NamedTextColor.GREEN));
 
+        timer.observeDuration();
         return Command.SINGLE_SUCCESS;
     }
 

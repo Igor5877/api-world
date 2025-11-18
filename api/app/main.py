@@ -10,10 +10,44 @@ from app.core.config import settings
 from app.db.session import AsyncSessionLocal # For creating sessions in startup tasks
 # from app.db.session import init_db # If you decide to use it
 from app.services.lxd_service import lxd_service, LXDContainerNotFoundError, LXDServiceError
+from prometheus_fastapi_instrumentator import Instrumentator, metrics
+from prometheus_client import Gauge
 from app.crud.crud_island import crud_island
-from app.models.island import Island as IslandModel # For type hinting if needed directly
+from app.models.island import Island as IslandModel
 from app.schemas.island import IslandStatusEnum
 from app.services.websocket_manager import manager as websocket_manager
+
+logger = logging.getLogger(__name__)
+
+# --- Prometheus Metrics ---
+ISLAND_STATUS_GAUGE = Gauge(
+    "skyblock_island_status_count",
+    "Number of islands in each status.",
+    ["status"],
+)
+WEBSOCKET_CONNECTIONS_GAUGE = Gauge(
+    "skyblock_websocket_active_connections",
+    "Number of active WebSocket connections."
+)
+
+async def update_island_status_metrics():
+    """Periodically updates the island status gauge."""
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                status_counts = await crud_island.count_by_status(db)
+                # Reset all statuses to 0 before setting the new values
+                for status in IslandStatusEnum:
+                    ISLAND_STATUS_GAUGE.labels(status=status.value).set(0)
+                # Set the current counts
+                for status, count in status_counts.items():
+                    ISLAND_STATUS_GAUGE.labels(status=status.value).set(count)
+        except Exception as e:
+            logger.error(f"Error updating island status metrics: {e}")
+        await asyncio.sleep(30) # Update every 30 seconds
+
+# --- End Prometheus Metrics ---
+
 
 logger = logging.getLogger(__name__) # Get logger for main module
 
@@ -227,7 +261,9 @@ async def lifespan(app: FastAPI):
     # Attempt to acquire a lock. The first worker to set this key wins.
     # The lock expires after 60 seconds to prevent deadlocks if the worker crashes.
     is_startup_leader = await redis_client.set("startup_lock", "1", ex=60, nx=True)
-    
+
+    # Start the Prometheus metrics updater task on the startup leader
+    metrics_updater_task = None
     if is_startup_leader:
         logger.info("This worker is the startup leader. Running initial tasks...")
         # Perform island state reconciliation
@@ -236,6 +272,9 @@ async def lifespan(app: FastAPI):
         # Start background workers
         await start_creation_worker()
         await start_start_worker()
+
+        # Start the Prometheus metrics updater
+        metrics_updater_task = asyncio.create_task(update_island_status_metrics())
         logger.info("Startup leader has finished initial tasks.")
     else:
         logger.info("This worker is not the startup leader. Skipping initial tasks.")
@@ -244,6 +283,8 @@ async def lifespan(app: FastAPI):
     
     # Code to run on shutdown
     logger.info("Shutting down SkyBlock LXD Manager API worker...")
+    if metrics_updater_task:
+        metrics_updater_task.cancel()
     redis_listener_task.cancel()
     await close_redis_pool()
 
@@ -253,6 +294,15 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
+
+# --- Prometheus Instrumentator ---
+instrumentator = Instrumentator().instrument(app)
+
+@app.on_event("startup")
+async def startup():
+    instrumentator.expose(app, include_in_schema=True)
+# --- End Prometheus Instrumentator ---
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -271,11 +321,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         client_id: The ID of the client.
     """
     await websocket_manager.connect(websocket, client_id)
+    WEBSOCKET_CONNECTIONS_GAUGE.set(len(websocket_manager.active_connections))
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         websocket_manager.disconnect(client_id)
+        WEBSOCKET_CONNECTIONS_GAUGE.set(len(websocket_manager.active_connections))
 
 @app.get("/")
 async def read_root():
