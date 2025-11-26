@@ -2,42 +2,52 @@ import asyncio
 from typing import AsyncGenerator
 
 import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.orm import sessionmaker
 
 from app.db.base_class import Base
 
-# Create a new async engine for SQLite in-memory database
+# Use a consistent in-memory SQLite database URL
 SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+# Create an async engine
 engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=True)
 
-# Create a sessionmaker for the test database
+# Create an async session factory
 TestingSessionLocal = async_sessionmaker(
-    autocommit=False, autoflush=False, bind=engine
+    autocommit=False, autoflush=False, bind=engine, class_=AsyncSession, expire_on_commit=False
 )
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for each test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-import pytest_asyncio
-
-@pytest_asyncio.fixture(scope="function")
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
+@pytest_asyncio.fixture(scope="session")
+async def setup_database() -> AsyncGenerator[None, None]:
     """
-    Fixture to create a new database session for each test function.
+    Fixture to set up the database once per test session.
+    Creates all tables and drops them after the session ends.
     """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    async with TestingSessionLocal() as session:
-        yield session
+    yield
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+@pytest_asyncio.fixture(scope="function")
+async def db_session(setup_database: None) -> AsyncGenerator[AsyncSession, None]:
+    """
+    Fixture that provides a transactional session for each test function.
+
+    Each test will run within a transaction that is rolled back at the end.
+    This ensures test isolation.
+    """
+    async with TestingSessionLocal() as session:
+        await session.begin()
+        try:
+            yield session
+        finally:
+            await session.rollback()

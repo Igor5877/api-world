@@ -161,18 +161,17 @@ class CRUDisland:
             await db_session.rollback()
             raise
             
-    async def update_status(
-        self, db_session: AsyncSession, *, player_uuid: str, status: IslandStatusEnum, 
+    async def update_status_by_team_id(
+        self, db_session: AsyncSession, *, team_id: int, status: IslandStatusEnum,
         extra_fields: Optional[Dict[str, Any]] = None
     ) -> Optional[IslandModel]:
-        """Atomically updates the status of an island and optionally other fields.
+        """Atomically updates the status of an island and optionally other fields using team_id.
 
-        This uses an UPDATE statement directly for efficiency, especially for status
-        changes.
+        This uses an UPDATE statement directly for efficiency and correctness.
 
         Args:
             db_session: The database session.
-            player_uuid: The UUID of the player.
+            team_id: The ID of the team owning the island.
             status: The new status.
             extra_fields: A dictionary of extra fields to update.
 
@@ -187,28 +186,31 @@ class CRUDisland:
             values_to_update.update(extra_fields)
         
         try:
-            # First, perform the update
             stmt = (
                 sqlalchemy_update(IslandModel)
-                .where(IslandModel.player_uuid == player_uuid)
+                .where(IslandModel.team_id == team_id)
                 .values(**values_to_update)
             )
-            await db_session.execute(stmt)
+            result = await db_session.execute(stmt)
+
+            # Check if any row was actually updated
+            if result.rowcount == 0:
+                logger.warning(f"No island found for team_id {team_id} during status update. No rows updated.")
+                # We still commit because the transaction was successful, even if it did nothing.
+                await db_session.commit()
+                return None
+
             await db_session.commit()
 
-            # Then, fetch the updated island
-            # Using the existing get_by_player_uuid method might be cleaner if it doesn't cause issues with session state
-            # For now, a direct select:
+            # Fetch the updated island to return it
             updated_island_result = await db_session.execute(
-                select(IslandModel).filter(IslandModel.player_uuid == player_uuid)
+                select(IslandModel).filter(IslandModel.team_id == team_id)
             )
             updated_island = updated_island_result.scalars().first()
             
-            if not updated_island:
-                 logger.warning(f"No island found with player_uuid {player_uuid} after status update.")
             return updated_island
         except SQLAlchemyError as e:
-            logger.error(f"Database error in CRUDisland.update_status for player_uuid {player_uuid}: {e}")
+            logger.error(f"Database error in CRUDisland.update_status_by_team_id for team_id {team_id}: {e}")
             await db_session.rollback()
             raise
 
