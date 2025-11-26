@@ -292,8 +292,7 @@ class IslandService:
             if team:
                 background_tasks.add_task(self._perform_lxd_start_and_update_status, team_id=team.id, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN))
             else:
-                player_uuid_str = str(island.player_uuid)
-                background_tasks.add_task(self._perform_solo_lxd_start_and_update_status, player_uuid_str=player_uuid_str, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN))
+                background_tasks.add_task(self._perform_solo_lxd_start_and_update_status, team_id=island.team_id, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN))
             
             return IslandResponse.model_validate(updated_island)
         elif current_status == IslandStatusEnum.PENDING_START:
@@ -302,17 +301,17 @@ class IslandService:
             raise ValueError(f"Island cannot be started from its current state: {current_status.value}")
         return IslandResponse.model_validate(island)
 
-    async def _perform_solo_lxd_start_and_update_status(self, player_uuid_str: str, container_name: str, was_frozen: bool):
+    async def _perform_solo_lxd_start_and_update_status(self, team_id: int, container_name: str, was_frozen: bool):
         """Performs the LXD start and updates the status for a solo island.
 
         Args:
-            player_uuid_str: The UUID of the player.
+            team_id: The ID of the team.
             container_name: The name of the container.
             was_frozen: Whether the island was frozen.
         """
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
-            island = await crud_island.get_by_player_uuid(db, player_uuid=player_uuid_str)
+            island = await crud_island.get_by_team_id(db, team_id=team_id)
             if not island: return
 
             try:
@@ -321,14 +320,13 @@ class IslandService:
                 ip = await lxd_service.get_container_ip(container_name)
                 if not ip: raise LXDServiceError("Failed to get IP for solo island.")
                 
-                update_data = {"status": IslandStatusEnum.RUNNING, "internal_ip_address": ip}
-                updated_island = await crud_island.update(db, db_obj=island, obj_in=update_data)
+                updated_island = await crud_island.update_status_by_team_id(db, team_id=team_id, status=IslandStatusEnum.RUNNING, extra_fields={"internal_ip_address": ip})
                 await db.commit()
                 await db.refresh(updated_island)
                 await self._send_update_notification(None, updated_island)
             except Exception as e:
-                logger.error(f"Error starting solo island for {player_uuid_str}: {e}")
-                updated_island = await crud_island.update(db, db_obj=island, obj_in={"status": IslandStatusEnum.ERROR_START})
+                logger.error(f"Error starting solo island for team {team_id}: {e}")
+                updated_island = await crud_island.update_status_by_team_id(db, team_id=team_id, status=IslandStatusEnum.ERROR_START)
                 await db.commit()
                 await db.refresh(updated_island)
                 await self._send_update_notification(None, updated_island)
@@ -432,8 +430,7 @@ class IslandService:
             if team:
                 background_tasks.add_task(self._perform_lxd_stop_and_update_status, team_id=team.id)
             else:
-                player_uuid_str = str(island.player_uuid)
-                background_tasks.add_task(self._perform_solo_lxd_stop_and_update_status, player_uuid_str=player_uuid_str)
+                background_tasks.add_task(self._perform_solo_lxd_stop_and_update_status, team_id=island.team_id)
             
             return IslandResponse.model_validate(updated_island)
         elif island.status == IslandStatusEnum.STOPPED:
@@ -464,25 +461,25 @@ class IslandService:
             except Exception as e:
                  logger.error(f"Error stopping team island for team {team_id}: {e}")
 
-    async def _perform_solo_lxd_stop_and_update_status(self, player_uuid_str: str):
+    async def _perform_solo_lxd_stop_and_update_status(self, team_id: int):
         """Performs the LXD stop and updates the status for a solo island.
 
         Args:
-            player_uuid_str: The UUID of the player.
+            team_id: The ID of the team.
         """
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
-            island = await crud_island.get_by_player_uuid(db, player_uuid=player_uuid_str)
+            island = await crud_island.get_by_team_id(db, team_id=team_id)
             if not island: return
             try:
                 await lxd_service.stop_container(island.container_name, force=True)
-                update_fields = {"status": IslandStatusEnum.STOPPED, "internal_ip_address": None, "minecraft_ready": False}
-                updated_island = await crud_island.update(db, db_obj=island, obj_in=update_fields)
+                update_fields = {"internal_ip_address": None, "minecraft_ready": False}
+                updated_island = await crud_island.update_status_by_team_id(db, team_id=team_id, status=IslandStatusEnum.STOPPED, extra_fields=update_fields)
                 await db.commit()
                 await db.refresh(updated_island)
                 await self._send_update_notification(None, updated_island)
             except Exception as e:
-                logger.error(f"Error stopping solo island for {player_uuid_str}: {e}")
+                logger.error(f"Error stopping solo island for team {team_id}: {e}")
 
     async def freeze_island_instance(self, db_session: AsyncSession, *, player_uuid: str, background_tasks: BackgroundTasks) -> IslandResponse:
         """Freezes an island instance for a player.
