@@ -80,6 +80,10 @@ class Island(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     last_seen_at = Column(DateTime, nullable=True, index=True)
+    last_update_attempt = Column(DateTime, nullable=True)
+
+    # Versioning
+    current_version = Column(String(255), nullable=True)
 
     # Relationships
     team = relationship("Team", back_populates="island")

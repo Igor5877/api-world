@@ -8,10 +8,9 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
 )
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.base_class import Base
-import uuid
 
 class RoleEnum(str, enum.Enum):
     """Represents the role of a team member."""

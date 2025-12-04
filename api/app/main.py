@@ -3,17 +3,25 @@ import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-import uuid # Required for UUID conversion if player_uuid is handled as str in some parts
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.v1.endpoints import islands as islands_router_module
+from app.metrics import register_metrics
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal # For creating sessions in startup tasks
 # from app.db.session import init_db # If you decide to use it
 from app.services.lxd_service import lxd_service, LXDContainerNotFoundError, LXDServiceError
 from app.crud.crud_island import crud_island
-from app.models.island import Island as IslandModel # For type hinting if needed directly
 from app.schemas.island import IslandStatusEnum
 from app.services.websocket_manager import manager as websocket_manager
+from app.core.redis import init_redis_pool, close_redis_pool, get_redis_client
+from app.services.creation_worker import start_creation_worker
+from app.services.start_worker import start_start_worker
+from app.api.v1.endpoints import teams as teams_router_module
+from app.api.v1.endpoints import updates as updates_router_module
+from app.api.v1.endpoints import snapshots as snapshots_router_module
+from app.api.v1.endpoints import images as images_router_module
+
 
 logger = logging.getLogger(__name__) # Get logger for main module
 
@@ -195,10 +203,6 @@ async def reconcile_island_states():
             await db_session.close()
             logger.info("Reconciliation: Database session closed.")
 
-from app.core.redis import init_redis_pool, close_redis_pool, get_redis_client
-from app.services.creation_worker import start_creation_worker
-from app.services.start_worker import start_start_worker
-
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -262,6 +266,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Prometheus Metrics ---
+# This should be done after all middleware and before routers
+instrumentator = Instrumentator().instrument(app)
+register_metrics(app, instrumentator)
+
+@app.on_event("startup")
+async def _startup():
+    instrumentator.expose(app)
+# -------------------------
+
+
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     """Handles WebSocket connections.
@@ -283,8 +298,6 @@ async def read_root():
     return {"message": "Welcome to the SkyBlock LXD Manager API"}
 
 # Include your API routers
-from app.api.v1.endpoints import teams as teams_router_module
-
 app.include_router(
     islands_router_module.router,
     prefix=f"{settings.API_V1_STR}/islands", 
@@ -295,6 +308,24 @@ app.include_router(
     teams_router_module.router,
     prefix=f"{settings.API_V1_STR}/teams",
     tags=["Teams"]
+)
+
+app.include_router(
+    updates_router_module.router,
+    prefix=f"{settings.API_V1_STR}/updates",
+    tags=["Updates"]
+)
+
+app.include_router(
+    snapshots_router_module.router,
+    prefix=f"{settings.API_V1_STR}", # Endpoints are like /islands/{uuid}/snapshots
+    tags=["Snapshots"]
+)
+
+app.include_router(
+    images_router_module.router,
+    prefix=f"{settings.API_V1_STR}/images",
+    tags=["Images"]
 )
 
 # For development, you might run this with: uvicorn app.main:app --reload

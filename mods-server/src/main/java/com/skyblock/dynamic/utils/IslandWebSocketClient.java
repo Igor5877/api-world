@@ -54,14 +54,22 @@ public class IslandWebSocketClient extends org.java_websocket.client.WebSocketCl
         LOGGER.info("Received WebSocket message: {}", message);
         try {
             JsonObject json = GSON.fromJson(message, JsonObject.class);
-            if (json.has("event") && json.get("event").getAsString().equals("TEAM_UPDATED")) {
+            String event = json.has("event") ? json.get("event").getAsString() : null;
+
+            if ("TEAM_UPDATED".equals(event)) {
                 if (json.has("payload")) {
                     JsonObject payload = json.getAsJsonObject("payload");
-                    // Since this is on a network thread, we need to schedule the task on the main server thread
-                    getServer().execute(() -> {
-                        NestworldModsServer.ISLAND_PROVIDER.processTeamData(payload);
-                    });
+                    getServer().execute(() -> NestworldModsServer.ISLAND_PROVIDER.processTeamData(payload));
                 }
+            } else if ("GRACEFUL_SHUTDOWN_FOR_UPDATE".equals(event)) {
+                LOGGER.info("Received GRACEFUL_SHUTDOWN_FOR_UPDATE event. Disconnecting all players.");
+                getServer().execute(() -> {
+                    net.minecraft.network.chat.Component disconnectMessage = net.minecraft.network.chat.Component.literal(
+                        "Сервер перезавантажується для оновлення. Будь ласка, перезайдіть за хвилину."
+                    );
+                    // This kicks all players from the server.
+                    getServer().getPlayerList().disconnectAllPlayers(disconnectMessage);
+                });
             }
         } catch (JsonSyntaxException e) {
             LOGGER.warn("Failed to parse WebSocket message as JSON: {}", message, e);

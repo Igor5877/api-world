@@ -1,5 +1,4 @@
 from pydantic import BaseModel, Field
-import uuid
 from typing import List, Optional
 from app.models.team import RoleEnum # Import the RoleEnum from your models
 

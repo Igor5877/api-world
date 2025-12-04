@@ -3,7 +3,6 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import AsyncSessionLocal
 from app.crud.crud_update_queue import crud_update_queue
-from app.services.island_service import island_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

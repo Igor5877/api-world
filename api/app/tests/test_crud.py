@@ -6,7 +6,6 @@ from app.crud.crud_island import crud_island
 from app.crud import crud_team
 from app.schemas.island import IslandStatusEnum
 from app.schemas.team import TeamCreate
-from app.models.island import Island as IslandModel
 
 @pytest.mark.asyncio
 async def test_create_and_update_solo_island(db_session: AsyncSession):

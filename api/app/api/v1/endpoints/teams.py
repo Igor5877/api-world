@@ -2,12 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-import uuid
-from uuid import UUID
 import logging
 
 from app.db.session import get_db_session
-from app.schemas.team import TeamCreate, Team as TeamSchema, TeamMember, TeamCreateResponse
+from app.schemas.team import Team as TeamSchema
 from app.crud import crud_team
 from app.models.team import Team
 from app.services.island_service import island_service

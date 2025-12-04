@@ -1,7 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, delete, update
-from uuid import UUID as pyUUID
 from typing import Optional, List
 
 # Correctly import IslandQueue and QueueItemStatusEnum from app.models.island

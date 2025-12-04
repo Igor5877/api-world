@@ -111,6 +111,7 @@ public class SkyBlockMod {
         if (islandContext.isIslandServer()) {
             LOGGER.info("SkyBlockMod: Server started. Running as an ISLAND SERVER. Owner UUID: {}", islandContext.getOwnerUuid());
             sendIslandReadyForPlayersSignal();
+            sendHeartbeatSignal(event.getServer().getServerDirectory().toPath());
             initializeWebSocket();
         } else {
             LOGGER.info("SkyBlockMod: Server started. Running as a HUB SERVER.");
@@ -168,6 +169,41 @@ public class SkyBlockMod {
         } catch (IllegalArgumentException e) {
             LOGGER.error("SkyBlockMod: Owner UUID '{}' is not a valid UUID. Cannot send ready signal.", ownerUuidStr, e);
         }
+    }
+
+    private void sendHeartbeatSignal(Path serverBasePath) {
+        if (!islandContext.isIslandServer() || islandContext.getOwnerUuid() == null) {
+            return; // Not an island server, nothing to do.
+        }
+
+        String version = readVersionFromFile(serverBasePath);
+        String ownerUuidStr = islandContext.getOwnerUuid();
+
+        try {
+            UUID ownerUuid = UUID.fromString(ownerUuidStr);
+            NestworldModsServer.ISLAND_PROVIDER.sendHeartbeat(ownerUuid, version)
+                .thenRun(() -> LOGGER.info("SkyBlockMod: Successfully sent heartbeat for owner: {} with version: {}", ownerUuidStr, version))
+                .exceptionally(ex -> {
+                    LOGGER.error("SkyBlockMod: Failed to send heartbeat for owner: {}", ownerUuidStr, ex);
+                    return null;
+                });
+        } catch (IllegalArgumentException e) {
+            LOGGER.error("SkyBlockMod: Owner UUID '{}' is not a valid UUID. Cannot send heartbeat.", ownerUuidStr, e);
+        }
+    }
+
+    private String readVersionFromFile(Path serverBasePath) {
+        Path versionFilePath = serverBasePath.resolve("version.txt");
+        try {
+            if (Files.exists(versionFilePath)) {
+                return Files.readString(versionFilePath).trim();
+            } else {
+                LOGGER.warn("SkyBlockMod: version.txt not found. Defaulting to version 'unknown'.");
+            }
+        } catch (IOException e) {
+            LOGGER.error("SkyBlockMod: Could not read version.txt.", e);
+        }
+        return "unknown";
     }
 
     /**

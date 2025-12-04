@@ -83,6 +83,30 @@ public class NestworldModsServer {
                     });
         }
 
+        public CompletableFuture<Void> sendHeartbeat(UUID ownerUuid, String version) {
+            String apiUrl = Config.getApiBaseUrl() + "updates/islands/" + ownerUuid.toString() + "/heartbeat";
+            String jsonPayload = gson.toJson(Map.of("version", version));
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(apiUrl))
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                    .header("Content-Type", "application/json")
+                    .build();
+
+            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(response -> {
+                        if (response.statusCode() != 200) {
+                            LOGGER.warn("Failed to send heartbeat for island {}. Status: {}, Body: {}", ownerUuid, response.statusCode(), response.body());
+                        } else {
+                            LOGGER.info("Successfully sent heartbeat for island {} with version {}", ownerUuid, version);
+                        }
+                    })
+                    .exceptionally(ex -> {
+                        LOGGER.error("Error sending heartbeat for island {}", ownerUuid, ex);
+                        return null;
+                    });
+        }
+
         /**
          * Sends a "freeze" signal to the API for the specified island owner.
          *

@@ -342,4 +342,138 @@ class LXDService:
             logger.error(f"Error unfreezing container '{container_name}': {e}", exc_info=True)
             raise LXDServiceError(f"Failed to unfreeze container: {e}")
 
+    async def create_snapshot(self, container_name: str, snapshot_name: str):
+        """Creates a snapshot of a container.
+
+        Args:
+            container_name: The name of the container.
+            snapshot_name: The name for the snapshot.
+
+        Raises:
+            LXDContainerNotFoundError: If the container is not found.
+            LXDServiceError: If snapshot creation fails.
+        """
+        client = await self._get_client()
+        try:
+            container = await self._run_sync(client.containers.get, container_name)
+            await self._run_sync(container.snapshots.create, snapshot_name, wait=True)
+            logger.info(f"Successfully created snapshot '{snapshot_name}' for container '{container_name}'.")
+        except NotFound:
+            raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+        except Exception as e:
+            logger.error(f"Error creating snapshot for '{container_name}': {e}", exc_info=True)
+            raise LXDServiceError(f"Failed to create snapshot: {e}")
+
+    async def restore_snapshot(self, container_name: str, snapshot_name: str):
+        """Restores a container from a snapshot.
+
+        Args:
+            container_name: The name of the container.
+            snapshot_name: The name of the snapshot to restore.
+
+        Raises:
+            LXDContainerNotFoundError: If the container or snapshot is not found.
+            LXDServiceError: If restoration fails.
+        """
+        client = await self._get_client()
+        try:
+            container = await self._run_sync(client.containers.get, container_name)
+            # pylxd's restore is a bit unintuitive. It's a method on the snapshot object.
+            def _sync_restore():
+                if snapshot_name not in container.snapshots.all():
+                    raise LXDContainerNotFoundError(f"Snapshot '{snapshot_name}' not found for container '{container_name}'.")
+                snapshot = container.snapshots.get(snapshot_name)
+                snapshot.restore(wait=True)
+
+            await self._run_sync(_sync_restore)
+            logger.info(f"Successfully restored container '{container_name}' from snapshot '{snapshot_name}'.")
+        except NotFound:
+            raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+        except Exception as e:
+            logger.error(f"Error restoring snapshot for '{container_name}': {e}", exc_info=True)
+            raise LXDServiceError(f"Failed to restore snapshot: {e}")
+
+    async def delete_snapshot(self, container_name: str, snapshot_name: str):
+        """Deletes a snapshot from a container.
+
+        Args:
+            container_name: The name of the container.
+            snapshot_name: The name of the snapshot to delete.
+
+        Raises:
+            LXDContainerNotFoundError: If the container or snapshot is not found.
+            LXDServiceError: If deletion fails.
+        """
+        client = await self._get_client()
+        try:
+            container = await self._run_sync(client.containers.get, container_name)
+
+            def _sync_delete():
+                if snapshot_name not in [s.name for s in container.snapshots.all()]:
+                     raise LXDContainerNotFoundError(f"Snapshot '{snapshot_name}' not found for container '{container_name}'.")
+                snapshot = container.snapshots.get(snapshot_name)
+                snapshot.delete(wait=True)
+
+            await self._run_sync(_sync_delete)
+            logger.info(f"Successfully deleted snapshot '{snapshot_name}' from container '{container_name}'.")
+        except NotFound:
+            raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+        except Exception as e:
+            logger.error(f"Error deleting snapshot for '{container_name}': {e}", exc_info=True)
+            raise LXDServiceError(f"Failed to delete snapshot: {e}")
+
+    async def list_snapshots(self, container_name: str) -> List[str]:
+        """Lists all snapshots for a container.
+
+        Args:
+            container_name: The name of the container.
+
+        Returns:
+            A list of snapshot names.
+
+        Raises:
+            LXDContainerNotFoundError: If the container is not found.
+        """
+        client = await self._get_client()
+        try:
+            container = await self._run_sync(client.containers.get, container_name)
+            return await self._run_sync(lambda: [s.name for s in container.snapshots.all()])
+        except NotFound:
+            raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+
+    async def create_image_from_container(self, container_name: str, image_alias: str, public: bool = False, description: str = ""):
+        """Creates a new LXD image from a container's snapshot.
+
+        Args:
+            container_name: The name of the source container.
+            image_alias: The alias (name) for the new image.
+            public: Whether the image should be public.
+            description: A description for the new image.
+
+        Raises:
+            LXDContainerNotFoundError: If the container is not found.
+            LXDServiceError: If image creation fails.
+        """
+        client = await self._get_client()
+        try:
+            container = await self._run_sync(client.containers.get, container_name)
+
+            def _sync_publish():
+                image_config = {
+                    'alias': image_alias,
+                    'public': public,
+                    'description': description or f"Image created from {container_name}"
+                }
+                # publish() creates a temporary snapshot, creates the image, then deletes the snapshot.
+                return container.publish(wait=True, properties=image_config)
+
+            image = await self._run_sync(_sync_publish)
+            logger.info(f"Successfully created image '{image_alias}' from container '{container_name}'. Fingerprint: {image.fingerprint}")
+            return image
+        except NotFound:
+            raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+        except Exception as e:
+            logger.error(f"Error creating image from container '{container_name}': {e}", exc_info=True)
+            raise LXDServiceError(f"Failed to create image: {e}")
+
 lxd_service = LXDService()
