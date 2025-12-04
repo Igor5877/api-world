@@ -5,6 +5,7 @@ pydantic-settings
 redis
 pylxd
 gunicorn
+prometheus-fastapi-instrumentator>=6.0.0 # For Prometheus metrics
 
 # Database (choose one or more based on your DB)
 sqlalchemy[asyncio] # Core SQLAlchemy with asyncio support

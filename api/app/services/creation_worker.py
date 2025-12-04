@@ -1,10 +1,9 @@
-import asyncio
 import logging
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.crud.crud_island import crud_island
 from app.crud.crud_island_queue_ops import crud_main_island_queue
-from app.schemas.island import IslandCreate, IslandStatusEnum
+from app.schemas.island import IslandCreate
 from app.models.island import QueueItemStatusEnum
 
 logging.basicConfig(level=logging.INFO)

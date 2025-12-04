@@ -3,13 +3,13 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update as sqlalchemy_update, delete as sqlalchemy_delete, func
+from sqlalchemy import update as sqlalchemy_update, func
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 
 
 from app.models.island import Island as IslandModel
-from app.schemas.island import IslandCreate, IslandUpdate, IslandStatusEnum # Pydantic schemas
+from app.schemas.island import IslandUpdate, IslandStatusEnum # Pydantic schemas
 
 logger = logging.getLogger(__name__)
 

@@ -8,15 +8,13 @@ from app.services.websocket_manager import manager as websocket_manager
 from app.services.lxd_service import lxd_service, LXDServiceError
 from app.crud.crud_island import crud_island
 from app.crud import crud_team
-from app.schemas.island import IslandCreate, IslandResponse, IslandUpdate, IslandStatusEnum
+from app.schemas.island import IslandResponse, IslandStatusEnum
 from app.schemas.team import TeamCreate
 from app.models.island import Island as IslandModel
 from app.models.team import Team as TeamModel
 import uuid
-import asyncio
 from datetime import datetime, timezone
 import logging
-import pathlib
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +153,7 @@ class IslandService:
                 )
 
                 member_uuids = [member.player_uuid for member in team.members]
-                toml_content = f"is_island_server = true\n"
+                toml_content = "is_island_server = true\n"
                 toml_content += f"team_id = {team.id}\n"
                 toml_content += f"owner_uuid = \"{team.owner_uuid}\"\n"
                 toml_content += f"member_uuids = {member_uuids}\n"

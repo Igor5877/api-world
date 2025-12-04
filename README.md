@@ -143,11 +143,51 @@ b. **Build the plugin**:
 
 ---
 
-## API Management Endpoints
+## Island Update and Management System
 
-The API includes endpoints for managing island updates.
+The system includes a powerful and flexible set of tools for managing island updates, rollbacks, and base images.
 
-*   `POST /islands/update-all`: Queues all existing islands for an update.
-*   `POST /islands/{player_uuid}/update`: Queues a specific island for an update.
-*   `POST /islands/rollback-all`: (Placeholder) Triggers a rollback for all islands with a snapshot.
-*   `POST /islands/{player_uuid}/rollback`: (Placeholder) Triggers a rollback for a specific island.
+### Update Workflow
+
+The update process is version-controlled using Git and managed via the API.
+
+1.  **Prepare Your Update**:
+    *   Create a private Git repository containing the server files you want to manage (e.g., `mods`, `config`). **Do not include player data like `world` folders.**
+    *   Commit your changes and create a Git tag for the new version (e.g., `v1.1`, `v1.2-hotfix`). This tag is used to identify the version.
+
+2.  **Configure the API**:
+    *   In your `.env` file for the API, set the `UPDATE_GIT_REPOSITORY_URL` to your repository's URL and `UPDATE_TEMP_CLONE_PATH` to a temporary directory.
+
+3.  **Deploy the Update**:
+    *   Send a `POST` request to the `/api/v1/updates/deploy` endpoint.
+    *   **Body**:
+        ```json
+        {
+          "version_tag": "v1.2-hotfix",
+          "island_uuids": ["uuid1", "uuid2"]
+        }
+        ```
+    *   The API will then perform a safe update for each island: it creates a snapshot, copies the new files, and restarts the server. If the server fails to start and send a heartbeat, it automatically rolls back to the snapshot.
+
+### Manual Snapshot and Image Management
+
+You have full manual control over snapshots and LXD images via the API.
+
+#### Snapshots
+
+*   `GET /api/v1/islands/{owner_uuid}/snapshots`: List all available snapshots for an island.
+*   `POST /api/v1/islands/{owner_uuid}/snapshots/restore`: Restore an island from a specific snapshot.
+    *   **Body**: `{"snapshot_name": "your-snapshot-name"}`
+*   `DELETE /api/v1/islands/{owner_uuid}/snapshots/{snapshot_name}`: Delete a specific snapshot.
+
+#### Base Images (for new islands)
+
+*   `POST /api/v1/images/create`: Create a new base LXD image from an existing, up-to-date container. This allows new islands to be created with the latest version instantly.
+    *   **Body**: `{"source_container_name": "container-name", "new_image_alias": "skyblock-base-v1.2"}`
+*   After creating a new image, remember to update the `LXD_BASE_IMAGE` variable in your API's `.env` file to use the new image for all future island creations.
+
+### Monitoring
+
+The API exposes a `/metrics` endpoint for Prometheus, providing real-time monitoring of:
+*   Standard FastAPI metrics (request latency, etc.).
+*   Custom metrics, including the number of islands by version and the success/failure rate of updates.
