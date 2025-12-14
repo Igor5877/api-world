@@ -1,0 +1,257 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.8/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+
+> Configure project :
+Architect Plugin: 3.4.162
+Architectury Loom: 1.2.377
+You are using an outdated version of Architectury Loom! This version will not receive any support, please consider updating!
+
+> Configure project :common
+architectury's common() is deprecated, use common(String... platforms) instead
+Found existing cache lock file, rebuilding loom cache. This may have been caused by a failed or canceled build.
+:merging mappings (InstallerTools, srg + mojmap)
+:merged mappings (InstallerTools, srg + mojmap) in 3.569 s
+:remapping 2 mods from modApi (java-api)
+:remapped 2 mods (intermediary -> named) in 2.974 s
+:remapping 2 mods from modApi (java-runtime)
+:remapped 2 mods (intermediary -> named) in 2.831 s
+:remapping 2 mods from modApi
+:remapped 2 mods (intermediary -> named) in 3.086 s
+
+> Configure project :forge
+:executing 10 MCP steps
+:step 1/10 - downloadClient
+:downloadClient done in 735.2 μs
+:step 2/10 - downloadServer
+:downloadServer done in 20.53 μs
+:step 3/10 - extractServer with net.minecraftforge:installertools:1.3.2:fatjar
+:extractServer done in 730.1 ms
+:step 4/10 - downloadClientMappings
+:downloadClientMappings done in 322.9 ms
+:step 5/10 - mergeMappings with net.minecraftforge:installertools:1.2.0:fatjar
+:mergeMappings done in 2.697 s
+:step 6/10 - stripClient
+:stripClient done in 795.7 ms
+:step 7/10 - stripServer
+:stripServer done in 606.2 ms
+:step 8/10 - merge with net.minecraftforge:mergetool:1.1.7:fatjar
+:merge done in 3.766 s
+:step 9/10 - listLibraries
+:downloading minecraft libraries, this may take a while...
+:listLibraries done in 131.0 ms
+:step 10/10 - rename with net.minecraftforge:ForgeAutoRenamingTool:1.0.2:all
+:rename done in 8.816 s
+:patching jars
+:patched jars in 9.431 s
+:access transforming minecraft
+:access transformed minecraft in 4.829 s
+:remapping minecraft (TinyRemapper, srg -> official)
+:remapping 2 mods from modApi (java-api)
+:remapped 2 mods (srg -> named) in 4.108 s
+:remapping sources
+:found 1 forge source jars
+:extracted 665 forge source classes
+
+Failed to remap sources for /net/minecraftforge/common/world/ForgeBiomeModifiers.java
+
+> Configure project :forge
+Failed to remap 1 forge sources
+
+> Task :compileJava NO-SOURCE
+> Task :processResources NO-SOURCE
+> Task :classes UP-TO-DATE
+> Task :jar
+> Task :sourcesJar
+> Task :assemble
+> Task :compileTestJava NO-SOURCE
+> Task :processTestResources NO-SOURCE
+> Task :testClasses UP-TO-DATE
+> Task :test NO-SOURCE
+> Task :check UP-TO-DATE
+> Task :build
+
+> Task :common:compileJava
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+
+> Task :common:processResources
+> Task :common:classes
+> Task :common:jar
+> Task :common:sourcesJar
+> Task :common:compileTestJava NO-SOURCE
+> Task :common:processTestResources NO-SOURCE
+> Task :common:testClasses UP-TO-DATE
+> Task :common:test NO-SOURCE
+> Task :common:validateAccessWidener NO-SOURCE
+> Task :common:check UP-TO-DATE
+> Task :common:remapSourcesJar
+
+> Task :common:transformProductionFabric
+[Architectury Transformer] Read classpath in 2.271 s
+[Architectury Transformer] Transformed jar with 5 transformer(s) in 2.791 s
+
+> Task :common:transformProductionForge
+[Architectury Transformer] Read classpath in 1.714 s
+[Architectury Transformer] Transformed jar with 7 transformer(s) in 3.232 s
+
+> Task :fabric:compileJava
+/app/FTB-Quests-1.20.1-main/fabric/src/main/java/dev/ftb/mods/ftbquests/fabric/FTBQuestsFabric.java:29: warning: [removal] QuestObjectArgument in dev.ftb.mods.ftbquests.command has been deprecated and marked for removal
+		ArgumentTypeRegistry.registerArgumentType(new ResourceLocation(FTBQuestsAPI.MOD_ID, "quest_object"), QuestObjectArgument.class, SingletonArgumentInfo.contextFree(QuestObjectArgument::new));
+		                                                                                                     ^
+/app/FTB-Quests-1.20.1-main/fabric/src/main/java/dev/ftb/mods/ftbquests/fabric/FTBQuestsFabric.java:29: warning: [removal] QuestObjectArgument in dev.ftb.mods.ftbquests.command has been deprecated and marked for removal
+		ArgumentTypeRegistry.registerArgumentType(new ResourceLocation(FTBQuestsAPI.MOD_ID, "quest_object"), QuestObjectArgument.class, SingletonArgumentInfo.contextFree(QuestObjectArgument::new));
+		                                                                                                                                                                  ^
+2 warnings
+
+> Task :fabric:processResources
+> Task :fabric:classes
+> Task :fabric:jar
+> Task :fabric:shadowJar
+> Task :common:remapJar
+> Task :common:assemble
+> Task :common:build
+> Task :fabric:sourcesJar
+> Task :fabric:compileTestJava NO-SOURCE
+> Task :fabric:processTestResources NO-SOURCE
+> Task :fabric:testClasses UP-TO-DATE
+> Task :fabric:test NO-SOURCE
+> Task :fabric:validateAccessWidener NO-SOURCE
+> Task :fabric:check UP-TO-DATE
+> Task :fabric:remapSourcesJar
+> Task :fabric:remapJar
+
+> Task :forge:compileJava
+warning: unknown enum constant EnvType.CLIENT
+  reason: class file for net.fabricmc.api.EnvType not found
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+  reason: class file for net.fabricmc.api.EnvType not found
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+  reason: class file for net.fabricmc.api.EnvType not found
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+warning: unknown enum constant EnvType.CLIENT
+100 warnings
+only showing the first 100 warnings, of 115 total; use -Xmaxwarns if you would like to see more
+
+> Task :fabric:assemble
+> Task :fabric:build
+> Task :forge:processResources
+> Task :forge:classes
+> Task :forge:jar
+> Task :forge:shadowJar
+> Task :forge:sourcesJar
+> Task :forge:compileTestJava NO-SOURCE
+> Task :forge:processTestResources NO-SOURCE
+> Task :forge:testClasses UP-TO-DATE
+> Task :forge:test NO-SOURCE
+> Task :forge:validateAccessWidener NO-SOURCE
+> Task :forge:check UP-TO-DATE
+> Task :forge:remapSourcesJar
+> Task :forge:remapJar
+> Task :forge:assemble
+> Task :forge:build
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.8/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 3m 4s
+24 actionable tasks: 24 executed
