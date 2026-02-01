@@ -58,3 +58,11 @@
 | **API -> Velocity** | **WebSocket** | Сповіщення про готовність острова до підключення. |
 | **Forge Mod -> FTB Quests** | Java API (Direct call) | Синхронізація членів команди, блокування прогресу. |
 | **API -> LXD** | Unix Socket / HTTP | Керування контейнерами (clone, start, stop, freeze). |
+
+### 5. Формат WebSocket адрес
+Для підключення до системи сповіщень використовується наступний формат URL:
+`ws://<IP_API>:<PORT>/ws/<PLAYER_UUID>`
+
+*   **IP_API**: Адреса, де запущено ваш FastAPI бекенд.
+*   **PORT**: Порт API (за замовчуванням 8000).
+*   **PLAYER_UUID**: Унікальний ID гравця (для Velocity) або UUID власника острова (для Forge-моду).
