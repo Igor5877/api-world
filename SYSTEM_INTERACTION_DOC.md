@@ -100,9 +100,12 @@ location /api/ {
     Має повернути: `{"message": "Welcome to the SkyBlock LXD Manager API"}`
 
 2.  **Перевірка наявності маршруту WebSocket**:
-    `curl -I http://nestworld.site:8000/ws/test-uuid`
-    *   **405 або 426**: Маршрут знайдено (це добре).
-    *   **404**: Маршрут не знайдено. Перевірте, чи API запущено без параметра `--root-path`.
+    УВАГА: `curl` завжди поверне **404** на чистий WebSocket-маршрут. Для справжньої діагностики додайте тимчасовий HTTP-маршрут у `main.py`:
+    ```python
+    @app.get("/ws/test")
+    async def ws_test(): return {"ok": True}
+    ```
+    Після цього `curl http://nestworld.site:8000/ws/test` має повернути `{"ok": True}`. Якщо все одно 404 — проблема в налаштуваннях сервера або шляхів.
 
 3.  **Тест через wscat (Production)**:
     `wscat -c wss://nestworld.site/ws/02034378-1e7b-311c-b350-17090a13dab1`
