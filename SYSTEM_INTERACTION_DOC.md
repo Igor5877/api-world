@@ -59,15 +59,41 @@
 | **Forge Mod -> FTB Quests** | Java API (Direct call) | Синхронізація членів команди, блокування прогресу. |
 | **API -> LXD** | Unix Socket / HTTP | Керування контейнерами (clone, start, stop, freeze). |
 
-### 5. Формат WebSocket адрес
-Для підключення до системи сповіщень використовується наступний формат URL:
-`ws://<IP_API>:<PORT>/ws/<PLAYER_UUID>`
+### 5. Особливості розгортання в Production (SSL/Nginx)
 
-*   **IP_API**: Адреса, де запущено ваш FastAPI бекенд.
-*   **PORT**: Порт API (за замовчуванням 8000).
-*   **PLAYER_UUID**: Унікальний ID гравця (для Velocity) або UUID власника острова (для Forge-моду).
+При використанні реального домену (наприклад, `nestworld.site`) з підтримкою HTTPS, з'являються додаткові вимоги до конфігурації.
 
-**Важливі нюанси:**
-1.  **Без префікса `/api/v1`**: На відміну від звичайних HTTP-запитів, WebSocket підключається безпосередньо до `/ws/`. Якщо ви спробуєте `.../api/v1/ws/...`, ви отримаєте помилку 404.
-2.  **Залежність від Redis**: Весь функціонал WebSocket зав'язаний на Redis. Якщо Redis не запущений на сервері з API, WebSocket-з'єднання будуть обриватися або не прийматися.
-3.  **Перевірка**: Ви можете перевірити підключення через сторонні утиліти (наприклад, [websocat](https://github.com/vi/websocat)) за адресою `ws://your-ip:8000/ws/some-test-uuid`.
+#### Формат WebSocket адрес
+Для підключення використовуйте: **`wss://nestworld.site/ws/<PLAYER_UUID>`**
+
+**Чому це важливо:**
+1.  **Протокол WSS**: Якщо сайт працює на HTTPS, браузери та клієнти забороняють підключення через незахищений `ws://`. Це призводить до помилки **301 (Redirect)** або блокування з'єднання.
+2.  **Без префікса `/api/v1`**: WebSocket ендпоінт зареєстрований як `/ws/`, а не `/api/v1/ws/`.
+3.  **Redis**: Для роботи WebSocket-менеджера **Redis повинен бути запущений**. Він координує повідомлення між різними воркерами API.
+
+#### Налаштування Nginx (Reverse Proxy)
+Щоб WebSocket працював через Nginx, конфігурація `location` повинна виглядати приблизно так:
+
+```nginx
+location /ws/ {
+    proxy_pass http://127.0.0.1:8000;  # Порт вашого FastAPI
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location /api/ {
+    proxy_pass http://127.0.0.1:8000;
+    # Стандартні налаштування для REST API
+}
+```
+
+#### Діагностика з'єднання
+Якщо ви не впевнені, чи працює WebSocket, перевірте його утилітою `wscat`:
+`wscat -c wss://nestworld.site/ws/02034378-1e7b-311c-b350-17090a13dab1`
+
+Якщо ви отримаєте відповідь `Connected`, значить налаштування проксі та SSL вірні.
