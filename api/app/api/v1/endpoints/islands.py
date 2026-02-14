@@ -1,15 +1,33 @@
-from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks, Response
-from typing import Any
+from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks, Response, Header
+from typing import Any, Optional
 import uuid # For player_uuid
 from sqlalchemy.ext.asyncio import AsyncSession # Added for DB session type hint
 import logging
 
-from app.schemas.island import IslandCreate, IslandResponse, IslandStatusEnum, MessageResponse
+from app.schemas.island import IslandCreate, IslandResponse, IslandStatusEnum, MessageResponse, LauncherStartRequest
 from app.services.island_service import island_service
 from app.db.session import get_db_session # Import the dependency
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+async def verify_launcher_token(x_launcher_token: Optional[str] = Header(None)):
+    """Verifies the launcher token.
+
+    Args:
+        x_launcher_token: The token provided in the header.
+
+    Raises:
+        HTTPException: If the token is missing or invalid.
+    """
+    if not settings.LAUNCHER_API_KEY:
+        logger.error("Endpoint: LAUNCHER_API_KEY is not configured on the server.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Server configuration error.")
+
+    if x_launcher_token != settings.LAUNCHER_API_KEY:
+        logger.warning(f"Endpoint: Invalid launcher token attempted: {x_launcher_token}")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid launcher token.")
 
 @router.get("/{player_uuid}", response_model=IslandResponse)
 async def get_island_status_endpoint(
@@ -206,3 +224,62 @@ async def mark_island_ready_endpoint(
     except Exception as e:
         logger.error(f"Endpoint Error: Unexpected error marking island ready for {owner_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while marking the island ready.")
+
+@router.post("/launcher/start", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED)
+async def launcher_start_island(
+    request: LauncherStartRequest,
+    background_tasks: BackgroundTasks,
+    db_session: AsyncSession = Depends(get_db_session),
+    authorized: bool = Depends(verify_launcher_token)
+):
+    """Starts a player's island from the launcher.
+
+    This endpoint is protected by a secret token.
+    It attempts to start an existing island.
+    If the island does not exist, it returns 404.
+
+    Args:
+        request: The request body containing UUID and username.
+        background_tasks: The background tasks.
+        db_session: The database session.
+        authorized: Dependency to verify the token.
+
+    Returns:
+        A status message.
+
+    Raises:
+        HTTPException: If the island is not found or other errors.
+    """
+    player_uuid = str(request.uuid)
+    logger.info(f"Launcher Endpoint: Start request for {request.username} ({player_uuid})")
+
+    # 1. Check if island exists
+    island = await island_service.get_island_by_player_uuid(db_session=db_session, player_uuid=player_uuid)
+    if not island:
+        logger.info(f"Launcher Endpoint: Island not found for {request.username} ({player_uuid}). Ignoring.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Island does not exist.")
+
+    # 2. Attempt to start
+    try:
+        await island_service.start_island_instance(
+            db_session=db_session,
+            player_uuid=player_uuid,
+            player_name=request.username,
+            background_tasks=background_tasks
+        )
+        return MessageResponse(message="Island start requested")
+    except ValueError as e:
+        # If it's already running or starting, we consider it a success for the launcher
+        if "already running" in str(e).lower() or "pending_start" in str(e).lower():
+            logger.info(f"Launcher Endpoint: Island for {request.username} is already running/starting.")
+            # Return 200 OK if it's already running/starting
+            return Response(content='{"message": "Island already running"}', media_type="application/json", status_code=status.HTTP_200_OK)
+        elif "pending_stop" in str(e).lower() or "pending_freeze" in str(e).lower():
+             logger.info(f"Launcher Endpoint: Island for {request.username} is stopping/freezing. Cannot start immediately.")
+             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Island is currently stopping or freezing.")
+        else:
+            logger.warning(f"Launcher Endpoint: ValueError starting island for {request.username}: {e}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Launcher Endpoint: Unexpected error starting island for {request.username}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")

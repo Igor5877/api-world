@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     REDIS_CHANNEL: str = os.getenv("REDIS_CHANNEL", "skyblock_island_notifications")
 
+    # Launcher API Key
+    # This key is required for the launcher module to authenticate requests to start islands.
+    # It should be a long, random string.
+    LAUNCHER_API_KEY: str | None = os.getenv("LAUNCHER_API_KEY", "default-insecure-key-change-me")
 
     class Config:
         """Represents the configuration for the settings.
