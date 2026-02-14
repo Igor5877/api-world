@@ -1,9 +1,26 @@
 import logging
 import asyncio
+import sys
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uuid # Required for UUID conversion if player_uuid is handled as str in some parts
+
+# Rich logging configuration
+from rich.logging import RichHandler
+from rich.console import Console
+from rich.traceback import install
+
+# Install rich traceback handler
+install(show_locals=True)
+
+# Configure logging
+logging.basicConfig(
+    level="INFO",
+    format="%(message)s",
+    datefmt="[%X]",
+    handlers=[RichHandler(console=Console(force_terminal=True), rich_tracebacks=True)]
+)
 
 from app.api.v1.endpoints import islands as islands_router_module
 from app.core.config import settings
