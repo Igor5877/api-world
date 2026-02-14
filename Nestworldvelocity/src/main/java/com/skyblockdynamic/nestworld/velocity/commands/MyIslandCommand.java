@@ -100,7 +100,7 @@ public class MyIslandCommand implements SimpleCommand {
                         player.sendMessage(localeManager.getComponent(lang, "myisland.status.ready", NamedTextColor.GREEN));
                         String ip = islandData.get("internal_ip_address").getAsString();
                         int port = islandData.get("internal_port").getAsInt();
-                        attemptSingleConnection(player, ip, port);
+                        attemptSingleConnection(player, ip, port, player.getUniqueId());
                         return;
                     }
                 } catch (Exception e) {
@@ -159,7 +159,7 @@ public class MyIslandCommand implements SimpleCommand {
             WebSocketManager client = new WebSocketManager(new URI(wsUrl), logger, player, proxyServer, (islandData) -> {
                 String ip = islandData.get("internal_ip_address").getAsString();
                 int port = islandData.get("internal_port").getAsInt();
-                proxyServer.getScheduler().buildTask(plugin, () -> attemptSingleConnection(player, ip, port)).schedule();
+                proxyServer.getScheduler().buildTask(plugin, () -> attemptSingleConnection(player, ip, port, player.getUniqueId())).schedule();
             }, plugin);
             client.connect();
             plugin.getWebSocketManagers().put(playerUuid, client);
@@ -173,12 +173,13 @@ public class MyIslandCommand implements SimpleCommand {
     /**
      * Attempts to connect the player to their island.
      *
-     * @param player The player.
-     * @param ip     The IP address of the island server.
-     * @param port   The port of the island server.
+     * @param player          The player.
+     * @param ip              The IP address of the island server.
+     * @param port            The port of the island server.
+     * @param islandOwnerUuid The UUID of the island owner.
      */
-    private void attemptSingleConnection(Player player, String ip, int port) {
-        String serverName = "island-" + player.getUniqueId();
+    private void attemptSingleConnection(Player player, String ip, int port, UUID islandOwnerUuid) {
+        String serverName = "island-" + islandOwnerUuid;
         ServerInfo serverInfo = new ServerInfo(serverName, new InetSocketAddress(ip, port));
         String lang = player.getPlayerSettings().getLocale().getLanguage();
 
@@ -225,7 +226,7 @@ public class MyIslandCommand implements SimpleCommand {
                             player.sendMessage(Component.text(localeManager.getMessage(lang, "tpa.teleporting").replace("{player_name}", targetPlayerName), NamedTextColor.GREEN));
                             String ip = islandData.get("internal_ip_address").getAsString();
                             int port = islandData.get("internal_port").getAsInt();
-                            attemptSingleConnection(player, ip, port);
+                            attemptSingleConnection(player, ip, port, targetPlayer.getUniqueId());
                         } else {
                             player.sendMessage(Component.text(localeManager.getMessage(lang, "tpa.island_not_available").replace("{player_name}", targetPlayerName), NamedTextColor.RED));
                         }
