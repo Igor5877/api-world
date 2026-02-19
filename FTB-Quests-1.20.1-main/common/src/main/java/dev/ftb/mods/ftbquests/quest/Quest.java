@@ -545,7 +545,7 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 	// Для backward compatibility з аддонами/міксинами
 	@Deprecated
 	public int getRelativeProgressFromChildren(TeamData data) {
-	    return getRelativeProgressFromChildren(data.islandData);
+	    return getRelativeProgressFromChildren((IslandData) data);
 	}
 	
 
@@ -809,7 +809,7 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 	 */
 	@Deprecated
 	public boolean isVisible(TeamData data) {
-		return isVisible(data.islandData);
+		return isVisible((IslandData) data);
 	}
 
 	@Override
@@ -993,7 +993,7 @@ public final class Quest extends QuestObject implements Movable, Excludable {
 	 */
 	@Deprecated
 	public boolean isCompletedRaw(TeamData data) {
-    	return isCompletedRaw(data.islandData);
+	return isCompletedRaw((IslandData) data);
 	}
 
 

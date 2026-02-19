@@ -142,7 +142,7 @@ public class ChapterImageButton extends Button implements QuestPositionableButto
 		Icon image = chapterImage.getImage();
 
 		// if we've got this far and the image shouldn't normally be drawn, we must be in edit mode
-		boolean transparent = !chapterImage.shouldShowImage(questScreen.file.selfTeamData);
+		boolean transparent = !chapterImage.shouldShowImage(questScreen.file.selfIslandData);
 		if (transparent) {
 			image = image.withColor(Color4I.WHITE.withAlpha(100));
 		} else if (!chapterImage.getColor().equals(Color4I.WHITE) || chapterImage.getAlpha() < 255) {

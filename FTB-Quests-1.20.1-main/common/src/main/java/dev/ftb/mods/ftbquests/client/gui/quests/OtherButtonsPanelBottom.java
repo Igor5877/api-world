@@ -62,14 +62,14 @@ public class OtherButtonsPanelBottom extends OtherButtonsPanel {
 
 		private static Component makeTooltip() {
 			String key = ClientQuestFile.canClientPlayerEdit() ? "commands.ftbquests.editing_mode.enabled" : "commands.ftbquests.editing_mode.disabled";
-			return Component.translatable(key, ClientQuestFile.INSTANCE.selfTeamData.getName());
+			return Component.translatable(key, ClientQuestFile.INSTANCE.selfIslandData.getName());
 		}
 
 		@Override
 		public void onClicked(MouseButton button) {
 			playClickSound();
 
-			if (!questScreen.file.selfTeamData.getCanEdit(Minecraft.getInstance().player)) {
+			if (!questScreen.file.selfIslandData.getCanEdit(Minecraft.getInstance().player)) {
 				StructureTask.maybeRequestStructureSync();
 			}
 
@@ -111,10 +111,10 @@ public class OtherButtonsPanelBottom extends OtherButtonsPanel {
 					b -> questScreen.file.onEditButtonClicked(this)));
 
 			contextMenu.add(new ContextMenuItem(Component.translatable("ftbquests.gui.reset_progress"), ThemeProperties.RELOAD_ICON.get(),
-					b -> ChangeProgressMessage.sendToServer(questScreen.file.selfTeamData, questScreen.file, progressChange -> progressChange.setReset(true)))
+					b -> ChangeProgressMessage.sendToServer(questScreen.file.selfIslandData, questScreen.file, progressChange -> progressChange.setReset(true)))
 					.setYesNoText(Component.translatable("ftbquests.gui.reset_progress_q")));
 			contextMenu.add(new ContextMenuItem(Component.translatable("ftbquests.gui.complete_instantly"), ThemeProperties.CHECK_ICON.get(),
-					b -> ChangeProgressMessage.sendToServer(questScreen.file.selfTeamData, questScreen.file, progressChange -> progressChange.setReset(false)))
+					b -> ChangeProgressMessage.sendToServer(questScreen.file.selfIslandData, questScreen.file, progressChange -> progressChange.setReset(false)))
 					.setYesNoText(Component.translatable("ftbquests.gui.complete_instantly_q")));
 
 			contextMenu.add(new ContextMenuItem(Component.translatable("ftbquests.reward_tables"), ThemeProperties.REWARD_TABLE_ICON.get(),

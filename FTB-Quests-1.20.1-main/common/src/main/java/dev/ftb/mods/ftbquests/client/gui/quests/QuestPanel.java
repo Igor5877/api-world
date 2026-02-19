@@ -112,7 +112,7 @@ public class QuestPanel extends Panel {
 		}
 
 		questScreen.selectedChapter.getImages().stream()
-				.filter(image -> questScreen.file.canEdit() || image.shouldShowImage(questScreen.file.selfTeamData))
+				.filter(image -> questScreen.file.canEdit() || image.shouldShowImage(questScreen.file.selfIslandData))
 				.sorted(Comparator.comparingInt(ChapterImage::getOrder))
 				.forEach(image -> add(new ChapterImageButton(this, image)));
 
@@ -158,7 +158,7 @@ public class QuestPanel extends Panel {
 
 	@Override
 	public void drawOffsetBackground(GuiGraphics graphics, Theme theme, int x, int y, int w, int h) {
-		if (questScreen.selectedChapter == null || questScreen.file.selfTeamData == null) {
+		if (questScreen.selectedChapter == null || questScreen.file.selfIslandData == null) {
 			return;
 		}
 
@@ -190,12 +190,12 @@ public class QuestPanel extends Panel {
 		float mu = (float) ((mt * ThemeProperties.DEPENDENCY_LINE_UNSELECTED_SPEED.get(questScreen.selectedChapter)) % 1D);
 		for (Widget widget : widgets) {
 			if (widget.shouldDraw() && widget instanceof QuestButton qb && (!qb.quest.shouldHideDependencyLines() || qb.isMouseOver())) {
-				boolean unavailable = !questScreen.file.selfTeamData.canStartTasks(qb.quest);
-				boolean complete = !unavailable && questScreen.file.selfTeamData.isCompleted(qb.quest);
+				boolean unavailable = !questScreen.file.selfIslandData.canStartTasks(qb.quest);
+				boolean complete = !unavailable && questScreen.file.selfIslandData.isCompleted(qb.quest);
 				Color4I c = complete ?
 						ThemeProperties.DEPENDENCY_LINE_COMPLETED_COLOR.get(questScreen.selectedChapter) :
 						ThemeProperties.DEPENDENCY_LINE_UNCOMPLETED_COLOR.get(questScreen.selectedChapter);
-				if (unavailable || qb.quest.getProgressionMode() == ProgressionMode.FLEXIBLE && !questScreen.file.selfTeamData.areDependenciesComplete(qb.quest)) {
+				if (unavailable || qb.quest.getProgressionMode() == ProgressionMode.FLEXIBLE && !questScreen.file.selfIslandData.areDependenciesComplete(qb.quest)) {
 					// dim connection lines for unavailable quests
 					c = c.withAlpha(Math.max(30, c.alphai() / 2));
 				}

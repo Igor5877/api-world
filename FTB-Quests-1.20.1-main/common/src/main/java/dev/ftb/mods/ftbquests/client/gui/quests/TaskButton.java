@@ -59,8 +59,8 @@ public class TaskButton extends Button {
 				task.onEditButtonClicked(questScreen);
 			} else {
 				boolean canClick = task.isValid()
-						&& questScreen.file.selfTeamData.canStartTasks(task.getQuest())
-						&& !questScreen.file.selfTeamData.isCompleted(task);
+						&& questScreen.file.selfIslandData.canStartTasks(task.getQuest())
+						&& !questScreen.file.selfIslandData.isCompleted(task);
 				task.onButtonClicked(this, canClick);
 			}
 		} else if (button.isRight() && questScreen.file.canEdit()) {
@@ -122,24 +122,24 @@ public class TaskButton extends Button {
 	public void addMouseOverText(TooltipList list) {
 		questScreen.addInfoTooltip(list, task);
 
-		task.addMouseOverHeader(list, questScreen.file.selfTeamData, Minecraft.getInstance().options.advancedItemTooltips);
+		task.addMouseOverHeader(list, questScreen.file.selfIslandData, Minecraft.getInstance().options.advancedItemTooltips);
 
-		if (questScreen.file.selfTeamData.canStartTasks(task.getQuest())) {
+		if (questScreen.file.selfIslandData.canStartTasks(task.getQuest())) {
 			long maxp = task.getMaxProgress();
-			long progress = questScreen.file.selfTeamData.getProgress(task);
+			long progress = questScreen.file.selfIslandData.getProgress(task);
 
 			if (maxp > 1L) {
 				if (task.hideProgressNumbers()) {
-					list.add(Component.literal("[" + task.getRelativeProgressFromChildren(questScreen.file.selfTeamData) + "%]").withStyle(ChatFormatting.DARK_GREEN));
+					list.add(Component.literal("[" + task.getRelativeProgressFromChildren(questScreen.file.selfIslandData) + "%]").withStyle(ChatFormatting.DARK_GREEN));
 				} else {
 					String max = isShiftKeyDown() ? Long.toUnsignedString(maxp) : task.formatMaxProgress();
-					String prog = isShiftKeyDown() ? Long.toUnsignedString(progress) : task.formatProgress(questScreen.file.selfTeamData, progress);
+					String prog = isShiftKeyDown() ? Long.toUnsignedString(progress) : task.formatProgress(questScreen.file.selfIslandData, progress);
 
 					String s = (progress > maxp ? max : prog) + " / " + max;
 					if (maxp < 100L) {
 						list.add(Component.literal(s).withStyle(ChatFormatting.DARK_GREEN));
 					} else {
-						list.add(Component.literal(s).withStyle(ChatFormatting.DARK_GREEN).append(Component.literal(" [" + task.getRelativeProgressFromChildren(questScreen.file.selfTeamData) + "%]").withStyle(ChatFormatting.DARK_GRAY)));
+						list.add(Component.literal(s).withStyle(ChatFormatting.DARK_GREEN).append(Component.literal(" [" + task.getRelativeProgressFromChildren(questScreen.file.selfIslandData) + "%]").withStyle(ChatFormatting.DARK_GRAY)));
 					}
 				}
 			}
@@ -149,7 +149,7 @@ public class TaskButton extends Button {
 			list.add(Component.translatable("ftbquests.quest.misc.optional_task").withStyle(ChatFormatting.GRAY));
 		}
 
-		task.addMouseOverText(list, questScreen.file.selfTeamData);
+		task.addMouseOverText(list, questScreen.file.selfIslandData);
 	}
 
 	@Override
@@ -161,7 +161,7 @@ public class TaskButton extends Button {
 
 	@Override
 	public void drawIcon(GuiGraphics graphics, Theme theme, int x, int y, int w, int h) {
-		task.drawGUI(questScreen.file.selfTeamData, graphics, x, y, w, h);
+		task.drawGUI(questScreen.file.selfIslandData, graphics, x, y, w, h);
 	}
 
 	@Override
@@ -171,14 +171,14 @@ public class TaskButton extends Button {
 		drawBackground(graphics, theme, x, y, w, h);
 		drawIcon(graphics, theme, x + (w - bs) / 2, y + (h - bs) / 2, bs, bs);
 
-		if (questScreen.file.selfTeamData == null) {
+		if (questScreen.file.selfIslandData == null) {
 			return;
 		} else if (questScreen.getContextMenu().isPresent()) {
 			//return;
 		}
 
 		PoseStack poseStack = graphics.pose();
-		if (questScreen.file.selfTeamData.isCompleted(task)) {
+		if (questScreen.file.selfIslandData.isCompleted(task)) {
 			poseStack.pushPose();
 			poseStack.translate(0, 0, 200);
 			RenderSystem.enableBlend();

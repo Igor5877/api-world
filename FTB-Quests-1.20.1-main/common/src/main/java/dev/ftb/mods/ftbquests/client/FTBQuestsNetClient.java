@@ -28,6 +28,7 @@ public class FTBQuestsNetClient {
 		ClientQuestFile.INSTANCE.addData(data, true);
 
 		if (self) {
+			ClientQuestFile.INSTANCE.selfIslandData = data;
 			ClientQuestFile.INSTANCE.selfTeamData = data;
 		}
 	}
@@ -42,7 +43,7 @@ public class FTBQuestsNetClient {
 		IslandData data = ClientQuestFile.INSTANCE.getOrCreateIslandData(islandId);
 		data.claimReward(player, reward, System.currentTimeMillis());
 
-		if (data == ClientQuestFile.INSTANCE.selfTeamData) {
+		if (data == ClientQuestFile.INSTANCE.selfIslandData) {
 			QuestScreen treeGui = ClientUtils.getCurrentGuiAs(QuestScreen.class);
 			if (treeGui != null) {
 				treeGui.refreshViewQuestPanel();
@@ -259,7 +260,7 @@ public class FTBQuestsNetClient {
 	}
 
 	public static void toggleChapterPinned(boolean pinned) {
-		ClientQuestFile.INSTANCE.selfTeamData.setChapterPinned(FTBQuestsClient.getClientPlayer(), pinned);
+		ClientQuestFile.INSTANCE.selfIslandData.setChapterPinned(FTBQuestsClient.getClientPlayer(), pinned);
 		ClientQuestFile.INSTANCE.getQuestScreen().ifPresent(QuestScreen::refreshChapterPanel);
 	}
 
