@@ -68,7 +68,7 @@ public class QuestScreen extends BaseScreen {
 
 		expandChaptersButton = new ExpandChaptersButton(this);
 		chapterPanel = new ChapterPanel(this);
-		selectedChapter = file.getFirstVisibleChapter(file.selfTeamData);
+		selectedChapter = file.getFirstVisibleChapter(file.selfIslandData);
 
 		questPanel = new QuestPanel(this);
 		otherButtonsBottomPanel = new OtherButtonsPanelBottom(this);
@@ -152,7 +152,7 @@ public class QuestScreen extends BaseScreen {
 	}
 
 	public void viewQuest(@Nullable Quest quest) {
-		if (quest != null && !file.canEdit() && quest.hideDetailsUntilStartable() && !file.selfTeamData.canStartTasks(quest)) {
+		if (quest != null && !file.canEdit() && quest.hideDetailsUntilStartable() && !file.selfIslandData.canStartTasks(quest)) {
 			return;
 		}
 
@@ -244,12 +244,12 @@ public class QuestScreen extends BaseScreen {
 
 		contextMenu.add(new ContextMenuItem(Component.translatable("ftbquests.gui.reset_progress"),
 				ThemeProperties.RELOAD_ICON.get(),
-				b -> ChangeProgressMessage.sendToServer(file.selfTeamData, object, progressChange -> progressChange.setReset(true))
+				b -> ChangeProgressMessage.sendToServer(file.selfIslandData, object, progressChange -> progressChange.setReset(true))
 		).setYesNoText(Component.translatable("ftbquests.gui.reset_progress_q")));
 
 		contextMenu.add(new ContextMenuItem(Component.translatable("ftbquests.gui.complete_instantly"),
 				ThemeProperties.CHECK_ICON.get(),
-				b -> ChangeProgressMessage.sendToServer(file.selfTeamData, object, progressChange -> progressChange.setReset(false))
+				b -> ChangeProgressMessage.sendToServer(file.selfIslandData, object, progressChange -> progressChange.setReset(false))
 		).setYesNoText(Component.translatable("ftbquests.gui.complete_instantly_q")));
 
 		Component[] tooltip = object instanceof Quest ?
@@ -437,10 +437,10 @@ public class QuestScreen extends BaseScreen {
 			return true;
 		}
 
-		List<Chapter> visibleChapters = file.getVisibleChapters(file.selfTeamData);
+		List<Chapter> visibleChapters = file.getVisibleChapters(file.selfIslandData);
 
 		if (key.is(GLFW.GLFW_KEY_TAB)) {
-			if (selectedChapter != null && file.getVisibleChapters(file.selfTeamData).size() > 1) {
+			if (selectedChapter != null && file.getVisibleChapters(file.selfIslandData).size() > 1) {
 
 				if (!visibleChapters.isEmpty()) {
 					selectChapter(visibleChapters.get(MathUtils.mod(visibleChapters.indexOf(selectedChapter) + (isShiftKeyDown() ? -1 : 1), visibleChapters.size())));
@@ -573,7 +573,7 @@ public class QuestScreen extends BaseScreen {
 		}
 
 		if (selectedChapter == null) {
-			selectChapter(file.getFirstVisibleChapter(file.selfTeamData));
+			selectChapter(file.getFirstVisibleChapter(file.selfIslandData));
 			if (selectedChapter != null) {
 				selectedChapter.getAutofocus().ifPresent(this::scrollTo);
 			}
@@ -735,12 +735,12 @@ public class QuestScreen extends BaseScreen {
 			list.add(Component.literal(object.getCodeString()).withStyle(ChatFormatting.DARK_GRAY));
 
 			if (object instanceof QuestObject) {
-				file.selfTeamData.getStartedTime(object.id)
+				file.selfIslandData.getStartedTime(object.id)
 						.ifPresent(date -> list.add(formatDate("Started", date)));
-				file.selfTeamData.getCompletedTime(object.id)
+				file.selfIslandData.getCompletedTime(object.id)
 						.ifPresent(date -> list.add(formatDate("Completed", date)));
 			} else if (object instanceof Reward r) {
-				file.selfTeamData.getRewardClaimTime(FTBQuestsClient.getClientPlayer().getUUID(), r)
+				file.selfIslandData.getRewardClaimTime(FTBQuestsClient.getClientPlayer().getUUID(), r)
 						.ifPresent(date -> list.add(formatDate("Claimed", date)));
 			}
 		}

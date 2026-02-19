@@ -33,7 +33,8 @@ public class ClientQuestFile extends BaseQuestFile {
 
 	public static ClientQuestFile INSTANCE;
 
-	public IslandData selfTeamData;  // MODIFIED
+	public IslandData selfIslandData; // For internal use
+	public TeamData selfTeamData;  // For backward compatibility (ftbxmodcompat)
 	public boolean isGuestMode = false;
 
 	private QuestScreen questScreen;
@@ -60,8 +61,9 @@ public class ClientQuestFile extends BaseQuestFile {
 	}
 
 	private void onReplaced() {
-		selfTeamData = new IslandData(Util.NIL_UUID, INSTANCE, "Loading..."); // MODIFIED
-		selfTeamData.setLocked(true);
+		selfIslandData = new IslandData(Util.NIL_UUID, INSTANCE, "Loading..."); // MODIFIED
+		selfTeamData = selfIslandData;
+		selfIslandData.setLocked(true);
 
 		refreshGui();
 		FTBQuests.getRecipeModHelper().refreshRecipes(INSTANCE);
@@ -69,7 +71,7 @@ public class ClientQuestFile extends BaseQuestFile {
 
 	@Override
 	public boolean canEdit() {
-		return Minecraft.getInstance().player != null && hasEditorPermission() && selfTeamData.getCanEdit(Minecraft.getInstance().player);
+		return Minecraft.getInstance().player != null && hasEditorPermission() && selfIslandData.getCanEdit(Minecraft.getInstance().player);
 	}
 
 	@Override
@@ -115,7 +117,7 @@ public class ClientQuestFile extends BaseQuestFile {
 		if (exists()) {
 			if (isDisableGui() && !canEdit()) {
 				Minecraft.getInstance().getToasts().addToast(new CustomToast(Component.translatable("item.ftbquests.book.disabled"), Icons.BARRIER, Component.empty()));
-			} else if (selfTeamData.isLocked()) {
+			} else if (selfIslandData.isLocked()) {
 				Minecraft.getInstance().getToasts().addToast(new CustomToast(lockMessage.isEmpty() ? Component.literal("Quests locked!") : TextUtils.parseRawText(lockMessage), Icons.BARRIER, Component.empty()));
 			} else {
 				if (canEdit()) {
@@ -149,7 +151,7 @@ public class ClientQuestFile extends BaseQuestFile {
 	@Override
 	public IslandData getOrCreateIslandData(Entity player) {
 		if (player.getUUID().equals(Minecraft.getInstance().player.getUUID())) {
-			return selfTeamData;
+			return selfIslandData;
 		}
 		// We don't have a reliable way to get other players' island data on the client yet.
 		// The server will sync data as needed. For now, we can't look it up.
@@ -161,11 +163,11 @@ public class ClientQuestFile extends BaseQuestFile {
 	}
 
 	public static boolean canClientPlayerEdit() {
-		return exists() && INSTANCE.selfTeamData.getCanEdit(FTBQuestsClient.getClientPlayer());
+		return exists() && INSTANCE.selfIslandData.getCanEdit(FTBQuestsClient.getClientPlayer());
 	}
 
 	public static boolean isQuestPinned(long id) {
-		return exists() && INSTANCE.selfTeamData.isQuestPinned(FTBQuestsClient.getClientPlayer(), id);
+		return exists() && INSTANCE.selfIslandData.isQuestPinned(FTBQuestsClient.getClientPlayer(), id);
 	}
 
 	@Override

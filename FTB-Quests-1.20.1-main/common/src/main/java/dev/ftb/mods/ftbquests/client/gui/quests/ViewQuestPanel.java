@@ -176,7 +176,7 @@ public class ViewQuestPanel extends ModalPanel {
 			TaskButton taskButton = new TaskButton(panelTasks, task);
 			panelTasks.add(taskButton);
 			taskButton.setSize(bsize, bsize);
-			if (!canEdit && seq && !questScreen.file.selfTeamData.isCompleted(task)) {
+			if (!canEdit && seq && !questScreen.file.selfIslandData.isCompleted(task)) {
 				break;
 			}
 		}
@@ -189,7 +189,7 @@ public class ViewQuestPanel extends ModalPanel {
 		}
 
 		for (Reward reward : quest.getRewards()) {
-			if (canEdit || !questScreen.file.selfTeamData.isRewardBlocked(reward) && reward.getAutoClaimType() != RewardAutoClaim.INVISIBLE) {
+			if (canEdit || !questScreen.file.selfIslandData.isRewardBlocked(reward) && reward.getAutoClaimType() != RewardAutoClaim.INVISIBLE) {
 				RewardButton b = new RewardButton(panelRewards, reward);
 				panelRewards.add(b);
 				b.setSize(bsize, bsize);
@@ -348,7 +348,7 @@ public class ViewQuestPanel extends ModalPanel {
 					.setText(Component.literal("").append(subtitle).withStyle(ChatFormatting.ITALIC, ChatFormatting.GRAY)));
 		}
 
-		boolean showText = !quest.getHideTextUntilComplete().get(false) || questScreen.file.selfTeamData != null && questScreen.file.selfTeamData.isCompleted(quest);
+		boolean showText = !quest.getHideTextUntilComplete().get(false) || questScreen.file.selfIslandData != null && questScreen.file.selfIslandData.isCompleted(quest);
 
 		buildPageIndices();
 
@@ -523,7 +523,7 @@ public class ViewQuestPanel extends ModalPanel {
 	public void tick() {
 		super.tick();
 
-		if (quest != null && quest.hasDependencies() && !questScreen.file.selfTeamData.canStartTasks(quest) && buttonOpenDependencies != null) {
+		if (quest != null && quest.hasDependencies() && !questScreen.file.selfIslandData.canStartTasks(quest) && buttonOpenDependencies != null) {
 			float red = Mth.sin((System.currentTimeMillis() % 1200) * (3.1415927f / 1200f));
 			Color4I col = Color4I.rgb((int) (red * 127 + 63), 0, 0);
 			buttonOpenDependencies.setIcon(Icon.getIcon(FTBQuestsAPI.MOD_ID + ":textures/gui/arrow_left.png").withTint(col));
@@ -542,7 +542,7 @@ public class ViewQuestPanel extends ModalPanel {
 		}
 
 		for (QuestObject object : c) {
-			if (questScreen.file.canEdit() || object.isSearchable(questScreen.file.selfTeamData)) {
+			if (questScreen.file.canEdit() || object.isSearchable(questScreen.file.selfIslandData)) {
 				MutableComponent title = object.getMutableTitle();
 				if (object.getQuestChapter() != null && object.getQuestChapter() != quest.getQuestChapter()) {
 					Component suffix = Component.literal(" [").append(object.getQuestChapter().getTitle()).append("]").withStyle(ChatFormatting.GRAY);

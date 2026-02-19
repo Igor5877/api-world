@@ -111,9 +111,9 @@ public class FTBQuestsClientEventHandler {
 				if (ClientQuestFile.exists()) {
 					if (ClientQuestFile.INSTANCE.isDisableGui() && !ClientQuestFile.INSTANCE.canEdit()) {
 						return "[X]";
-					} else if (ClientQuestFile.INSTANCE.selfTeamData.isLocked()) {
+					} else if (ClientQuestFile.INSTANCE.selfIslandData.isLocked()) {
 						return "[X]";
-					} else if (ClientQuestFile.INSTANCE.selfTeamData.hasUnclaimedRewards(Minecraft.getInstance().player.getUUID(), ClientQuestFile.INSTANCE)) {
+					} else if (ClientQuestFile.INSTANCE.selfIslandData.hasUnclaimedRewards(Minecraft.getInstance().player.getUUID(), ClientQuestFile.INSTANCE)) {
 						return "[!]";
 					}
 				}
@@ -168,11 +168,11 @@ public class FTBQuestsClientEventHandler {
 
 			currentlyObserving = null;
 
-			IslandData selfTeamData = ClientQuestFile.INSTANCE.selfTeamData;
+			IslandData selfIslandData = ClientQuestFile.INSTANCE.selfIslandData;
 			if (mc.hitResult != null && mc.hitResult.getType() != HitResult.Type.MISS) {
 				for (ObservationTask task : observationTasks) {
-					if (!selfTeamData.isCompleted(task) && task.observe(mc.player, mc.hitResult)
-							&& selfTeamData.canStartTasks(task.getQuest())) {
+					if (!selfIslandData.isCompleted(task) && task.observe(mc.player, mc.hitResult)
+							&& selfIslandData.canStartTasks(task.getQuest())) {
 						currentlyObserving = task;
 						break;
 					}
@@ -186,7 +186,7 @@ public class FTBQuestsClientEventHandler {
 
 				if (currentlyObservingTicks >= currentlyObserving.getTimer()) {
 					new SubmitTaskMessage(currentlyObserving.id).sendToServer();
-					selfTeamData.addProgress(currentlyObserving, 1L);
+					selfIslandData.addProgress(currentlyObserving, 1L);
 					currentlyObserving = null;
 					currentlyObservingTicks = 0L;
 				}
@@ -208,7 +208,7 @@ public class FTBQuestsClientEventHandler {
 	}
 
 	private void collectPinnedQuests(ClientQuestFile file) {
-		IslandData data = file.selfTeamData;
+		IslandData data = file.selfIslandData;
 
 		List<Quest> pinnedQuests = new ArrayList<>();
 		LongSet pinnedIds = data.getPinnedQuestIds(FTBQuestsClient.getClientPlayer());

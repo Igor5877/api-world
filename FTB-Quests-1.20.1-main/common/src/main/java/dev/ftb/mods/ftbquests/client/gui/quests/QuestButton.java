@@ -56,12 +56,12 @@ public class QuestButton extends Button implements QuestPositionableButton {
 
 	@Override
 	public boolean isEnabled() {
-		return questScreen.file.canEdit() || quest.isVisible(questScreen.file.selfTeamData);
+		return questScreen.file.canEdit() || quest.isVisible(questScreen.file.selfIslandData);
 	}
 
 	@Override
 	public boolean shouldDraw() {
-		return questScreen.file.canEdit() || quest.isVisible(questScreen.file.selfTeamData);
+		return questScreen.file.canEdit() || quest.isVisible(questScreen.file.selfIslandData);
 	}
 
 	@Override
@@ -292,9 +292,9 @@ public class QuestButton extends Button implements QuestPositionableButton {
 
 		Component title = getTitle();
 
-		if (questScreen.file.selfTeamData != null) {
-			if (questScreen.file.selfTeamData.isStarted(quest) && !questScreen.file.selfTeamData.isCompleted(quest)) {
-				title = title.copy().append(Component.literal(" " + questScreen.file.selfTeamData.getRelativeProgress(quest) + "%").withStyle(ChatFormatting.DARK_GRAY));
+		if (questScreen.file.selfIslandData != null) {
+			if (questScreen.file.selfIslandData.isStarted(quest) && !questScreen.file.selfIslandData.isCompleted(quest)) {
+				title = title.copy().append(Component.literal(" " + questScreen.file.selfIslandData.getRelativeProgress(quest) + "%").withStyle(ChatFormatting.DARK_GRAY));
 			}
 		}
 
@@ -323,7 +323,7 @@ public class QuestButton extends Button implements QuestPositionableButton {
 		if (quest.canBeRepeated()) {
 			list.add(Component.translatable("ftbquests.quest.misc.can_repeat").withStyle(ChatFormatting.GRAY));
 		}
-		if (!questScreen.file.selfTeamData.canStartTasks(quest)) {
+		if (!questScreen.file.selfIslandData.canStartTasks(quest)) {
 			list.add(Component.literal("[").withStyle(ChatFormatting.DARK_GRAY).append(Component.translatable("ftbquests.quest.locked")).append("]"));
 		}
 		if (quest.isExclusiveQuest()) {
@@ -339,7 +339,7 @@ public class QuestButton extends Button implements QuestPositionableButton {
 		Icon hiddenIcon = Color4I.empty();
 		Icon lockIcon = Color4I.empty();
 
-		IslandData islandData = questScreen.file.selfTeamData;
+		IslandData islandData = questScreen.file.selfIslandData;
 		boolean isCompleted = islandData.isCompleted(quest);
 		boolean isStarted = isCompleted || islandData.isStarted(quest);
 		boolean canStart = isCompleted || isStarted || islandData.areDependenciesComplete(quest);

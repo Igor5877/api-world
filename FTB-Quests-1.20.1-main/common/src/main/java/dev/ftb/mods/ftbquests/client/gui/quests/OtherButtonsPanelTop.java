@@ -19,7 +19,7 @@ public class OtherButtonsPanelTop extends OtherButtonsPanel {
 
 	@Override
 	public void addWidgets() {
-		if (questScreen.file.selfTeamData.isMember(Minecraft.getInstance().player.getUUID())) {
+		if (questScreen.file.selfIslandData.isMember(Minecraft.getInstance().player.getUUID())) {
 			add(new CollectRewardsButton(this));
 		}
 
@@ -31,7 +31,7 @@ public class OtherButtonsPanelTop extends OtherButtonsPanel {
 			add(new OpenGuidesButton(this));
 		}
 
-		if (!questScreen.file.getEmergencyItems().isEmpty() && (questScreen.file.selfTeamData != null || questScreen.file.canEdit())) {
+		if (!questScreen.file.getEmergencyItems().isEmpty() && (questScreen.file.selfIslandData != null || questScreen.file.canEdit())) {
 			add(new EmergencyItemsButton(this));
 		}
 

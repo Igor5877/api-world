@@ -90,7 +90,7 @@ public class FTBQuestsClient {
 	}
 
 	public static IslandData getClientPlayerData() {
-		return ClientQuestFile.INSTANCE.selfTeamData;
+		return ClientQuestFile.INSTANCE.selfIslandData;
 	}
 
 	public static BaseQuestFile createClientQuestFile() {

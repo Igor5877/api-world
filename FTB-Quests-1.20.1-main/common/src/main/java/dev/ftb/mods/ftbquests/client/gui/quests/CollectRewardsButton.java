@@ -20,7 +20,7 @@ public class CollectRewardsButton extends TabButton {
 
 	@Override
 	public void onClicked(MouseButton button) {
-		if (questScreen.file.selfTeamData.hasUnclaimedRewards(Minecraft.getInstance().player.getUUID(), questScreen.file)) {
+		if (questScreen.file.selfIslandData.hasUnclaimedRewards(Minecraft.getInstance().player.getUUID(), questScreen.file)) {
 			playClickSound();
 			new RewardNotificationsScreen().openGui();
 			new ClaimAllRewardsMessage().sendToServer();
@@ -36,7 +36,7 @@ public class CollectRewardsButton extends TabButton {
 	public void draw(GuiGraphics graphics, Theme theme, int x, int y, int w, int h) {
 		super.draw(graphics, theme, x, y, w, h);
 
-		if (questScreen.file.selfTeamData.hasUnclaimedRewards(Minecraft.getInstance().player.getUUID(), questScreen.file)) {
+		if (questScreen.file.selfIslandData.hasUnclaimedRewards(Minecraft.getInstance().player.getUUID(), questScreen.file)) {
 			GuiHelper.setupDrawing();
 			int s = w / 2;//(int) (treeGui.getZoom() / 2 * quest.size);
 			graphics.pose().pushPose();

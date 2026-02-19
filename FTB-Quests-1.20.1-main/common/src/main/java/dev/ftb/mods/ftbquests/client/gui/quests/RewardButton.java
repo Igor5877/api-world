@@ -58,7 +58,7 @@ public class RewardButton extends Button {
 			}
 		}
 
-		if (reward.isTeamReward() || questScreen.file.selfTeamData.isRewardBlocked(reward)) {
+		if (reward.isTeamReward() || questScreen.file.selfIslandData.isRewardBlocked(reward)) {
 			getIngredientUnderMouse().ifPresent(ingredient -> {
 				if (ingredient.tooltip() && ingredient.ingredient() instanceof ItemStack stack && !stack.isEmpty()) {
 					List<Component> list1 = new ArrayList<>();
@@ -71,8 +71,8 @@ public class RewardButton extends Button {
 			reward.addMouseOverText(list);
 			if (reward.isTeamReward()) {
 				list.add(Component.translatable("ftbquests.reward.team_reward").withStyle(ChatFormatting.BLUE, ChatFormatting.UNDERLINE));
-			} else if (questScreen.file.selfTeamData.isRewardBlocked(reward)) {
-				list.add(Component.translatable("ftbquests.reward.this_blocked", questScreen.file.selfTeamData).withStyle(ChatFormatting.DARK_GRAY, ChatFormatting.ITALIC));
+			} else if (questScreen.file.selfIslandData.isRewardBlocked(reward)) {
+				list.add(Component.translatable("ftbquests.reward.this_blocked", questScreen.file.selfIslandData).withStyle(ChatFormatting.DARK_GRAY, ChatFormatting.ITALIC));
 			}
 		} else {
 			reward.addMouseOverText(list);
@@ -98,7 +98,7 @@ public class RewardButton extends Button {
 
 	@Override
 	public WidgetType getWidgetType() {
-		if (!ClientQuestFile.exists() || ClientQuestFile.INSTANCE.isGuestMode || !ClientQuestFile.INSTANCE.selfTeamData.isCompleted(reward.getQuest())) {
+		if (!ClientQuestFile.exists() || ClientQuestFile.INSTANCE.isGuestMode || !ClientQuestFile.INSTANCE.selfIslandData.isCompleted(reward.getQuest())) {
 			return WidgetType.DISABLED;
 		}
 
@@ -109,7 +109,7 @@ public class RewardButton extends Button {
 	public void onClicked(MouseButton button) {
 		if (button.isLeft()) {
 			if (ClientQuestFile.exists()) {
-				reward.onButtonClicked(this, ClientQuestFile.INSTANCE.selfTeamData.getClaimType(Minecraft.getInstance().player.getUUID(), reward).canClaim());
+				reward.onButtonClicked(this, ClientQuestFile.INSTANCE.selfIslandData.getClaimType(Minecraft.getInstance().player.getUUID(), reward).canClaim());
 			}
 		} else if (button.isRight() && ClientQuestFile.exists() && ClientQuestFile.INSTANCE.canEdit()) {
 			playClickSound();
@@ -136,7 +136,7 @@ public class RewardButton extends Button {
 		drawBackground(graphics, theme, x, y, w, h);
 		drawIcon(graphics, theme, x + (w - bs) / 2, y + (h - bs) / 2, bs, bs);
 
-		if (questScreen.file.selfTeamData == null) {
+		if (questScreen.file.selfIslandData == null) {
 			return;
 		} else if (questScreen.getContextMenu().isEmpty()) {
 			//return;
@@ -149,10 +149,10 @@ public class RewardButton extends Button {
 		RenderSystem.enableBlend();
 		boolean completed = false;
 
-		if (questScreen.file.selfTeamData.getClaimType(Minecraft.getInstance().player.getUUID(), reward).isClaimed()) {
+		if (questScreen.file.selfIslandData.getClaimType(Minecraft.getInstance().player.getUUID(), reward).isClaimed()) {
 			ThemeProperties.CHECK_ICON.get().draw(graphics, x + w - 9, y + 1, 8, 8);
 			completed = true;
-		} else if (questScreen.file.selfTeamData.isCompleted(reward.getQuest())) {
+		} else if (questScreen.file.selfIslandData.isCompleted(reward.getQuest())) {
 			ThemeProperties.ALERT_ICON.get().draw(graphics, x + w - 9, y + 1, 8, 8);
 		}
 

@@ -71,7 +71,7 @@ public class ChapterPanel extends Panel {
 
 		boolean canEdit = questScreen.file.canEdit();
 
-		for (Chapter chapter : questScreen.file.getDefaultChapterGroup().getVisibleChapters(questScreen.file.selfTeamData)) {
+		for (Chapter chapter : questScreen.file.getDefaultChapterGroup().getVisibleChapters(questScreen.file.selfIslandData)) {
 			add(new ChapterButton(this, chapter));
 		}
 
@@ -146,7 +146,7 @@ public class ChapterPanel extends Panel {
 	}
 
 	boolean isPinned() {
-		return ClientQuestFile.INSTANCE.selfTeamData.isChapterPinned(Minecraft.getInstance().player);
+		return ClientQuestFile.INSTANCE.selfIslandData.isChapterPinned(Minecraft.getInstance().player);
 	}
 
 
@@ -277,7 +277,7 @@ public class ChapterPanel extends Panel {
 			super(panel, g.getTitle(), g.getIcon());
 			setSize(100, 18);
 			group = g;
-			visibleChapters = g.getVisibleChapters(panel.questScreen.file.selfTeamData);
+			visibleChapters = g.getVisibleChapters(panel.questScreen.file.selfIslandData);
 		}
 
 		@Override
@@ -402,7 +402,7 @@ public class ChapterPanel extends Panel {
 				Color4I.WHITE.withAlpha(40).draw(graphics, x + 1, y, w - 2, h);
 			}
 
-			Color4I c = chapter.getProgressColor(chapterPanel.questScreen.file.selfTeamData, !isMouseOver());
+			Color4I c = chapter.getProgressColor(chapterPanel.questScreen.file.selfIslandData, !isMouseOver());
 			int xOff = chapter.getGroup().isDefaultGroup() ? 0 : 7;
 
 			icon.draw(graphics, x + 2 + xOff, y + 1, 12, 12);
@@ -416,7 +416,7 @@ public class ChapterPanel extends Panel {
 
 			if (!chapter.hasAnyVisibleChildren()) {
 				ThemeProperties.CLOSE_ICON.get().draw(graphics, x + w - 12, y + 3, 8, 8);
-			} else if (chapterPanel.questScreen.file.selfTeamData.hasUnclaimedRewards(Minecraft.getInstance().player.getUUID(), chapter)) {
+			} else if (chapterPanel.questScreen.file.selfIslandData.hasUnclaimedRewards(Minecraft.getInstance().player.getUUID(), chapter)) {
 				ThemeProperties.ALERT_ICON.get().draw(graphics, x + w - 12, y + 3, 8, 8);
 			}
 		}
@@ -434,7 +434,7 @@ public class ChapterPanel extends Panel {
 		public int getActualWidth(QuestScreen screen) {
 			int extra = chapter.getGroup().isDefaultGroup() ? 0 : 7;
 
-			if (!chapter.hasAnyVisibleChildren() || chapterPanel.questScreen.file.selfTeamData.hasUnclaimedRewards(Minecraft.getInstance().player.getUUID(), chapter)) {
+			if (!chapter.hasAnyVisibleChildren() || chapterPanel.questScreen.file.selfIslandData.hasUnclaimedRewards(Minecraft.getInstance().player.getUUID(), chapter)) {
 				// space for the "X" marker
 				extra += 16;
 			}
