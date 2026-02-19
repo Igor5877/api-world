@@ -195,3 +195,14 @@ class MessageResponse(BaseModel):
         message: The message.
     """
     message: str
+
+# Schema for launcher start requests
+class LauncherStartRequest(BaseModel):
+    """Schema for a launcher start request.
+
+    Attributes:
+        uuid: The UUID of the player.
+        username: The username of the player.
+    """
+    uuid: uuid.UUID
+    username: str
