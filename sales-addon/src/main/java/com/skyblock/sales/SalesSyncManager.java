@@ -8,6 +8,7 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import appeng.api.networking.security.IActionSource;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -16,6 +17,7 @@ import java.net.http.HttpResponse;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Mod.EventBusSubscriber(modid = "sales_addon", bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class SalesSyncManager {
@@ -24,17 +26,13 @@ public class SalesSyncManager {
     private static final Gson gson = new Gson();
     private static final ExecutorService executor = Executors.newSingleThreadExecutor();
 
-    // Configurable via config file or dynamic lookup
-    // TODO: Load from config
-    private static String API_URL = "http://localhost:8000/api/v1/sales";
-    private static int ISLAND_ID = 1; // Placeholder: Must be fetched from island context
+    // Config values are now loaded from SalesConfig
 
     private static SalesTerminalBlockEntity activeTerminal;
+    private static final ConcurrentLinkedQueue<Runnable> mainThreadTasks = new ConcurrentLinkedQueue<>();
 
     public static void registerTerminal(SalesTerminalBlockEntity terminal) {
         activeTerminal = terminal;
-        syncSalesData();
-        checkPendingRemovals(); // Check for sales made while offline
     }
 
     public static void unregisterTerminal(SalesTerminalBlockEntity terminal) {
@@ -47,21 +45,39 @@ public class SalesSyncManager {
     public static void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
 
+        // Process tasks scheduled for the main thread
+        while (!mainThreadTasks.isEmpty()) {
+            Runnable task = mainThreadTasks.poll();
+            if (task != null) {
+                try {
+                    task.run();
+                } catch (Exception e) {
+                    LOGGER.error("Error running main thread task", e);
+                }
+            }
+        }
+
         // Periodic sync every 60 seconds (1200 ticks)
         if (event.getServer().getTickCount() % 1200 == 0) {
-             syncSalesData();
-             checkPendingRemovals();
+             triggerSync();
         }
     }
 
-    private static void syncSalesData() {
+    private static void triggerSync() {
         if (activeTerminal == null || activeTerminal.getMainNode() == null) return;
 
+        // 1. Capture State on Main Thread
+        // Scan AE2 network (must be done on server thread)
+        Map<String, Long> items = AE2Handler.scanNetwork(activeTerminal.getMainNode());
+
+        // Get config values
+        String apiUrl = SalesConfig.COMMON.apiUrl.get();
+        int islandId = SalesConfig.COMMON.islandId.get();
+
+        // 2. Offload Network I/O to Executor
         executor.submit(() -> {
             try {
-                // Gather data from AE2 network
-                Map<String, Long> items = AE2Handler.scanNetwork(activeTerminal.getMainNode());
-
+                // Upload Sales Data
                 JsonObject payload = new JsonObject();
                 JsonArray itemsArray = new JsonArray();
 
@@ -76,7 +92,7 @@ public class SalesSyncManager {
                 payload.add("items", itemsArray);
 
                 HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(API_URL + "/sync/" + ISLAND_ID))
+                        .uri(URI.create(apiUrl + "/sync/" + islandId))
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(payload)))
                         .build();
@@ -88,56 +104,60 @@ public class SalesSyncManager {
                     LOGGER.debug("Sales data synced successfully.");
                 }
 
+                // Check for Pending Removals
+                checkPendingRemovals(apiUrl, islandId);
+
             } catch (Exception e) {
-                LOGGER.error("Error syncing sales data", e);
+                LOGGER.error("Error in sync executor", e);
             }
         });
     }
 
-    private static void checkPendingRemovals() {
-         if (activeTerminal == null || activeTerminal.getMainNode() == null) return;
-
-         executor.submit(() -> {
-            try {
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(API_URL + "/pending/" + ISLAND_ID))
-                        .GET()
-                        .build();
-
-                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-
-                if (response.statusCode() == 200) {
-                    JsonArray pending = gson.fromJson(response.body(), JsonArray.class);
-                    pending.forEach(element -> {
-                        JsonObject obj = element.getAsJsonObject();
-                        int txId = obj.get("transaction_id").getAsInt();
-                        String itemId = obj.get("item_id").getAsString();
-                        int qty = obj.get("quantity").getAsInt();
-
-                        // Execute removal logic
-                        // Note: AE2 interaction should ideally happen on the server thread if it modifies world state
-                        // Extracting items usually modifies inventory NBT, so we must be careful.
-                        // For safety, we should schedule this back to the main thread.
-
-                        // Stub for now, would use:
-                        // AE2Handler.extractItem(activeTerminal.getMainNode(), itemId, qty, ...);
-
-                        long extracted = 0; // AE2Handler.extractItem(...)
-
-                        // If successful extraction:
-                        confirmRemoval(txId);
-                    });
-                }
-            } catch (Exception e) {
-                LOGGER.error("Error checking pending removals", e);
-            }
-        });
-    }
-
-    private static void confirmRemoval(int txId) {
+    private static void checkPendingRemovals(String apiUrl, int islandId) {
         try {
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(API_URL + "/confirm_removal/" + txId))
+                    .uri(URI.create(apiUrl + "/pending/" + islandId))
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() == 200) {
+                JsonArray pending = gson.fromJson(response.body(), JsonArray.class);
+
+                // Process each pending removal
+                pending.forEach(element -> {
+                    JsonObject obj = element.getAsJsonObject();
+                    int txId = obj.get("transaction_id").getAsInt();
+                    String itemId = obj.get("item_id").getAsString();
+                    int qty = obj.get("quantity").getAsInt();
+
+                    // Schedule extraction on Main Thread
+                    mainThreadTasks.add(() -> {
+                        if (activeTerminal != null && activeTerminal.getMainNode() != null) {
+                            // Dummy source for now, ideally create a machine source
+                            IActionSource source = null;
+                            long extracted = AE2Handler.extractItem(activeTerminal.getMainNode(), itemId, qty, source);
+
+                            if (extracted >= qty) {
+                                // Confirm to API (Async)
+                                executor.submit(() -> confirmRemoval(apiUrl, txId));
+                            } else {
+                                LOGGER.warn("Could not extract full quantity for transaction " + txId + ". Requested: " + qty + ", Extracted: " + extracted);
+                            }
+                        }
+                    });
+                });
+            }
+        } catch (Exception e) {
+            LOGGER.error("Error checking pending removals", e);
+        }
+    }
+
+    private static void confirmRemoval(String apiUrl, int txId) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(apiUrl + "/confirm_removal/" + txId))
                     .POST(HttpRequest.BodyPublishers.noBody())
                     .build();
             client.send(request, HttpResponse.BodyHandlers.discarding());

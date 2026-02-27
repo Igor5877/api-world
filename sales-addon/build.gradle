@@ -63,34 +63,27 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
     maven {
-        // location of the maven that hosts JEI files since January 2023
+        // Official ModMaven for AE2
+        name = "Modmaven"
+        url = "https://modmaven.dev/"
+        content {
+            includeGroup 'appeng'
+        }
+    }
+    maven {
+        // For fallback
         name = "Jared's maven"
         url = "https://maven.blamejared.com/"
-    }
-    maven {
-        // location of the maven for Vazkii's mods
-        name = "ModMaven"
-        url = "https://modmaven.dev"
-    }
-    maven {
-        name = "CurseMaven"
-        url = "https://cursemaven.com"
-        content {
-            includeGroup "curse.maven"
-        }
     }
 }
 
 dependencies {
     minecraft 'net.minecraftforge:forge:1.20.1-47.2.0'
 
-    // AE2 Dependency
-    // This requires the mod to be present in the build path.
-    // If running in a CI/CD or local env with internet access, it will download.
-    // If using the libs folder, uncomment the flatDir repository above and place the jar there.
-
-    compileOnly fg.deobf("curse.maven:applied-energistics-2-223794:4763198")
-    runtimeOnly fg.deobf("curse.maven:applied-energistics-2-223794:4763198")
+    // AE2 - Applied Energistics 2 for Forge
+    // Using official ModMaven repository coordinates
+    compileOnly fg.deobf("appeng:appliedenergistics2-forge:15.0.1:api")
+    runtimeOnly fg.deobf("appeng:appliedenergistics2-forge:15.0.1")
 }
 
 jar {

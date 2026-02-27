@@ -12,6 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -39,10 +40,9 @@ public class AE2Handler {
         // entry is Map.Entry<AEKey, Long>
         for (var entry : keyCounter) {
             if (entry.getKey() instanceof AEItemKey itemKey) {
-                // Use a stable string representation for the item (e.g., registry name)
-                // TODO: Include NBT hash if needed for precise matching
-                String id = itemKey.getItem().toString();
-                inventory.put(id, entry.getValue()); // Use getValue() for standard Map.Entry
+                // Use robust registry name instead of toString()
+                String id = ForgeRegistries.ITEMS.getKey(itemKey.getItem()).toString();
+                inventory.put(id, entry.getValue());
             }
         }
         return inventory;
@@ -69,7 +69,7 @@ public class AE2Handler {
         KeyCounter keyCounter = inventoryStorage.getAvailableStacks();
         for (var entry : keyCounter) {
              if (entry.getKey() instanceof AEItemKey itemKey) {
-                 if (itemKey.getItem().toString().equals(itemId)) {
+                 if (ForgeRegistries.ITEMS.getKey(itemKey.getItem()).toString().equals(itemId)) {
                      targetKey = itemKey;
                      break;
                  }
