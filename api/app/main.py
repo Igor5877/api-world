@@ -284,6 +284,7 @@ async def read_root():
 
 # Include your API routers
 from app.api.v1.endpoints import teams as teams_router_module
+from app.api.v1.endpoints import sales as sales_router_module
 
 app.include_router(
     islands_router_module.router,
@@ -295,6 +296,12 @@ app.include_router(
     teams_router_module.router,
     prefix=f"{settings.API_V1_STR}/teams",
     tags=["Teams"]
+)
+
+app.include_router(
+    sales_router_module.router,
+    prefix=f"{settings.API_V1_STR}/sales",
+    tags=["Sales"]
 )
 
 # For development, you might run this with: uvicorn app.main:app --reload
