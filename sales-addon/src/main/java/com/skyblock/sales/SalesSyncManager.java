@@ -168,4 +168,46 @@ public class SalesSyncManager {
             LOGGER.error("Error confirming removal", e);
         }
     }
+
+    public static void executePurchase(net.minecraft.world.entity.player.Player buyer, int islandId, String itemId, int quantity) {
+        String apiUrl = SalesConfig.COMMON.apiUrl.get();
+
+        executor.submit(() -> {
+            try {
+                JsonObject payload = new JsonObject();
+                payload.addProperty("buyer_uuid", buyer.getUUID().toString());
+                payload.addProperty("item_id", itemId);
+                payload.addProperty("quantity", quantity);
+                payload.addProperty("island_id", islandId);
+
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(apiUrl + "/purchase"))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(payload)))
+                        .build();
+
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+                if (response.statusCode() == 200) {
+                    mainThreadTasks.add(() -> {
+                        if (buyer.level().getBlockEntity(buyer.blockPosition()) instanceof SalesVendingBlockEntity vending) {
+                             vending.onPurchaseSuccess(buyer);
+                        } else {
+                             // Fallback if player moved away from block
+                             net.minecraft.world.item.ItemStack itemStack = new net.minecraft.world.item.ItemStack(net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(new net.minecraft.resources.ResourceLocation(itemId)), quantity);
+                             if (!buyer.getInventory().add(itemStack)) {
+                                 buyer.drop(itemStack, false);
+                             }
+                             buyer.sendSystemMessage(net.minecraft.network.chat.Component.literal("Purchase successful! Item delivered."));
+                        }
+                    });
+                } else {
+                    mainThreadTasks.add(() -> buyer.sendSystemMessage(net.minecraft.network.chat.Component.literal("Purchase failed. Server returned: " + response.statusCode())));
+                }
+            } catch (Exception e) {
+                LOGGER.error("Error executing purchase", e);
+                mainThreadTasks.add(() -> buyer.sendSystemMessage(net.minecraft.network.chat.Component.literal("Purchase error: " + e.getMessage())));
+            }
+        });
+    }
 }

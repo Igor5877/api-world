@@ -99,6 +99,9 @@ dependencies {
     // The user had 15.2.3 in their cache. If 15.0.1 is not resolving, let's try 15.2.3 or let Gradle find the latest 15.x
     compileOnly fg.deobf("appeng:appliedenergistics2-forge:15.2.3:api")
     runtimeOnly fg.deobf("appeng:appliedenergistics2-forge:15.2.3")
+
+    // WebSocket
+    implementation 'org.java-websocket:Java-WebSocket:1.5.3'
 }
 
 mixin {

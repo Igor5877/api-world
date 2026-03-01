@@ -19,11 +19,26 @@ public class SalesAddon {
     private static final Logger LOGGER = LogManager.getLogger();
 
     public static final DeferredRegister<Block> BLOCKS = DeferredRegister.create(ForgeRegistries.BLOCKS, "sales_addon");
+    public static final DeferredRegister<net.minecraft.world.item.Item> ITEMS = DeferredRegister.create(ForgeRegistries.ITEMS, "sales_addon");
     public static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITIES = DeferredRegister.create(ForgeRegistries.BLOCK_ENTITY_TYPES, "sales_addon");
 
     public static final RegistryObject<Block> SALES_TERMINAL_BLOCK = BLOCKS.register("sales_terminal", SalesTerminalBlock::new);
+    public static final RegistryObject<net.minecraft.world.item.Item> SALES_TERMINAL_ITEM = ITEMS.register("sales_terminal",
+            () -> new net.minecraft.world.item.BlockItem(SALES_TERMINAL_BLOCK.get(), new net.minecraft.world.item.Item.Properties()));
     public static final RegistryObject<BlockEntityType<SalesTerminalBlockEntity>> SALES_TERMINAL_BLOCK_ENTITY = BLOCK_ENTITIES.register("sales_terminal",
             () -> BlockEntityType.Builder.of(SalesTerminalBlockEntity::new, SALES_TERMINAL_BLOCK.get()).build(null));
+
+    public static final RegistryObject<Block> SALES_RECEIVER_BLOCK = BLOCKS.register("sales_receiver", SalesReceiverBlock::new);
+    public static final RegistryObject<net.minecraft.world.item.Item> SALES_RECEIVER_ITEM = ITEMS.register("sales_receiver",
+            () -> new net.minecraft.world.item.BlockItem(SALES_RECEIVER_BLOCK.get(), new net.minecraft.world.item.Item.Properties()));
+    public static final RegistryObject<BlockEntityType<SalesReceiverBlockEntity>> SALES_RECEIVER_BLOCK_ENTITY = BLOCK_ENTITIES.register("sales_receiver",
+            () -> BlockEntityType.Builder.of(SalesReceiverBlockEntity::new, SALES_RECEIVER_BLOCK.get()).build(null));
+
+    public static final RegistryObject<Block> SALES_VENDING_BLOCK = BLOCKS.register("sales_vending", SalesVendingBlock::new);
+    public static final RegistryObject<net.minecraft.world.item.Item> SALES_VENDING_ITEM = ITEMS.register("sales_vending",
+            () -> new net.minecraft.world.item.BlockItem(SALES_VENDING_BLOCK.get(), new net.minecraft.world.item.Item.Properties()));
+    public static final RegistryObject<BlockEntityType<SalesVendingBlockEntity>> SALES_VENDING_BLOCK_ENTITY = BLOCK_ENTITIES.register("sales_vending",
+            () -> BlockEntityType.Builder.of(SalesVendingBlockEntity::new, SALES_VENDING_BLOCK.get()).build(null));
 
     public SalesAddon() {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
@@ -31,6 +46,7 @@ public class SalesAddon {
         SalesConfig.register(ModLoadingContext.get());
 
         BLOCKS.register(modEventBus);
+        ITEMS.register(modEventBus);
         BLOCK_ENTITIES.register(modEventBus);
 
         modEventBus.addListener(this::setup);
