@@ -42,6 +42,25 @@ async def sync_sales(
         db_session.add(db_item)
 
     await db_session.commit()
+
+    # Broadcast to Spawn servers via WebSocket
+    from app.services.websocket_manager import manager
+    import json
+
+    # We broadcast to a specific channel or to all connected clients.
+    # In a real setup, Spawn would listen to a specific channel.
+    # For MVP, we broadcast to everyone. The mod client checks the event type.
+    broadcast_data = {
+        "event": "INVENTORY_UPDATE",
+        "island_id": island_id,
+        "items": [item.dict() for item in sales_sync.items]
+    }
+
+    # websocket_manager.broadcast expects a string
+    # We use asyncio to not block the response
+    import asyncio
+    asyncio.create_task(manager.broadcast(json.dumps(broadcast_data)))
+
     return {"status": "synced", "count": len(sales_sync.items)}
 
 @router.post("/purchase")

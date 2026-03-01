@@ -40,6 +40,8 @@ public class SalesAddon {
     public static final RegistryObject<BlockEntityType<SalesVendingBlockEntity>> SALES_VENDING_BLOCK_ENTITY = BLOCK_ENTITIES.register("sales_vending",
             () -> BlockEntityType.Builder.of(SalesVendingBlockEntity::new, SALES_VENDING_BLOCK.get()).build(null));
 
+    public static SalesWebSocketClient wsClient;
+
     public SalesAddon() {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
 
@@ -50,9 +52,28 @@ public class SalesAddon {
         BLOCK_ENTITIES.register(modEventBus);
 
         modEventBus.addListener(this::setup);
+        MinecraftForge.EVENT_BUS.addListener(this::onServerStarting);
     }
 
     private void setup(final FMLCommonSetupEvent event) {
         LOGGER.info("Sales Addon initialized!");
+    }
+
+    private void onServerStarting(net.minecraftforge.event.server.ServerStartingEvent event) {
+        // Initialize WebSocket connection on server start
+        try {
+            String apiUrl = SalesConfig.COMMON.apiUrl.get();
+            int islandId = SalesConfig.COMMON.islandId.get();
+
+            // Convert http://.../api/v1/sales to ws://.../ws/islandId
+            String wsUrl = apiUrl.replace("http://", "ws://").replace("https://", "wss://");
+            wsUrl = wsUrl.substring(0, wsUrl.indexOf("/api")) + "/ws/" + islandId;
+
+            wsClient = new SalesWebSocketClient(new java.net.URI(wsUrl));
+            wsClient.connect();
+            LOGGER.info("Connecting to Sales WebSocket: " + wsUrl);
+        } catch (Exception e) {
+            LOGGER.error("Failed to initialize Sales WebSocket", e);
+        }
     }
 }

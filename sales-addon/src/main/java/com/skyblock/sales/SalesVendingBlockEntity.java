@@ -15,13 +15,39 @@ import net.minecraftforge.registries.ForgeRegistries;
 public class SalesVendingBlockEntity extends BlockEntity {
 
     // Configuration: What this block sells.
-    // In a full implementation, these would be set via GUI and saved to NBT.
     private String targetItemId = "minecraft:diamond";
     private int targetIslandId = 1;
     private int pricePerItem = 10;
 
     public SalesVendingBlockEntity(BlockPos pos, BlockState state) {
         super(SalesAddon.SALES_VENDING_BLOCK_ENTITY.get(), pos, state);
+    }
+
+    public void setTargetItem(String itemId) {
+        this.targetItemId = itemId;
+        this.setChanged();
+    }
+
+    @Override
+    public void saveAdditional(net.minecraft.nbt.CompoundTag tag) {
+        super.saveAdditional(tag);
+        tag.putString("TargetItemId", this.targetItemId);
+        tag.putInt("TargetIslandId", this.targetIslandId);
+        tag.putInt("PricePerItem", this.pricePerItem);
+    }
+
+    @Override
+    public void load(net.minecraft.nbt.CompoundTag tag) {
+        super.load(tag);
+        if (tag.contains("TargetItemId")) {
+            this.targetItemId = tag.getString("TargetItemId");
+        }
+        if (tag.contains("TargetIslandId")) {
+            this.targetIslandId = tag.getInt("TargetIslandId");
+        }
+        if (tag.contains("PricePerItem")) {
+            this.pricePerItem = tag.getInt("PricePerItem");
+        }
     }
 
     public void triggerPurchase(Player buyer) {

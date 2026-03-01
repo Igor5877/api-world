@@ -25,8 +25,17 @@ public class SalesVendingBlock extends Block implements EntityBlock {
         if (!level.isClientSide) {
             BlockEntity be = level.getBlockEntity(pos);
             if (be instanceof SalesVendingBlockEntity vending) {
-                // For MVP: Right-clicking triggers a purchase of 1 item configured in the vending block
-                vending.triggerPurchase(player);
+                net.minecraft.world.item.ItemStack itemInHand = player.getItemInHand(hand);
+
+                // If sneaking and holding an item, configure the vending block
+                if (player.isShiftKeyDown() && !itemInHand.isEmpty()) {
+                    String itemId = net.minecraftforge.registries.ForgeRegistries.ITEMS.getKey(itemInHand.getItem()).toString();
+                    vending.setTargetItem(itemId);
+                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal("Vending block configured to sell: " + itemId));
+                } else {
+                    // Normal click: attempt purchase
+                    vending.triggerPurchase(player);
+                }
             }
         }
         return InteractionResult.SUCCESS;
