@@ -108,6 +108,11 @@ class ConnectionManager:
         """
         await self.publish_to_redis(client_ids, data)
 
+    async def broadcast(self, data: Any):
+        """Publishes a message to all connected clients across all workers.
+        """
+        await self.publish_to_redis(["*"], data)
+
     async def redis_listener(self):
         """Listens for messages on the Redis Pub/Sub channel.
 
@@ -128,11 +133,16 @@ class ConnectionManager:
                     client_ids = payload["client_ids"]
                     
                     # Send to locally connected clients
-                    for client_id in client_ids:
-                        if client_id in self.active_connections:
-                            websocket = self.active_connections[client_id]
-                            logger.debug(f"Redis Listener: Sending message from channel to local client: {client_id}")
+                    if "*" in client_ids:
+                        for client_id, websocket in self.active_connections.items():
+                            logger.debug(f"Redis Listener: Broadcasting message to local client: {client_id}")
                             await self._send_direct_personal_message(data, websocket)
+                    else:
+                        for client_id in client_ids:
+                            if client_id in self.active_connections:
+                                websocket = self.active_connections[client_id]
+                                logger.debug(f"Redis Listener: Sending message from channel to local client: {client_id}")
+                                await self._send_direct_personal_message(data, websocket)
                 await asyncio.sleep(0.01)  # Prevent high CPU usage
             except Exception as e:
                 logger.error(f"Redis listener error: {e}", exc_info=True)
