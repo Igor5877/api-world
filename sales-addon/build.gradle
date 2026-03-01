@@ -2,11 +2,14 @@ buildscript {
     repositories {
         maven { url = 'https://maven.minecraftforge.net' }
         maven { url = 'https://maven.parchmentmc.org' }
+        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
         mavenCentral()
     }
     dependencies {
         classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '6.0.+'
         classpath 'org.parchmentmc:librarian:1.+'
+        // Adding MixinGradle is required to run mixins properly in dev
+        classpath 'org.spongepowered:mixingradle:0.7-SNAPSHOT'
     }
 }
 
@@ -20,6 +23,7 @@ plugins {
 
 apply plugin: 'net.minecraftforge.gradle'
 apply plugin: 'org.parchmentmc.librarian.forgegradle'
+apply plugin: 'org.spongepowered.mixin'
 
 version = '1.0.0'
 group = 'com.skyblock.sales'
@@ -38,6 +42,10 @@ minecraft {
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
 
+            // Mixin properties for dev environment (allows dependency mixins to apply)
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
+
             mods {
                 sales_addon {
                     source sourceSets.main
@@ -49,6 +57,10 @@ minecraft {
             workingDirectory project.file('run')
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'debug'
+
+            // Mixin properties for dev environment
+            property 'mixin.env.remapRefMap', 'true'
+            property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
 
             mods {
                 sales_addon {
@@ -80,10 +92,17 @@ repositories {
 dependencies {
     minecraft 'net.minecraftforge:forge:1.20.1-47.2.0'
 
+    // Mixin dependency
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+
     // AE2 - Applied Energistics 2 for Forge
-    // Using official ModMaven repository coordinates
-    compileOnly fg.deobf("appeng:appliedenergistics2-forge:15.0.1:api")
-    runtimeOnly fg.deobf("appeng:appliedenergistics2-forge:15.0.1")
+    // The user had 15.2.3 in their cache. If 15.0.1 is not resolving, let's try 15.2.3 or let Gradle find the latest 15.x
+    compileOnly fg.deobf("appeng:appliedenergistics2-forge:15.2.3:api")
+    runtimeOnly fg.deobf("appeng:appliedenergistics2-forge:15.2.3")
+}
+
+mixin {
+    add sourceSets.main, "sales_addon.refmap.json"
 }
 
 jar {

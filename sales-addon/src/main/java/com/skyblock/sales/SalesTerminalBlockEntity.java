@@ -14,7 +14,6 @@ import javax.annotation.Nullable;
 
 public class SalesTerminalBlockEntity extends BlockEntity {
 
-    // We hold the node directly.
     private IManagedGridNode mainNode;
 
     public SalesTerminalBlockEntity(BlockPos pos, BlockState state) {
@@ -22,12 +21,10 @@ public class SalesTerminalBlockEntity extends BlockEntity {
 
         // Initialize the managed node
         this.mainNode = GridHelper.createManagedNode(this, new IGridNodeListener<SalesTerminalBlockEntity>() {
-            @Override
             public void onSecurityBreak(SalesTerminalBlockEntity nodeOwner, IGridNode node) {
                 // Drop items or notify
             }
 
-            @Override
             public void onSaveChanges(SalesTerminalBlockEntity nodeOwner, IGridNode node) {
                 setChanged();
             }
@@ -36,11 +33,9 @@ public class SalesTerminalBlockEntity extends BlockEntity {
         // Configure the node
         this.mainNode.setTagName("Sales Terminal");
         this.mainNode.setVisualRepresentation(SalesAddon.SALES_TERMINAL_BLOCK.get().asItem());
-        // this.mainNode.setFlags(GridFlags.REQUIRE_CHANNEL); // Example flag usage
         this.mainNode.setIdlePowerUsage(5.0);
     }
 
-    // Required to expose the node to cables
     @Nullable
     public IManagedGridNode getGridNode(Direction dir) {
         return this.mainNode;
@@ -50,8 +45,6 @@ public class SalesTerminalBlockEntity extends BlockEntity {
     public AECableType getCableConnectionType(Direction dir) {
         return AECableType.SMART;
     }
-
-    // Lifecycle hooks
 
     @Override
     public void setRemoved() {
@@ -66,15 +59,11 @@ public class SalesTerminalBlockEntity extends BlockEntity {
     public void onLoad() {
         super.onLoad();
         if (this.level != null && !this.level.isClientSide) {
-             // Ensure node is created/ready
-             if (this.mainNode == null) {
-                 // Re-create if needed
-             }
              SalesSyncManager.registerTerminal(this);
         }
     }
 
-    public IManagedGridNode getMainNode() {
-        return this.mainNode;
+    public IGridNode getMainNode() {
+        return this.mainNode.getNode();
     }
 }
