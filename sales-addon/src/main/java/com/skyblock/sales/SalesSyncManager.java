@@ -68,6 +68,7 @@ public class SalesSyncManager {
 
         // 1. Capture State on Main Thread
         // Scan AE2 network (must be done on server thread)
+        // Note: activeTerminal.getMainNode() already returns IGridNode!
         Map<String, Long> items = AE2Handler.scanNetwork(activeTerminal.getMainNode());
 
         // Get config values
@@ -137,6 +138,8 @@ public class SalesSyncManager {
                         if (activeTerminal != null && activeTerminal.getMainNode() != null) {
                             // Dummy source for now, ideally create a machine source
                             IActionSource source = null;
+
+                            // Note: activeTerminal.getMainNode() already returns IGridNode!
                             long extracted = AE2Handler.extractItem(activeTerminal.getMainNode(), itemId, qty, source);
 
                             if (extracted >= qty) {
