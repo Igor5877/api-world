@@ -230,6 +230,24 @@ async def lifespan(app: FastAPI):
     
     if is_startup_leader:
         logger.info("This worker is the startup leader. Running initial tasks...")
+
+        # Initialize database tables automatically
+        logger.info("Initializing database tables...")
+        from app.db.session import engine
+        from app.db.base_class import Base
+        # Ensure all models are imported so SQLAlchemy knows about them before creating
+        import app.models.island
+        import app.models.team
+        import app.models.island_start_queue
+        import app.models.sales
+
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database tables initialized successfully.")
+        except Exception as e:
+            logger.error(f"Failed to initialize database tables: {e}")
+
         # Perform island state reconciliation
         await reconcile_island_states()
         

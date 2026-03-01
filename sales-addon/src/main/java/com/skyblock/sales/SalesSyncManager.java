@@ -22,7 +22,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 @Mod.EventBusSubscriber(modid = "sales_addon", bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class SalesSyncManager {
     private static final Logger LOGGER = LogManager.getLogger();
-    private static final HttpClient client = HttpClient.newHttpClient();
+    // Force HTTP/1.1 to prevent "Unsupported upgrade request" errors in Uvicorn
+    private static final HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
     private static final Gson gson = new Gson();
     private static final ExecutorService executor = Executors.newSingleThreadExecutor();
 
