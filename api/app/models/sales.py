@@ -26,7 +26,7 @@ class SalesItem(Base):
     # AE2 Item identification (could be complex NBT, but for MVP we use a string hash or registry name)
     item_id = Column(String(255), nullable=False, index=True) # e.g., "minecraft:diamond" or custom hash
     item_name = Column(String(255), nullable=True) # Display name
-    item_nbt = Column(String, nullable=True) # JSON or stringified NBT for exact matching
+    item_nbt = Column(Text, nullable=True) # JSON or stringified NBT for exact matching
 
     quantity = Column(Integer, default=0, nullable=False)
     price = Column(Float, default=0.0, nullable=False) # Price per unit
@@ -60,8 +60,8 @@ class Transaction(Base):
     completed_at = Column(DateTime, nullable=True)
 
     # Liability Shift Logs
-    error_log = Column(String, nullable=True) # Details if something went wrong
-    admin_notes = Column(String, nullable=True)
+    error_log = Column(Text, nullable=True) # Details if something went wrong
+    admin_notes = Column(Text, nullable=True)
 
     # Flags for step tracking
     item_given = Column(Boolean, default=False)

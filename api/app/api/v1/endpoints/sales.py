@@ -23,7 +23,7 @@ async def sync_sales(
     This overwrites the current cache for this island's sales items.
     """
     result = await db_session.execute(select(Island).where(Island.id == island_id))
-    island = result.scalar_first()
+    island = result.scalars().first()
     if not island:
         raise HTTPException(status_code=404, detail="Island not found")
 
@@ -59,7 +59,7 @@ async def purchase_item(
             SalesItem.item_id == transaction_in.item_id
         )
     )
-    sales_item = result.scalar_first()
+    sales_item = result.scalars().first()
 
     if not sales_item or sales_item.quantity < transaction_in.quantity:
         raise HTTPException(status_code=400, detail="Item not available or insufficient quantity")
@@ -145,7 +145,7 @@ async def confirm_removal(
     Called by the Island after successfully removing items from AE2.
     """
     result = await db_session.execute(select(Transaction).where(Transaction.id == transaction_id))
-    tx = result.scalar_first()
+    tx = result.scalars().first()
 
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
