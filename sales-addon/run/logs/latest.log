@@ -1,0 +1,17 @@
+[01бер.2026 17:37:19.398] [main/INFO] [cpw.mods.modlauncher.Launcher/MODLAUNCHER]: ModLauncher running: args [--launchTarget, forgeclientuserdev, --version, MOD_DEV, --assetIndex, 5, --assetsDir, /home/igor/.gradle/caches/forge_gradle/assets, --gameDir, ., --fml.forgeVersion, 47.2.20, --fml.mcVersion, 1.20.1, --fml.forgeGroup, net.minecraftforge, --fml.mcpVersion, 20230612.114412]
+[01бер.2026 17:37:19.401] [main/INFO] [cpw.mods.modlauncher.Launcher/MODLAUNCHER]: ModLauncher 10.0.9+10.0.9+main.dcd20f30 starting: java version 17.0.18 by Ubuntu; OS Linux arch amd64 version 6.8.0-101-generic
+[01бер.2026 17:37:19.473] [main/INFO] [net.minecraftforge.fml.loading.ImmediateWindowHandler/]: Loading ImmediateWindowProvider fmlearlywindow
+[01бер.2026 17:37:19.605] [main/INFO] [EARLYDISPLAY/]: Trying GL version 4.6
+[01бер.2026 17:37:19.688] [main/INFO] [EARLYDISPLAY/]: Requested GL version 4.6 got version 4.6
+[01бер.2026 17:37:19.781] [main/INFO] [mixin/]: SpongePowered MIXIN Subsystem Version=0.8.5 Source=union:/home/igor/.gradle/caches/modules-2/files-2.1/org.spongepowered/mixin/0.8.5/9d1c0c3a304ae6697ecd477218fa61b850bf57fc/mixin-0.8.5.jar%23116!/ Service=ModLauncher Env=CLIENT
+[01бер.2026 17:37:19.786] [pool-2-thread-1/INFO] [EARLYDISPLAY/]: GL info: Mesa Intel(R) Graphics (RPL-U) GL version 4.6 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.3, Intel
+[01бер.2026 17:37:20.087] [main/WARN] [net.minecraftforge.fml.loading.moddiscovery.ModFileParser/LOADING]: Mod file /home/igor/.gradle/caches/modules-2/files-2.1/net.minecraftforge/javafmllanguage/1.20.1-47.2.20/918959a037ab7191a0c45a359f4746ab76c110c3/javafmllanguage-1.20.1-47.2.20.jar is missing mods.toml file
+[01бер.2026 17:37:20.089] [main/WARN] [net.minecraftforge.fml.loading.moddiscovery.ModFileParser/LOADING]: Mod file /home/igor/.gradle/caches/modules-2/files-2.1/net.minecraftforge/lowcodelanguage/1.20.1-47.2.20/c1d1efcb98e8bfcf3dbfed0d1e81b55b648b86bf/lowcodelanguage-1.20.1-47.2.20.jar is missing mods.toml file
+[01бер.2026 17:37:20.090] [main/WARN] [net.minecraftforge.fml.loading.moddiscovery.ModFileParser/LOADING]: Mod file /home/igor/.gradle/caches/modules-2/files-2.1/net.minecraftforge/mclanguage/1.20.1-47.2.20/efca3bee89c0085192b122d47334692b921ca7d1/mclanguage-1.20.1-47.2.20.jar is missing mods.toml file
+[01бер.2026 17:37:20.093] [main/WARN] [net.minecraftforge.fml.loading.moddiscovery.ModFileParser/LOADING]: Mod file /home/igor/.gradle/caches/modules-2/files-2.1/net.minecraftforge/fmlcore/1.20.1-47.2.20/12cd436f148405b50c9b16bd8f3cc6f18db89824/fmlcore-1.20.1-47.2.20.jar is missing mods.toml file
+[01бер.2026 17:37:20.205] [main/INFO] [net.minecraftforge.fml.loading.moddiscovery.JarInJarDependencyLocator/]: No dependencies to load found. Skipping!
+[01бер.2026 17:37:20.284] [main/ERROR] [net.minecraftforge.fml.loading.ModSorter/LOADING]: Missing or unsupported mandatory dependencies:
+	Mod ID: 'guideme', Requested by: 'ae2', Expected range: '[20.1.7,20.2.0)', Actual version: '[MISSING]'
+[01бер.2026 17:37:21.425] [main/INFO] [cpw.mods.modlauncher.LaunchServiceHandler/MODLAUNCHER]: Launching target 'forgeclientuserdev' with arguments [--version, MOD_DEV, --gameDir, ., --assetsDir, /home/igor/.gradle/caches/forge_gradle/assets, --assetIndex, 5]
+[01бер.2026 17:37:25.277] [Datafixer Bootstrap/INFO] [com.mojang.datafixers.DataFixerBuilder/]: 188 Datafixer optimizations took 137 milliseconds
+[01бер.2026 17:37:26.184] [pool-4-thread-1/WARN] [AE2:C/]: Unable to find class com.simibubi.create.foundation.ponder.PonderWorld. Integration with PonderJS disabled.

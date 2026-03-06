@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "sales_addon:block/sales_terminal" }
+  }
+}

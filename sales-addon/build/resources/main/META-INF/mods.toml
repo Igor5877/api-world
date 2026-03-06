@@ -1,0 +1,32 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All rights reserved"
+
+[[mods]]
+modId="sales_addon"
+version="1.0.0"
+displayName="Sales Addon"
+logoFile="logo.png"
+credits="Me"
+authors="Me"
+description='''
+Sales System Addon for Skyblock
+'''
+[[dependencies.sales_addon]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="BOTH"
+[[dependencies.sales_addon]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.20.1,1.21)"
+    ordering="NONE"
+    side="BOTH"
+[[dependencies.sales_addon]]
+    modId="ae2"
+    mandatory=true
+    versionRange="[15.0.0,16.0.0)"
+    ordering="NONE"
+    side="BOTH"
