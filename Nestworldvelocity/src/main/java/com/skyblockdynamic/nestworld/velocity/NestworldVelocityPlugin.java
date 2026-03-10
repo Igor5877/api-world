@@ -29,6 +29,7 @@ import com.skyblockdynamic.nestworld.velocity.commands.TeamCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.IslandCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.TpaCommand;
 import com.skyblockdynamic.nestworld.velocity.locale.LocaleManager;
+import com.skyblockdynamic.nestworld.velocity.network.MetricsManager;
 
 /**
  * The main plugin class for the NestworldVelocity plugin.
@@ -52,6 +53,7 @@ public class NestworldVelocityPlugin {
     private ExecutorService executorService;
     private final Map<UUID, WebSocketManager> webSocketManagers = new ConcurrentHashMap<>();
     private final Set<UUID> awaitingConnection = ConcurrentHashMap.newKeySet();
+    private MetricsManager metricsManager;
 
 
     /**
@@ -82,6 +84,10 @@ public class NestworldVelocityPlugin {
         this.localeManager = new LocaleManager(dataDirectory, logger);
         this.executorService = Executors.newCachedThreadPool();
         
+        // Initialize Metrics Manager (Prometheus on port 9090)
+        this.metricsManager = new MetricsManager(logger);
+        this.metricsManager.start(9090);
+
         this.apiClient = new ApiClient(logger, pluginConfig);
 
         server.getEventManager().register(this, new PlayerConnectionListener(this, server, logger, apiClient, pluginConfig));
@@ -135,6 +141,9 @@ public class NestworldVelocityPlugin {
     @Subscribe
     public void onProxyShutdown(ProxyShutdownEvent event) {
         logger.info("Shutting down NestworldVelocityPlugin's executor service.");
+        if (metricsManager != null) {
+            metricsManager.stop();
+        }
         executorService.shutdown();
         try {
             if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
