@@ -24,6 +24,8 @@ public class ApiClient {
     private final Duration requestTimeout;
     private final Gson gson = new Gson();
 
+    // Metrics manager reference will be used to record API calls
+
     /**
      * Constructs a new ApiClient.
      *
@@ -64,11 +66,13 @@ public class ApiClient {
 
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenApply(httpResponse -> {
+                    MetricsManager.apiRequestsTotal.labels("/islands/{uuid}", String.valueOf(httpResponse.statusCode())).inc();
                     logger.debug("API Response for getIslandDetails for {}: Status Code {}, Body: {}",
                             playerUuid, httpResponse.statusCode(), httpResponse.body().substring(0, Math.min(httpResponse.body().length(), 500)));
                     return new ApiResponse(httpResponse.statusCode(), httpResponse.body());
                 })
                 .exceptionally(ex -> {
+                    MetricsManager.apiRequestsTotal.labels("/islands/{uuid}", "error").inc();
                     logger.error("API request failed for getIslandDetails for {}: {}", playerUuid, ex.getMessage(), ex);
                     return new ApiResponse(ex.getMessage());
                 });
@@ -94,11 +98,13 @@ public class ApiClient {
 
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenApply(httpResponse -> {
+                    MetricsManager.apiRequestsTotal.labels("/islands/start/{uuid}", String.valueOf(httpResponse.statusCode())).inc();
                     logger.info("API Response for requestIslandStart for {}: Status Code {}", playerUuid, httpResponse.statusCode());
                     logger.debug("API Response Body: {}", httpResponse.body());
                     return new ApiResponse(httpResponse.statusCode(), httpResponse.body());
                 })
                 .exceptionally(ex -> {
+                    MetricsManager.apiRequestsTotal.labels("/islands/start/{uuid}", "error").inc();
                     logger.error("API request failed for requestIslandStart for {}: {}", playerUuid, ex.getMessage(), ex);
                     return new ApiResponse(ex.getMessage());
                 });
