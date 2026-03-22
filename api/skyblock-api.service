@@ -1,0 +1,15 @@
+[Unit]
+Description=Gunicorn instance to serve SkyBlock LXD Manager API
+After=network.target
+
+[Service]
+User=jules
+Group=jules
+WorkingDirectory=/app/api
+EnvironmentFile=/app/api/.env
+ExecStart=/app/api/venv/bin/gunicorn app.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
