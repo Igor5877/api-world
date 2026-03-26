@@ -1,0 +1,15 @@
+Java Launcher: /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+Arguments: '--task, SRG_TO_MCP, --input, /home/igor/.gradle/caches/modules-2/files-2.1/dev.ftb.mods/ftb-library-forge/2001.2.2/3080e5c728575f26fe49c2ef5e1090eba2ab5734/ftb-library-forge-2001.2.2.jar, --output, /home/igor/.gradle/caches/forge_gradle/deobf_dependencies/dev/ftb/mods/ftb-library-forge/2001.2.2_mapped_official_1.20.1/ftb-library-forge-2001.2.2_mapped_official_1.20.1.jar, --mcp, /home/igor/.gradle/caches/forge_gradle/mcp_repo/net/minecraft/mapping/1.20.1/mapping-1.20.1-mapping.zip, --strip-signatures'
+Classpath:
+ - /home/igor/.gradle/caches/forge_gradle/maven_downloader/net/minecraftforge/installertools/1.4.4/installertools-1.4.4-fatjar.jar
+Working directory: /home/igor/Документи/GitHub/api-world/RealMarket/build/_RenameSrg2Mcp_1788039901
+Main class: net.minecraftforge.installertools.ConsoleTool
+====================================
+Task: SRG_TO_MCP
+Input:  /home/igor/.gradle/caches/modules-2/files-2.1/dev.ftb.mods/ftb-library-forge/2001.2.2/3080e5c728575f26fe49c2ef5e1090eba2ab5734/ftb-library-forge-2001.2.2.jar
+Output: /home/igor/.gradle/caches/forge_gradle/deobf_dependencies/dev/ftb/mods/ftb-library-forge/2001.2.2_mapped_official_1.20.1/ftb-library-forge-2001.2.2_mapped_official_1.20.1.jar
+MCP:    /home/igor/.gradle/caches/forge_gradle/mcp_repo/net/minecraft/mapping/1.20.1/mapping-1.20.1-mapping.zip
+Loading MCP Data
+Processing ZIP file
+Stripped Manifest of sha digests
+Process complete

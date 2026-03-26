@@ -1,0 +1,15 @@
+Java Launcher: /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+Arguments: '--task, SRG_TO_MCP, --input, /home/igor/.gradle/caches/modules-2/files-2.1/dev.architectury/architectury-forge/9.2.14/f48e657815d2e540d63bd162238631ed3c5633d3/architectury-forge-9.2.14.jar, --output, /home/igor/.gradle/caches/forge_gradle/deobf_dependencies/dev/architectury/architectury-forge/9.2.14_mapped_official_1.20.1/architectury-forge-9.2.14_mapped_official_1.20.1.jar, --mcp, /home/igor/.gradle/caches/forge_gradle/mcp_repo/net/minecraft/mapping/1.20.1/mapping-1.20.1-mapping.zip, --strip-signatures'
+Classpath:
+ - /home/igor/.gradle/caches/forge_gradle/maven_downloader/net/minecraftforge/installertools/1.4.4/installertools-1.4.4-fatjar.jar
+Working directory: /home/igor/Документи/GitHub/api-world/RealMarket/build/_RenameSrg2Mcp_-1602503007
+Main class: net.minecraftforge.installertools.ConsoleTool
+====================================
+Task: SRG_TO_MCP
+Input:  /home/igor/.gradle/caches/modules-2/files-2.1/dev.architectury/architectury-forge/9.2.14/f48e657815d2e540d63bd162238631ed3c5633d3/architectury-forge-9.2.14.jar
+Output: /home/igor/.gradle/caches/forge_gradle/deobf_dependencies/dev/architectury/architectury-forge/9.2.14_mapped_official_1.20.1/architectury-forge-9.2.14_mapped_official_1.20.1.jar
+MCP:    /home/igor/.gradle/caches/forge_gradle/mcp_repo/net/minecraft/mapping/1.20.1/mapping-1.20.1-mapping.zip
+Loading MCP Data
+Processing ZIP file
+Stripped Manifest of sha digests
+Process complete

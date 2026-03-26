@@ -5,13 +5,14 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.config.ModConfigEvent;
 
-@Mod.EventBusSubscriber(modid = "realmarket", bus = Mod.EventBusSubscriber.Bus.MOD)
+@Mod.EventBusSubscriber(modid = RealMarket.MODID, bus = Mod.EventBusSubscriber.Bus.MOD)
 public class Config {
     private static final ForgeConfigSpec.Builder BUILDER = new ForgeConfigSpec.Builder();
 
     public static final ForgeConfigSpec.ConfigValue<String> SITE_URL;
     public static final ForgeConfigSpec.ConfigValue<String> TOKEN;
     public static final ForgeConfigSpec.ConfigValue<Integer> SERVER_ID;
+    public static final ForgeConfigSpec SPEC;
 
     static {
         BUILDER.push("Azuriom Settings");
@@ -22,12 +23,15 @@ public class Config {
         SERVER_ID = BUILDER.comment("ID сервера в налаштуваннях AzLink")
                 .define("server_id", 1);
         BUILDER.pop();
+        // SPEC обов'язково будується після всіх define(), в кінці static блоку
+        SPEC = BUILDER.build();
     }
 
-    public static final ForgeConfigSpec SPEC = BUILDER.build();
+    public static String getApiBaseUrl() {
+        return SITE_URL.get();
+    }
+
     @SubscribeEvent
     static void onLoad(final ModConfigEvent.Loading event) {
-        // Цей метод можна лишити порожнім, він просто допомагає Forge
-        // синхронізувати завантаження.
     }
 }
