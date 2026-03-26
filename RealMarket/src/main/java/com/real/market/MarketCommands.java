@@ -10,9 +10,120 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraftforge.registries.ForgeRegistries;
+
+import com.mojang.brigadier.arguments.DoubleArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.real.market.blocks.MarketLinkBlockEntity;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import dev.ftb.mods.ftbchunks.data.FTBChunksAPI;
+import dev.ftb.mods.ftbchunks.data.ClaimedChunk;
+import net.minecraft.world.level.ChunkPos;
 
 public class MarketCommands {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher, CommandBuildContext context) {
+        dispatcher.register(Commands.literal("market")
+                .then(Commands.literal("visit")
+                        .then(Commands.argument("island", StringArgumentType.string())
+                                .executes(c -> {
+                                    Player p = c.getSource().getPlayerOrException();
+                                    String islandName = StringArgumentType.getString(c, "island");
+                                    PlotData data = PlotData.get(p.level());
+                                    PlotData.Plot plot = data.plots.get(islandName);
+
+                                    if (plot == null) {
+                                        p.sendSystemMessage(Component.literal("§cМагазин не знайдено!"));
+                                        return 0;
+                                    }
+
+                                    p.teleportTo((plot.x1 + plot.x2) / 2.0, p.getY(), (plot.z1 + plot.z2) / 2.0);
+                                    p.sendSystemMessage(Component.literal("§aТелепортовано до магазину: " + islandName));
+                                    return 1;
+                                })
+                        )
+                )
+                .then(Commands.literal("plot")
+                        .requires(s -> s.hasPermission(2))
+                        .then(Commands.literal("create")
+                                .then(Commands.argument("name", StringArgumentType.string())
+                                        .then(Commands.argument("owner_team_uuid", StringArgumentType.string())
+                                                .executes(c -> {
+                                                    Player p = c.getSource().getPlayerOrException();
+                                                    String name = StringArgumentType.getString(c, "name");
+                                                    UUID owner = UUID.fromString(StringArgumentType.getString(c, "owner_team_uuid"));
+                                                    BlockPos pos = p.blockPosition();
+
+                                                    PlotData data = PlotData.get(p.level());
+                                                    int x1 = pos.getX() - 10, z1 = pos.getZ() - 10, x2 = pos.getX() + 10, z2 = pos.getZ() + 10;
+                                                    data.plots.put(name, new PlotData.Plot(name, owner, System.currentTimeMillis() + 2592000000L, x1, z1, x2, z2));
+                                                    data.setDirty();
+
+                                                    // FTB Chunks Integration
+                                                    FTBChunksAPI.api().getManager().getOrCreateTeam(owner).ifPresent(team -> {
+                                                        for (int x = x1 >> 4; x <= x2 >> 4; x++) {
+                                                            for (int z = z1 >> 4; z <= z2 >> 4; z++) {
+                                                                ClaimedChunk chunk = FTBChunksAPI.api().getManager().getChunk(new ChunkPos(x, z));
+                                                                if (chunk == null) {
+                                                                    FTBChunksAPI.api().getManager().claimChunk(team, new dev.ftb.mods.ftblibrary.math.ChunkDimPos(p.level().dimension(), x, z), false);
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+
+                                                    p.sendSystemMessage(Component.literal("§aПлот створено!"));
+                                                    return 1;
+                                                })
+                                        )
+                                )
+                        )
+                )
+                .then(Commands.literal("setprice")
+                        .then(Commands.argument("price", DoubleArgumentType.doubleArg(0.0))
+                                .executes(c -> {
+                                    Player p = c.getSource().getPlayerOrException();
+                                    double price = DoubleArgumentType.getDouble(c, "price");
+                                    ItemStack stack = p.getMainHandItem();
+
+                                    if (stack.isEmpty()) {
+                                        p.sendSystemMessage(Component.literal("§cВізьміть предмет у руку!"));
+                                        return 0;
+                                    }
+
+                                    // Знайти найближчий Market Link Block у радіусі 5 блоків
+                                    BlockPos playerPos = p.blockPosition();
+                                    MarketLinkBlockEntity foundBE = null;
+                                    for (BlockPos pos : BlockPos.betweenClosed(playerPos.offset(-5, -5, -5), playerPos.offset(5, 5, 5))) {
+                                        BlockEntity be = p.level().getBlockEntity(pos);
+                                        if (be instanceof MarketLinkBlockEntity marketBE) {
+                                            foundBE = marketBE;
+                                            break;
+                                        }
+                                    }
+
+                                    if (foundBE == null) {
+                                        p.sendSystemMessage(Component.literal("§cПоряд не знайдено Market Link Block!"));
+                                        return 0;
+                                    }
+
+                                    MarketData data = MarketData.get(p.level());
+                                    Item item = stack.getItem();
+                                    MarketData.Entry entry = data.stocks.get(item);
+                                    if (entry == null) {
+                                        entry = new MarketData.Entry(0, 100, price);
+                                        data.stocks.put(item, entry);
+                                    } else {
+                                        entry.base = price;
+                                    }
+                                    data.setDirty();
+
+                                    p.sendSystemMessage(Component.literal("§aЦіна для " + item.getDescriptionId() + " встановлена: §e" + price));
+                                    return 1;
+                                })
+                        )
+                )
+        );
+
         dispatcher.register(Commands.literal("mkt")
                         .then(Commands.literal("buy")
                                 .then(Commands.argument("item", ItemArgument.item(context))  // ← context замість null
@@ -45,6 +156,15 @@ public class MarketCommands {
                                                                 node.stock -= qty;
                                                                 market.setDirty();
                                                                 p.sendSystemMessage(Component.literal("§aКуплено! З балансу знято: §e" + String.format("%.2f", totalCost) + " ₴"));
+
+                                                                // 4. Створення боргу для острова
+                                                                if (RealMarket.wsClient != null && RealMarket.wsClient.isOpen()) {
+                                                                    JsonObject debtJson = new JsonObject();
+                                                                    debtJson.addProperty("action", "market_debt_create");
+                                                                    debtJson.addProperty("item_id", ForgeRegistries.ITEMS.getKey(targetItem).toString());
+                                                                    debtJson.addProperty("amount", qty);
+                                                                    RealMarket.wsClient.send(debtJson.toString());
+                                                                }
                                                             });
                                                         } else {
                                                             c.getSource().getServer().execute(() -> p.sendSystemMessage(Component.literal("§cПомилка транзакції на сайті!")));

@@ -1,4 +1,10 @@
-rootProject.name = "api-world"
-
-include("mods-server", "FTB-Quests-1.20.1-main")
-
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven { url 'https://maven.minecraftforge.net' }
+        maven { url 'https://maven.architectury.dev/' }
+    }
+}
+rootProject.name = 'api-world'
+include 'mods-server'
+include 'RealMarket'
