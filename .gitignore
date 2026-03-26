@@ -1,3 +1,11 @@
 playersync-common.template.toml
 .env
 venv
+.gradle/
+build/
+bin/
+out/
+*.log
+run/
+run-data/
+mcmodsrepo/

@@ -4,7 +4,7 @@ import com.real.market.blocks.MarketLinkBlock;
 import com.real.market.blocks.MarketLinkBlockEntity;
 import com.real.market.net.MarketSyncTask;
 import com.real.market.net.MarketWebSocketClient;
-import com.skyblock.dynamic.Config;
+import com.real.market.Config;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -34,6 +34,7 @@ import com.google.gson.JsonObject;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraftforge.server.ServerLifecycleHooks;
 
 import java.net.URI;
 import java.util.HashSet;
@@ -58,7 +59,7 @@ public class RealMarket {
         BLOCKS.register(modEventBus);
         BLOCK_ENTITIES.register(modEventBus);
 
-        ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, Config.SPEC, "realmarket-common.toml");
+        ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, com.real.market.Config.SPEC, "realmarket-common.toml");
 
         MinecraftForge.EVENT_BUS.addListener(this::onCommands);
         MinecraftForge.EVENT_BUS.addListener(this::onServerStarted);
@@ -67,7 +68,7 @@ public class RealMarket {
     }
 
     private void onServerStarted(ServerStartedEvent event) {
-        String apiUrl = Config.getApiBaseUrl();
+        String apiUrl = com.skyblock.dynamic.Config.getApiBaseUrl();
         if (apiUrl != null) {
             String wsUrl = apiUrl.replace("http", "ws") + "market/ws";
             try {

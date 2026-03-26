@@ -1,27 +1,43 @@
 package com.real.market;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.google.gson.JsonObject;
+import com.real.market.blocks.MarketLinkBlockEntity;
+import com.skyblock.dynamic.nestworld.mods.NestworldModsServer;
+import dev.ftb.mods.ftbchunks.data.FTBChunksAPI;
+import dev.ftb.mods.ftbchunks.data.ClaimedChunk;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.item.ItemArgument;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraftforge.registries.ForgeRegistries;
 
-import com.mojang.brigadier.arguments.DoubleArgumentType;
-import com.mojang.brigadier.arguments.StringArgumentType;
-import com.real.market.blocks.MarketLinkBlockEntity;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.entity.BlockEntity;
-import dev.ftb.mods.ftbchunks.data.FTBChunksAPI;
-import dev.ftb.mods.ftbchunks.data.ClaimedChunk;
-import net.minecraft.world.level.ChunkPos;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 public class MarketCommands {
+    private static UUID getIslandAtPos(BlockPos pos, Level level) {
+        PlotData plotData = PlotData.get(level);
+        for (PlotData.Plot plot : plotData.plots.values()) {
+            if (pos.getX() >= plot.x1 && pos.getX() <= plot.x2 && pos.getZ() >= plot.z1 && pos.getZ() <= plot.z2) {
+                return plot.ownerTeam;
+            }
+        }
+        return null;
+    }
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher, CommandBuildContext context) {
         dispatcher.register(Commands.literal("market")
                 .then(Commands.literal("visit")
@@ -90,7 +106,6 @@ public class MarketCommands {
                                         return 0;
                                     }
 
-                                    // Знайти найближчий Market Link Block у радіусі 5 блоків
                                     BlockPos playerPos = p.blockPosition();
                                     MarketLinkBlockEntity foundBE = null;
                                     for (BlockPos pos : BlockPos.betweenClosed(playerPos.offset(-5, -5, -5), playerPos.offset(5, 5, 5))) {
@@ -106,12 +121,19 @@ public class MarketCommands {
                                         return 0;
                                     }
 
+                                    UUID playerIsland = NestworldModsServer.ISLAND_PROVIDER.getCachedTeamId(p.getUUID());
+                                    if (playerIsland == null || !playerIsland.equals(foundBE.getIslandId())) {
+                                        p.sendSystemMessage(Component.literal("§cВи можете налаштовувати ціни тільки на власному Market Link!"));
+                                        return 0;
+                                    }
+
                                     MarketData data = MarketData.get(p.level());
                                     Item item = stack.getItem();
-                                    MarketData.Entry entry = data.stocks.get(item);
+                                    Map<Item, MarketData.Entry> islandStocks = data.stocks.computeIfAbsent(playerIsland, id -> new HashMap<>());
+                                    MarketData.Entry entry = islandStocks.get(item);
                                     if (entry == null) {
-                                        entry = new MarketData.Entry(0, 100, price);
-                                        data.stocks.put(item, entry);
+                                        entry = new MarketData.Entry(1000, 1000, price);
+                                        islandStocks.put(item, entry);
                                     } else {
                                         entry.base = price;
                                     }
@@ -126,58 +148,63 @@ public class MarketCommands {
 
         dispatcher.register(Commands.literal("mkt")
                         .then(Commands.literal("buy")
-                                .then(Commands.argument("item", ItemArgument.item(context))  // ← context замість null
+                                .then(Commands.argument("item", ItemArgument.item(context))
                                         .then(Commands.argument("qty", IntegerArgumentType.integer(1, 64))
                                                 .executes(c -> {
-                                                    // ... решта без змін
-                                            Player p = c.getSource().getPlayerOrException();
-                                            Item targetItem = ItemArgument.getItem(c, "item").getItem();
-                                            int qty = IntegerArgumentType.getInteger(c, "qty");
+                                                    Player p = c.getSource().getPlayerOrException();
+                                                    Item targetItem = ItemArgument.getItem(c, "item").getItem();
+                                                    int qty = IntegerArgumentType.getInteger(c, "qty");
 
-                                            // Отримуємо дані ринку та рахуємо ціну
-                                            var market = MarketData.get(c.getSource().getLevel());
-                                            var node = market.stocks.computeIfAbsent(targetItem, i -> new MarketData.Entry(1000, 1000, 10.0));
-                                            double totalCost = node.price(true) * qty;
+                                                    var market = MarketData.get(c.getSource().getLevel());
+                                                    UUID islandId = getIslandAtPos(p.blockPosition(), p.level());
+                                                    if (islandId == null) {
+                                                        p.sendSystemMessage(Component.literal("§cВи не перебуваєте в жодному магазині!"));
+                                                        return 0;
+                                                    }
 
-                                            // 1. Синхронізуємо дані з Azuriom (отримуємо ID та Баланс)
-                                            AzuriomClient.syncPlayer(p.getGameProfile().getName(), p.getUUID()).thenAccept(info -> {
-                                                if (info == null) {
-                                                    c.getSource().getServer().execute(() -> p.sendSystemMessage(Component.literal("§cПомилка: Сайт Azuriom недоступний!")));
-                                                    return;
-                                                }
+                                                    Map<Item, MarketData.Entry> islandStocks = market.stocks.get(islandId);
+                                                    if (islandStocks == null || !islandStocks.containsKey(targetItem)) {
+                                                        p.sendSystemMessage(Component.literal("§cЦей магазин не продає цей предмет!"));
+                                                        return 0;
+                                                    }
 
-                                                if (info.money() >= totalCost) {
-                                                    // 2. Знімаємо гроші на сайті
-                                                    AzuriomClient.updateMoney(info.id(), "remove", totalCost).thenAccept(success -> {
-                                                        if (success) {
-                                                            // 3. Видаємо предмет у головному потоці гри
-                                                            c.getSource().getServer().execute(() -> {
-                                                                p.addItem(new ItemStack(targetItem, qty));
-                                                                node.stock -= qty;
-                                                                market.setDirty();
-                                                                p.sendSystemMessage(Component.literal("§aКуплено! З балансу знято: §e" + String.format("%.2f", totalCost) + " ₴"));
+                                                    MarketData.Entry node = islandStocks.get(targetItem);
+                                                    double totalCost = node.price(true) * qty;
 
-                                                                // 4. Створення боргу для острова
-                                                                if (RealMarket.wsClient != null && RealMarket.wsClient.isOpen()) {
-                                                                    JsonObject debtJson = new JsonObject();
-                                                                    debtJson.addProperty("action", "market_debt_create");
-                                                                    debtJson.addProperty("item_id", ForgeRegistries.ITEMS.getKey(targetItem).toString());
-                                                                    debtJson.addProperty("amount", qty);
-                                                                    RealMarket.wsClient.send(debtJson.toString());
+                                                    AzuriomClient.syncPlayer(p.getGameProfile().getName(), p.getUUID()).thenAccept(info -> {
+                                                        if (info == null) {
+                                                            c.getSource().getServer().execute(() -> p.sendSystemMessage(Component.literal("§cПомилка: Сайт Azuriom недоступний!")));
+                                                            return;
+                                                        }
+
+                                                        if (info.money() >= totalCost) {
+                                                            AzuriomClient.updateMoney(info.id(), "remove", totalCost).thenAccept(success -> {
+                                                                if (success) {
+                                                                    c.getSource().getServer().execute(() -> {
+                                                                        p.addItem(new ItemStack(targetItem, qty));
+                                                                        node.stock -= qty;
+                                                                        market.setDirty();
+                                                                        p.sendSystemMessage(Component.literal("§aКуплено! З балансу знято: §e" + String.format("%.2f", totalCost) + " ₴"));
+
+                                                                        if (RealMarket.wsClient != null && RealMarket.wsClient.isOpen()) {
+                                                                            JsonObject debtJson = new JsonObject();
+                                                                            debtJson.addProperty("action", "market_debt_create");
+                                                                            debtJson.addProperty("item_id", ForgeRegistries.ITEMS.getKey(targetItem).toString());
+                                                                            debtJson.addProperty("amount", qty);
+                                                                            RealMarket.wsClient.send(debtJson.toString());
+                                                                        }
+                                                                    });
+                                                                } else {
+                                                                    c.getSource().getServer().execute(() -> p.sendSystemMessage(Component.literal("§cПомилка транзакції на сайті!")));
                                                                 }
                                                             });
                                                         } else {
-                                                            c.getSource().getServer().execute(() -> p.sendSystemMessage(Component.literal("§cПомилка транзакції на сайті!")));
+                                                            c.getSource().getServer().execute(() -> p.sendSystemMessage(Component.literal("§cНедостатньо коштів! Треба: " + String.format("%.2f", totalCost))));
                                                         }
                                                     });
-                                                } else {
-                                                    c.getSource().getServer().execute(() -> p.sendSystemMessage(Component.literal("§cНедостатньо коштів! Треба: " + String.format("%.2f", totalCost))));
-                                                }
-                                            });
-                                            return 1;
-                                        }))))
+                                                    return 1;
+                                                }))))
 
-                // ПРОДАЖ: /mkt sell <кількість> (продає предмет у руці)
                 .then(Commands.literal("sell")
                         .then(Commands.argument("qty", IntegerArgumentType.integer(1, 2304))
                                 .executes(c -> {
@@ -201,16 +228,25 @@ public class MarketCommands {
                                     }
 
                                     var market = MarketData.get(c.getSource().getLevel());
-                                    var node = market.stocks.computeIfAbsent(itemToSell, i -> new MarketData.Entry(1000, 1000, 10.0));
+                                    UUID islandId = getIslandAtPos(p.blockPosition(), p.level());
+                                    if (islandId == null) {
+                                        p.sendSystemMessage(Component.literal("§cВи не перебуваєте в жодному магазині!"));
+                                        return 0;
+                                    }
+
+                                    Map<Item, MarketData.Entry> islandStocks = market.stocks.get(islandId);
+                                    if (islandStocks == null || !islandStocks.containsKey(itemToSell)) {
+                                        p.sendSystemMessage(Component.literal("§cЦей магазин не приймає цей предмет!"));
+                                        return 0;
+                                    }
+
+                                    MarketData.Entry node = islandStocks.get(itemToSell);
                                     double profit = node.price(false) * qty;
 
-                                    // 1. Отримуємо ID гравця з сайту
                                     AzuriomClient.syncPlayer(p.getGameProfile().getName(), p.getUUID()).thenAccept(info -> {
                                         if (info != null) {
-                                            // 2. Додаємо гроші на сайті
                                             AzuriomClient.updateMoney(info.id(), "add", profit).thenAccept(success -> {
                                                 if (success) {
-                                                    // 3. Вилучаємо предмети у головному потоці гри
                                                     c.getSource().getServer().execute(() -> {
                                                         p.getInventory().clearOrCountMatchingItems(s -> s.is(itemToSell), qty, p.inventoryMenu.getCraftSlots());
                                                         node.stock += qty;
@@ -226,7 +262,6 @@ public class MarketCommands {
                                     return 1;
                                 })))
 
-                // БАЛАНС: /mkt bal
                 .then(Commands.literal("bal").executes(c -> {
                     Player p = c.getSource().getPlayerOrException();
                     AzuriomClient.syncPlayer(p.getGameProfile().getName(), p.getUUID()).thenAccept(info -> {

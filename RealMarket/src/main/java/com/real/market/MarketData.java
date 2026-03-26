@@ -14,9 +14,9 @@ import java.util.*;
 
 public class MarketData extends SavedData {
     public final Map<String, Double> balances = new HashMap<>();
-    public final Map<Item, Entry> stocks = new HashMap<>();
+    // UUID (Island/Team) -> Map of Item -> Price Info
+    public final Map<UUID, Map<Item, Entry>> stocks = new HashMap<>();
 
-    // Використовуємо внутрішній клас для мутабельних даних ринку
     public static class Entry {
         public long stock, target;
         public double base;
@@ -37,14 +37,18 @@ public class MarketData extends SavedData {
         tag.put("Balances", bTag);
 
         var sTag = new CompoundTag();
-        stocks.forEach((item, data) -> {
-            var key = ForgeRegistries.ITEMS.getKey(item);
-            if (key == null) return;
-            var iTag = new CompoundTag();
-            iTag.putLong("s", data.stock);
-            iTag.putLong("t", data.target);
-            iTag.putDouble("b", data.base);
-            sTag.put(key.toString(), iTag);
+        stocks.forEach((islandId, itemMap) -> {
+            var islandTag = new CompoundTag();
+            itemMap.forEach((item, data) -> {
+                var key = ForgeRegistries.ITEMS.getKey(item);
+                if (key == null) return;
+                var iTag = new CompoundTag();
+                iTag.putLong("s", data.stock);
+                iTag.putLong("t", data.target);
+                iTag.putDouble("b", data.base);
+                islandTag.put(key.toString(), iTag);
+            });
+            sTag.put(islandId.toString(), islandTag);
         });
         tag.put("Stocks", sTag);
         return tag;
@@ -61,12 +65,18 @@ public class MarketData extends SavedData {
         bTag.getAllKeys().forEach(k -> data.balances.put(k, bTag.getDouble(k)));
 
         var sTag = tag.getCompound("Stocks");
-        sTag.getAllKeys().forEach(k -> {
-            var item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(k));
-            if (item != null && item != Items.AIR) {
-                var iTag = sTag.getCompound(k);
-                data.stocks.put(item, new Entry(iTag.getLong("s"), iTag.getLong("t"), iTag.getDouble("b")));
-            }
+        sTag.getAllKeys().forEach(islandUuidStr -> {
+            UUID islandId = UUID.fromString(islandUuidStr);
+            var islandTag = sTag.getCompound(islandUuidStr);
+            Map<Item, Entry> itemMap = new HashMap<>();
+            islandTag.getAllKeys().forEach(k -> {
+                var item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(k));
+                if (item != null && item != Items.AIR) {
+                    var iTag = islandTag.getCompound(k);
+                    itemMap.put(item, new Entry(iTag.getLong("s"), iTag.getLong("t"), iTag.getDouble("b")));
+                }
+            });
+            data.stocks.put(islandId, itemMap);
         });
         return data;
     }

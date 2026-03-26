@@ -10,6 +10,7 @@ import net.minecraft.world.item.Item;
 import net.minecraftforge.registries.ForgeRegistries;
 import org.slf4j.Logger;
 
+import java.util.Map;
 import java.util.UUID;
 
 public class MarketSyncTask implements Runnable {
@@ -31,10 +32,13 @@ public class MarketSyncTask implements Runnable {
         if (client == null || !client.isOpen()) return;
 
         JsonArray items = new JsonArray();
+        Map<Item, MarketData.Entry> islandStocks = marketData.stocks.get(islandId);
+        if (islandStocks == null) return;
+
         availableStacks.forEach((key, amount) -> {
             if (key instanceof AEItemKey itemKey) {
                 Item item = itemKey.getItem();
-                MarketData.Entry entry = marketData.stocks.get(item);
+                MarketData.Entry entry = islandStocks.get(item);
                 if (entry != null) {
                     JsonObject obj = new JsonObject();
                     obj.addProperty("item_id", ForgeRegistries.ITEMS.getKey(item).toString());
