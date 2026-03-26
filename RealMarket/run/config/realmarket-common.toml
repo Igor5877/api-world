@@ -1,0 +1,9 @@
+
+["Azuriom Settings"]
+	#URL вашого сайту (з /api/azlink на кінці)
+	site_url = "https://nestworld.site/api/azlink"
+	#Ваш Azuriom-Link-Token
+	token = "qTuFiVRpG9QNvWxJVmidtu2vYz2j6079"
+	#ID сервера в налаштуваннях AzLink
+	server_id = 1
+
