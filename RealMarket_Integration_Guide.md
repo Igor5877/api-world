@@ -160,3 +160,80 @@
 ## 6. Важливі вимоги безпеки та продуктивності
 1. **Ніяких Main Thread HTTP/WebSocket викликів.** Всі мережеві запити (`market_sync`, `market_debt_resolved`) повинні виконуватися в `CompletableFuture.runAsync()`, щоб сервер не лагав ("Server hung" watchdog).
 2. Оскільки модифікація інвентарю AE2 (`extract`) має виконуватись у головному потоці (Server Thread), робіть вилучення під час `ServerTickEvent`, а мережеву відправку результату перекидайте в асинхронний потік.
+
+---
+
+## 7. Візуалізація взаємодії (Блок-схеми)
+
+Для кращого розуміння процесу, нижче наведені схеми взаємодії між компонентами системи. Ці схеми можна переглянути за допомогою інструментів візуалізації Markdown (наприклад, плагінів Mermaid для VS Code або GitHub).
+
+### 7.1. Загальна архітектура та синхронізація залишків
+
+Ця схема показує, як блок `Market Link` (на сервері Острова) зчитує дані з МЕ Мережі та відправляє їх до нашого API для збереження в Redis.
+
+```mermaid
+graph TD
+    subgraph "Island Server (Острів Продавця)"
+        ME[МЕ Мережа (AE2)] -- Кабель --> ML[Блок 'Market Link']
+        ML -- Сканує інвентар кожні 3 хв --> ML
+    end
+
+    ML -- WebSocket (market_sync) --> API[Nestworld API]
+    API -- Зберігає кількість товарів --> DB[(Redis Cache)]
+
+    subgraph "Hub Server (Спавн)"
+        Shop[Магазин (Плот)] -. Запитує наявність .-> API
+    end
+```
+
+### 7.2. Процес покупки (Гравець купує на Hub)
+
+Схема відображає моментальну видачу предмета покупцю на Hub-сервері та фіксацію "боргу" в системі.
+
+```mermaid
+sequenceDiagram
+    participant P as Гравець (Покупець)
+    participant H as Hub Server (Магазин)
+    participant A as Nestworld API
+    participant R as Redis (База Даних)
+
+    P->>H: Клік: "Купити 1 Алмаз"
+    H->>A: Чи є алмаз у продавця?
+    A->>R: Перевірка кешу
+    R-->>A: Так, є 150 шт.
+    A-->>H: Дозволити покупку
+    H->>P: Списує валюту, Видає 1 Алмаз (Миттєво)
+    H->>A: WebSocket (market_debt_create) - Борг 1 Алмаз
+    A->>R: Зберегти борг для Острова продавця
+```
+
+### 7.3. Погашення боргу (Острів продавця запускається)
+
+Схема показує, як сервер острова отримує інформацію про борг і вилучає проданий предмет з МЕ Мережі.
+
+```mermaid
+sequenceDiagram
+    participant A as Nestworld API
+    participant I as Island Server (Острів)
+    participant ML as Блок 'Market Link'
+    participant ME as МЕ Мережа (AE2)
+
+    A->>I: Запускає контейнер (Docker/LXD)
+    I-->>A: Сервер завантажився
+    A->>I: WebSocket (market_debt_process): Борг 1 Алмаз
+    I->>ML: Знайти блок та передати завдання
+    ML->>ME: IStorageGrid.extract(1 Алмаз)
+
+    alt Успішне вилучення
+        ME-->>ML: 1 Алмаз отримано
+        ML->>ML: Знищити предмет (він вже у покупця)
+        ML->>I: Борг погашено
+        I->>A: WebSocket (market_debt_resolved: success)
+    else Помилка (Предмета немає)
+        ME-->>ML: 0 Алмазів (дефіцит)
+        ML->>ML: Зачекати 1 хв (до 3 спроб)
+        ML->>I: Помилка вилучення
+        I->>A: WebSocket (market_debt_resolved: failed)
+        A->>A: Відправити Alert Адміністратору
+    end
+```
