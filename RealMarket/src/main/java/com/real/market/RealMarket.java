@@ -77,6 +77,9 @@ public class RealMarket {
     private void onServerStarted(ServerStartedEvent event) {
         String apiUrl = com.skyblock.dynamic.Config.getApiBaseUrl();
         if (apiUrl != null) {
+            if (!apiUrl.endsWith("/")) {
+                apiUrl += "/";
+            }
             String wsUrl = apiUrl.replace("http", "ws") + "market/ws";
             try {
                 wsClient = new MarketWebSocketClient(new URI(wsUrl));
@@ -133,6 +136,7 @@ public class RealMarket {
     private static void processDebt(JsonObject debt, int retryCount) {
         String debtId = debt.get("debt_id").getAsString();
         String itemId = debt.get("item_id").getAsString();
+        String sellerIslandIdStr = debt.has("seller_island_id") ? debt.get("seller_island_id").getAsString() : null;
         long amount = debt.get("amount").getAsLong();
 
         Item item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(itemId));
@@ -140,6 +144,11 @@ public class RealMarket {
 
         boolean resolved = false;
         for (MarketLinkBlockEntity be : TRACKED_BEs) {
+            // Verify that this Market Link belongs to the seller
+            if (sellerIslandIdStr != null && !be.getIslandId().toString().equals(sellerIslandIdStr)) {
+                continue;
+            }
+
             MEStorage inventory = be.getInventory();
             if (inventory != null) {
                 AEItemKey key = AEItemKey.of(item);
