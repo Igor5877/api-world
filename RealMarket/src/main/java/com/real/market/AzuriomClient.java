@@ -44,8 +44,13 @@ public class AzuriomClient {
                     System.out.println("[RealMarket] API response: " + res.body());
                     var json = JsonParser.parseString(res.body()).getAsJsonObject();
 
-                    // Відповідь — це масив гравців
-                    if (json.has("users")) {
+                    // Відповідь може бути об'єктом користувача (AzAuth) або містити список (AzLink)
+                    if (json.has("money")) {
+                        return new AzUserInfo(
+                                json.get("id").getAsInt(),
+                                json.get("money").getAsDouble()
+                        );
+                    } else if (json.has("users")) {
                         var users = json.get("users").getAsJsonArray();
                         if (users.size() > 0) {
                             var pData = users.get(0).getAsJsonObject();
