@@ -15,10 +15,10 @@ public class Config {
 
     static {
         BUILDER.push("Azuriom Settings");
-        SITE_URL = BUILDER.comment("URL вашого сайту (з /api/azlink на кінці)")
-                .define("site_url", "https://fdfhhfhf/api/azlink");
-        TOKEN = BUILDER.comment("Ваш Azuriom-Link-Token")
-                .define("token", "ВАШ_ТОКЕН_ТУТ");
+        SITE_URL = BUILDER.comment("URL сайту Nestworld (з /api/azlink на кінці)")
+                .define("site_url", "https://nestworld.site/api/azlink");
+        TOKEN = BUILDER.comment("Ваш Nestworld API токен")
+                .define("token", "nestworld_token_here");
         SERVER_ID = BUILDER.comment("ID сервера в налаштуваннях AzLink")
                 .define("server_id", 1);
         BUILDER.pop();

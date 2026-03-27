@@ -7,7 +7,7 @@ import appeng.api.networking.IGridNode;
 import appeng.api.networking.IInWorldGridNodeHost;
 import appeng.api.networking.IManagedGridNode;
 import appeng.api.networking.security.IActionHost;
-import appeng.api.storage.IStorageGrid;
+import appeng.api.networking.storage.IStorageService;
 import appeng.api.storage.MEStorage;
 import com.real.market.RealMarket;
 import net.minecraft.core.BlockPos;
@@ -42,7 +42,7 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
     @Override
     public void onLoad() {
         super.onLoad();
-        if (!level.isClientSide) {
+        if (level != null && !level.isClientSide) {
             RealMarket.TRACKED_BEs.add(this);
             mainNode.create(level, worldPosition);
         }
@@ -88,8 +88,8 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
         IGridNode node = mainNode.getNode();
         if (node != null && node.isActive()) {
             IGrid grid = node.getGrid();
-            IStorageGrid storageGrid = grid.getCache(IStorageGrid.class);
-            return storageGrid.getInventory();
+            IStorageService storageService = grid.getService(IStorageService.class);
+            return storageService.getInventory();
         }
         return null;
     }
