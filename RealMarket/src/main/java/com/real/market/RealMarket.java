@@ -24,6 +24,8 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
+import com.mojang.logging.LogUtils;
+import org.slf4j.Logger;
 
 import appeng.api.config.Actionable;
 import appeng.api.stacks.AEItemKey;
@@ -33,10 +35,14 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.server.ServerLifecycleHooks;
 
 import java.net.URI;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -44,6 +50,7 @@ import java.util.concurrent.CompletableFuture;
 @Mod("realmarket")
 public class RealMarket {
     public static final String MODID = "realmarket";
+    private static final Logger LOGGER = LogUtils.getLogger();
     public static MarketWebSocketClient wsClient;
     private int tickCounter = 0;
 
@@ -172,7 +179,27 @@ public class RealMarket {
         }
     }
 
+    public static void updateHubCache(UUID islandId, JsonArray items) {
+        Level level = ServerLifecycleHooks.getCurrentServer().getLevel(Level.OVERWORLD);
+        if (level == null) return;
+        MarketData data = MarketData.get(level);
+        Map<Item, MarketData.Entry> islandStocks = data.stocks.computeIfAbsent(islandId, id -> new HashMap<>());
+        islandStocks.clear();
+        for (JsonElement el : items) {
+            JsonObject obj = el.getAsJsonObject();
+            Item item = ForgeRegistries.ITEMS.getValue(new ResourceLocation(obj.get("item_id").getAsString()));
+            if (item != null && item != Items.AIR) {
+                double price = obj.get("price").getAsDouble();
+                long amount = obj.get("amount").getAsLong();
+                islandStocks.put(item, new MarketData.Entry(amount, 1000, price));
+            }
+        }
+        data.setDirty();
+        LOGGER.info("[RealMarket] Updated Hub cache for island {}", islandId);
+    }
+
     private void onCommands(RegisterCommandsEvent event) {
+        LOGGER.info("[RealMarket] Registering commands...");
         MarketCommands.register(event.getDispatcher(), event.getBuildContext());
     }
 }

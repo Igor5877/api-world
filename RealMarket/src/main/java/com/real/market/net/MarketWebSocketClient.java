@@ -30,11 +30,22 @@ public class MarketWebSocketClient extends WebSocketClient {
         LOGGER.info("[RealMarket] Received message: {}", message);
         try {
             JsonObject json = GSON.fromJson(message, JsonObject.class);
-            if (json.has("action") && json.get("action").getAsString().equals("market_debt_process")) {
+            if (!json.has("action")) return;
+            String action = json.get("action").getAsString();
+
+            if (action.equals("market_debt_process")) {
                 if (json.has("debts")) {
                     JsonArray debts = json.getAsJsonArray("debts");
                     ServerLifecycleHooks.getCurrentServer().execute(() -> {
                         RealMarket.processDebts(debts);
+                    });
+                }
+            } else if (action.equals("market_sync")) {
+                if (json.has("island_id") && json.has("items")) {
+                    UUID islandId = UUID.fromString(json.get("island_id").getAsString());
+                    JsonArray items = json.getAsJsonArray("items");
+                    ServerLifecycleHooks.getCurrentServer().execute(() -> {
+                        RealMarket.updateHubCache(islandId, items);
                     });
                 }
             }

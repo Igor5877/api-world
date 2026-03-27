@@ -164,12 +164,44 @@ public class MarketCommands {
 
                                                     Map<Item, MarketData.Entry> islandStocks = market.stocks.get(islandId);
                                                     if (islandStocks == null || !islandStocks.containsKey(targetItem)) {
-                                                        p.sendSystemMessage(Component.literal("§cЦей магазин не продає цей предмет!"));
-                                                        return 0;
+                                                        // Якщо ціна не встановлена, використовуємо дефолтну (10.0)
+                                                        final double defaultTotalCost = 10.0 * qty;
+                                                        AzuriomClient.syncPlayer(p.getGameProfile().getName(), p.getUUID()).thenAccept(info -> {
+                                                            if (info == null) {
+                                                                c.getSource().getServer().execute(() -> p.sendSystemMessage(Component.literal("§cПомилка: Сайт Azuriom недоступний!")));
+                                                                return;
+                                                            }
+
+                                                            if (info.money() >= defaultTotalCost) {
+                                                                AzuriomClient.updateMoney(info.id(), "remove", defaultTotalCost).thenAccept(success -> {
+                                                                    if (success) {
+                                                                        c.getSource().getServer().execute(() -> {
+                                                                            p.addItem(new ItemStack(targetItem, qty));
+                                                                            market.setDirty();
+                                                                            p.sendSystemMessage(Component.literal("§aКуплено! З балансу знято: §e" + String.format("%.2f", defaultTotalCost) + " ₴"));
+
+                                                                            if (RealMarket.wsClient != null && RealMarket.wsClient.isOpen()) {
+                                                                                JsonObject debtJson = new JsonObject();
+                                                                                debtJson.addProperty("action", "market_debt_create");
+                                                                            debtJson.addProperty("seller_island_id", islandId.toString());
+                                                                                debtJson.addProperty("item_id", ForgeRegistries.ITEMS.getKey(targetItem).toString());
+                                                                                debtJson.addProperty("amount", qty);
+                                                                                RealMarket.wsClient.send(debtJson.toString());
+                                                                            }
+                                                                        });
+                                                                    } else {
+                                                                        c.getSource().getServer().execute(() -> p.sendSystemMessage(Component.literal("§cПомилка транзакції на сайті!")));
+                                                                    }
+                                                                });
+                                                            } else {
+                                                                c.getSource().getServer().execute(() -> p.sendSystemMessage(Component.literal("§cНедостатньо коштів! Треба: " + String.format("%.2f", defaultTotalCost))));
+                                                            }
+                                                        });
+                                                        return 1;
                                                     }
 
                                                     MarketData.Entry node = islandStocks.get(targetItem);
-                                                    double totalCost = node.price(true) * qty;
+                                                    final double finalTotalCost = node.price(true) * qty;
 
                                                     AzuriomClient.syncPlayer(p.getGameProfile().getName(), p.getUUID()).thenAccept(info -> {
                                                         if (info == null) {
@@ -177,18 +209,19 @@ public class MarketCommands {
                                                             return;
                                                         }
 
-                                                        if (info.money() >= totalCost) {
-                                                            AzuriomClient.updateMoney(info.id(), "remove", totalCost).thenAccept(success -> {
+                                                        if (info.money() >= finalTotalCost) {
+                                                            AzuriomClient.updateMoney(info.id(), "remove", finalTotalCost).thenAccept(success -> {
                                                                 if (success) {
                                                                     c.getSource().getServer().execute(() -> {
                                                                         p.addItem(new ItemStack(targetItem, qty));
                                                                         node.stock -= qty;
                                                                         market.setDirty();
-                                                                        p.sendSystemMessage(Component.literal("§aКуплено! З балансу знято: §e" + String.format("%.2f", totalCost) + " ₴"));
+                                                                        p.sendSystemMessage(Component.literal("§aКуплено! З балансу знято: §e" + String.format("%.2f", finalTotalCost) + " ₴"));
 
                                                                         if (RealMarket.wsClient != null && RealMarket.wsClient.isOpen()) {
                                                                             JsonObject debtJson = new JsonObject();
                                                                             debtJson.addProperty("action", "market_debt_create");
+                                                                            debtJson.addProperty("seller_island_id", islandId.toString());
                                                                             debtJson.addProperty("item_id", ForgeRegistries.ITEMS.getKey(targetItem).toString());
                                                                             debtJson.addProperty("amount", qty);
                                                                             RealMarket.wsClient.send(debtJson.toString());
@@ -199,7 +232,7 @@ public class MarketCommands {
                                                                 }
                                                             });
                                                         } else {
-                                                            c.getSource().getServer().execute(() -> p.sendSystemMessage(Component.literal("§cНедостатньо коштів! Треба: " + String.format("%.2f", totalCost))));
+                                                    c.getSource().getServer().execute(() -> p.sendSystemMessage(Component.literal("§cНедостатньо коштів! Треба: " + String.format("%.2f", finalTotalCost))));
                                                         }
                                                     });
                                                     return 1;
@@ -241,17 +274,17 @@ public class MarketCommands {
                                     }
 
                                     MarketData.Entry node = islandStocks.get(itemToSell);
-                                    double profit = node.price(false) * qty;
+                                    final double finalProfit = node.price(false) * qty;
 
                                     AzuriomClient.syncPlayer(p.getGameProfile().getName(), p.getUUID()).thenAccept(info -> {
                                         if (info != null) {
-                                            AzuriomClient.updateMoney(info.id(), "add", profit).thenAccept(success -> {
+                                            AzuriomClient.updateMoney(info.id(), "add", finalProfit).thenAccept(success -> {
                                                 if (success) {
                                                     c.getSource().getServer().execute(() -> {
                                                         p.getInventory().clearOrCountMatchingItems(s -> s.is(itemToSell), qty, p.inventoryMenu.getCraftSlots());
                                                         node.stock += qty;
                                                         market.setDirty();
-                                                        p.sendSystemMessage(Component.literal("§6Продано! На баланс нараховано: §e" + String.format("%.2f", profit) + " ₴"));
+                                                        p.sendSystemMessage(Component.literal("§6Продано! На баланс нараховано: §e" + String.format("%.2f", finalProfit) + " ₴"));
                                                     });
                                                 }
                                             });
