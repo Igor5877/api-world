@@ -1,3 +1,5 @@
 playersync-common.template.toml
 .env
+.idea
+.gradle
 venv
