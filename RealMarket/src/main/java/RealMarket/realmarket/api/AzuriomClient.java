@@ -58,21 +58,30 @@ public class AzuriomClient {
         HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                 .thenAccept(res -> {
                     if (res.statusCode() != 200) {
-                        System.err.println("API Error: HTTP " + res.statusCode() + " - " + res.body());
+                        System.err.println("[RealMarket] API Error: HTTP " + res.statusCode() + " - " + res.body());
                         return;
                     }
                     try {
-                        JsonObject resp = JsonParser.parseString(res.body().trim()).getAsJsonObject();
-                        if (resp.has("users")) {
-                            // Беремо ID відразу з першого користувача (users[0]), бо сайт відфільтрував запит
-                            int id = resp.getAsJsonArray("users").get(0).getAsJsonObject().get("id").getAsInt();
-                            IDS.put(uuid, id);
+                        JsonElement parsed = JsonParser.parseString(res.body().trim());
+                        if (parsed.isJsonObject()) {
+                            JsonObject resp = parsed.getAsJsonObject();
+                            if (resp.has("users") && resp.get("users").isJsonArray()) {
+                                JsonArray users = resp.getAsJsonArray("users");
+                                if (users.size() > 0 && users.get(0).isJsonObject() && users.get(0).getAsJsonObject().has("id")) {
+                                    // Беремо ID відразу з першого користувача (users[0]), бо сайт відфільтрував запит
+                                    int id = users.get(0).getAsJsonObject().get("id").getAsInt();
+                                    IDS.put(uuid, id);
+                                    System.out.println("[RealMarket] Synced player " + name + " -> ID " + id);
+                                }
+                            }
                         }
-                    } catch (JsonSyntaxException e) {
-                        System.err.println("Failed to parse JSON response: " + res.body());
-                        e.printStackTrace();
+                    } catch (JsonSyntaxException | IllegalStateException e) {
+                        System.err.println("[RealMarket] Failed to parse JSON response: " + res.body());
                     }
-                }).exceptionally(ex -> { ex.printStackTrace(); return null; });
+                }).exceptionally(ex -> {
+                    System.err.println("[RealMarket] Network exception during sync: " + ex.getMessage());
+                    return null;
+                });
     }
 
     // Асинхронне отримання балансу
@@ -81,7 +90,7 @@ public class AzuriomClient {
 
         String token = ApiConfig.getToken();
         if (token == null || token.isEmpty()) {
-            return CompletableFuture.failedFuture(new RuntimeException("API token not configured"));
+            return CompletableFuture.completedFuture(-1.0);
         }
         
         String url = ApiConfig.getApiUrl();
@@ -89,8 +98,24 @@ public class AzuriomClient {
                 .header("Azuriom-Link-Token", token).GET().build();
 
         return HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
-                .thenApply(res -> res.statusCode() == 200 ?
-                        JsonParser.parseString(res.body()).getAsJsonObject().get("money").getAsDouble() : -1.0);
+                .thenApply(res -> {
+                    if (res.statusCode() == 200) {
+                        try {
+                            JsonElement parsed = JsonParser.parseString(res.body());
+                            if (parsed.isJsonObject() && parsed.getAsJsonObject().has("money")) {
+                                return parsed.getAsJsonObject().get("money").getAsDouble();
+                            }
+                        } catch (Exception e) {
+                            System.err.println("[RealMarket] JSON parsing error in getBalAsync: " + e.getMessage());
+                        }
+                    } else {
+                        System.err.println("[RealMarket] API Error (balance): HTTP " + res.statusCode());
+                    }
+                    return -1.0;
+                }).exceptionally(ex -> {
+                    System.err.println("[RealMarket] Network exception in getBalAsync: " + ex.getMessage());
+                    return -1.0;
+                });
     }
 
     // Асинхронне оновлення грошей
@@ -99,7 +124,7 @@ public class AzuriomClient {
 
         String token = ApiConfig.getToken();
         if (token == null || token.isEmpty()) {
-            return CompletableFuture.failedFuture(new RuntimeException("API token not configured"));
+            return CompletableFuture.completedFuture(false);
         }
         
         String url = ApiConfig.getApiUrl();
@@ -113,6 +138,15 @@ public class AzuriomClient {
                 .POST(HttpRequest.BodyPublishers.ofString(body.toString())).build();
 
         return HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
-                .thenApply(res -> res.statusCode() == 200);
+                .thenApply(res -> {
+                    if (res.statusCode() == 200) {
+                        return true;
+                    }
+                    System.err.println("[RealMarket] API Error (update money): HTTP " + res.statusCode() + " - " + res.body());
+                    return false;
+                }).exceptionally(ex -> {
+                    System.err.println("[RealMarket] Network exception in updateAsync: " + ex.getMessage());
+                    return false;
+                });
     }
 }

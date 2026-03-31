@@ -22,7 +22,10 @@ public class ModCommands {
                     ServerPlayer p = c.getSource().getPlayerOrException();
                     int id = AzuriomClient.getPlayerId(p.getUUID());
 
-                    if (id == -1) return 0;
+                    if (id == -1) {
+                        p.sendSystemMessage(Component.literal("§cСинхронізація з API... Будь ласка, зачекайте."));
+                        return 0;
+                    }
 
                     // Асинхронне отримання балансу
                     AzuriomClient.getBalAsync(id).thenAccept(bal -> {
@@ -38,7 +41,14 @@ public class ModCommands {
                     int amt = IntegerArgumentType.getInteger(c, "amt");
                     ItemStack stack = p.getMainHandItem();
 
-                    if (id == -1 || stack.getCount() < amt) return 0;
+                    if (id == -1) {
+                        p.sendSystemMessage(Component.literal("§cСинхронізація з API... Будь ласка, зачекайте."));
+                        return 0;
+                    }
+                    if (stack.getCount() < amt) {
+                        p.sendSystemMessage(Component.literal("§cУ вас немає стільки предметів у руці!"));
+                        return 0;
+                    }
 
                     double price = IslandManager.PRICES.getOrDefault(p.getUUID(), 5.0) * amt;
 
@@ -60,7 +70,10 @@ public class ModCommands {
                     int id = AzuriomClient.getPlayerId(p.getUUID());
                     int amt = IntegerArgumentType.getInteger(c, "amt");
 
-                    if (id == -1) return 0;
+                    if (id == -1) {
+                        p.sendSystemMessage(Component.literal("§cСинхронізація з API... Будь ласка, зачекайте."));
+                        return 0;
+                    }
 
                     double cost = IslandManager.PRICES.getOrDefault(p.getUUID(), 10.0) * amt;
 
@@ -69,9 +82,12 @@ public class ModCommands {
                         p.server.tell(new TickTask(0, () -> {
                             if (success) {
                                 p.sendSystemMessage(Component.literal("§aКуплено " + amt + " од. за §6" + cost));
-                                // Тут можна додати видачу предмету гравцю
+                                net.minecraft.world.item.ItemStack itemStack = new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND, amt); // Наразі захардкоджено алмази, як тимчасове рішення, поки не буде інтеграції з AE2 або вибору товару
+                                if (!p.getInventory().add(itemStack)) {
+                                    p.drop(itemStack, false);
+                                }
                             } else {
-                                p.sendSystemMessage(Component.literal("§cНедостатньо коштів на балансі!"));
+                                p.sendSystemMessage(Component.literal("§cНедостатньо коштів на балансі або помилка API!"));
                             }
                         }));
                     });
@@ -103,6 +119,7 @@ public class ModCommands {
                     ServerPlayer p = c.getSource().getPlayerOrException();
                     double val = DoubleArgumentType.getDouble(c, "val");
                     IslandManager.PRICES.put(p.getUUID(), val);
+                    IslandManager.savePrices();
                     p.sendSystemMessage(Component.literal("§aЦіну на товари встановлено: §6" + val));
                     return 1;
                 })))

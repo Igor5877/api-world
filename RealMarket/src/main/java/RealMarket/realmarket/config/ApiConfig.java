@@ -130,49 +130,51 @@ public class ApiConfig {
     }
 
     private static void parseToml(String content) {
-        for (String line : content.split("\n")) {
+        // Простий та надійніший парсер для TOML конфігурації
+        String[] lines = content.split("\\r?\\n");
+        for (String line : lines) {
+            int commentIdx = line.indexOf('#');
+            if (commentIdx != -1) {
+                line = line.substring(0, commentIdx); // Видаляємо коментарі в кінці рядка
+            }
             line = line.trim();
-            
-            // Пропускаємо коментарі та пусті рядки
-            if (line.isEmpty() || line.startsWith("#")) {
-                continue;
-            }
-            
-            // Парсимо значення
-            if (line.contains("token") && line.contains("=")) {
-                cachedToken = extractValue(line);
-                if (cachedToken == null) cachedToken = "";
-                System.out.println("[RealMarket API] Token loaded: " + (cachedToken != null && !cachedToken.isEmpty() ? "✓ " + cachedToken.substring(0, Math.min(8, cachedToken.length())) + "..." : "✗ (empty)"));
-            } else if (line.contains("url") && line.contains("=")) {
-                String val = extractValue(line);
-                if (val != null && !val.isEmpty()) {
-                    cachedServerUrl = val;
-                    System.out.println("[RealMarket API] API URL: " + cachedServerUrl);
-                }
-            } else if (line.contains("server_id") && line.contains("=")) {
-                try {
-                    String value = extractValue(line);
-                    if (value != null && !value.isEmpty()) {
-                        cachedServerId = Integer.parseInt(value);
-                        System.out.println("[RealMarket API] Server ID: " + cachedServerId);
-                    }
-                } catch (NumberFormatException e) {
-                    System.err.println("[RealMarket API] Invalid server_id format: " + e.getMessage());
-                    cachedServerId = 1;
-                }
-            }
-        }
-    }
 
-    private static String extractValue(String line) {
-        int equalsPos = line.indexOf('=');
-        if (equalsPos == -1) return null;
-        
-        String value = line.substring(equalsPos + 1).trim();
-        // Видаляємо лапки
-        if (value.startsWith("\"") && value.endsWith("\"")) {
-            value = value.substring(1, value.length() - 1);
+            if (line.isEmpty() || line.startsWith("[")) {
+                continue; // Пропускаємо пусті рядки і заголовки секцій
+            }
+
+            int equalsPos = line.indexOf('=');
+            if (equalsPos != -1) {
+                String key = line.substring(0, equalsPos).trim();
+                String value = line.substring(equalsPos + 1).trim();
+
+                // Видаляємо лапки зі значення
+                if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) {
+                    value = value.substring(1, value.length() - 1);
+                } else if (value.startsWith("'") && value.endsWith("'") && value.length() >= 2) {
+                    value = value.substring(1, value.length() - 1);
+                }
+
+                if (key.equalsIgnoreCase("token")) {
+                    cachedToken = value;
+                    System.out.println("[RealMarket API] Token loaded: " + (cachedToken != null && !cachedToken.isEmpty() ? "✓ " + cachedToken.substring(0, Math.min(8, cachedToken.length())) + "..." : "✗ (empty)"));
+                } else if (key.equalsIgnoreCase("url")) {
+                    if (!value.isEmpty()) {
+                        cachedServerUrl = value;
+                        System.out.println("[RealMarket API] API URL: " + cachedServerUrl);
+                    }
+                } else if (key.equalsIgnoreCase("server_id")) {
+                    try {
+                        if (!value.isEmpty()) {
+                            cachedServerId = Integer.parseInt(value);
+                            System.out.println("[RealMarket API] Server ID: " + cachedServerId);
+                        }
+                    } catch (NumberFormatException e) {
+                        System.err.println("[RealMarket API] Invalid server_id format: " + value);
+                        cachedServerId = 1;
+                    }
+                }
+            }
         }
-        return value;
     }
 }

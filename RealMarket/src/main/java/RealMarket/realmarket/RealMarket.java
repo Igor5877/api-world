@@ -36,6 +36,8 @@ public class RealMarket {
         BLOCKS.register(bus);
         ITEMS.register(bus);
         MinecraftForge.EVENT_BUS.register(this);
+        
+        RealMarket.realmarket.world.IslandManager.loadPrices();
     }
 
     @SubscribeEvent
