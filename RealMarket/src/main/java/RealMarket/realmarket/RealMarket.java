@@ -10,6 +10,8 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.block.state.properties.NoteBlockInstrument;
+import net.minecraft.world.level.material.MapColor;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -24,31 +26,45 @@ import net.minecraftforge.registries.RegistryObject;
 @Mod(RealMarket.MODID)
 public class RealMarket {
     public static final String MODID = "realmarket";
+
     public static final DeferredRegister<Block> BLOCKS = DeferredRegister.create(ForgeRegistries.BLOCKS, MODID);
     public static final DeferredRegister<Item> ITEMS = DeferredRegister.create(ForgeRegistries.ITEMS, MODID);
 
+    // Реєстрація нашого торгового блоку
     public static final RegistryObject<Block> TRADE_BLOCK = BLOCKS.register("trade_station",
-            () -> new TradeBlock(BlockBehaviour.Properties.of().strength(-1f).noOcclusion().dynamicShape()));
+            () -> new TradeBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_GRAY)
+                    .instrument(NoteBlockInstrument.BASEDRUM)
+                    .strength(-1f, 3600000.0F)
+                    .noOcclusion()
+                    .dynamicShape()
+            ));
 
     public static final RegistryObject<Item> TRADE_ITEM = ITEMS.register("trade_station",
             () -> new BlockItem(TRADE_BLOCK.get(), new Item.Properties()));
 
-    public RealMarket() {
-        IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
+    // ВИПРАВЛЕНИЙ КОНСТРУКТОР: context додано як аргумент
+    public RealMarket(FMLJavaModLoadingContext context) {
+        // Тепер 'context' існує у межах цього методу
+        IEventBus bus = context.getModEventBus();
+
+        // 1. Реєструємо мережу
+        ModMessages.register();
+
+        // 2. Реєструємо блоки
         BLOCKS.register(bus);
         ITEMS.register(bus);
 
-        // Реєструємо пакети
-        ModMessages.register();
-
+        // 3. Підписуємось на події Forge (команди, вхід гравців)
         MinecraftForge.EVENT_BUS.register(this);
+
+        // 4. Завантажуємо ціни
         IslandManager.loadPrices();
     }
 
     @SubscribeEvent
     public void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            // Синхронізуємо гравця з сайтом, щоб отримати його числовий ID
             AzuriomClient.sync(player.getUUID(), player.getName().getString());
         }
     }
