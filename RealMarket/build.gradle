@@ -1,43 +1,56 @@
-    buildscript {
+buildscript {
     repositories {
         maven { url = 'https://maven.minecraftforge.net' }
+        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
         mavenCentral()
     }
     dependencies {
-        classpath 'net.minecraftforge.gradle:ForgeGradle:6.0.24'
+        classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '6.+', changing: true
+        classpath 'org.spongepowered:mixingradle:0.7-SNAPSHOT'
+        classpath "gradle.plugin.com.matthewprenger:CurseGradle:1.4.0"
+        classpath group: 'com.modrinth.minotaur', name: 'Minotaur', version: '2+'
     }
 }
+
 
 apply plugin: 'net.minecraftforge.gradle'
 apply plugin: 'idea'
 
 group = 'net.market.realmarket'
 version = '1.0'
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21)) // мод під Java 21
+    }
+}
 
-java.toolchain.languageVersion = JavaLanguageVersion.of(17)
-
+tasks.withType(JavaCompile).configureEach {
+    options.release.set(21) // байткод сумісний з JVM 21
+    options.encoding = 'UTF-8'
+}
 minecraft {
     mappings channel: 'official', version: '1.20.1'
     copyIdeResources = true
     runs {
         client {
-                workingDirectory project.file('run')
-                property 'forge.logging.markers', 'REGISTRIES'
-                args '--username', 'Chaos1924'
-                mods { create("realmarket") { source sourceSets.main } }
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            args '--username', 'Chaos1924'
+            mods { create("realmarket") { source sourceSets.main } }
+            property 'mixin.env.refMapRemappingFile', "${projectDir}/build/createSrgToMcp/output.srg"
         }
         server {
             workingDirectory project.file('run')
             property 'forge.logging.markers', 'REGISTRIES'
+            args 'nogui'
             mods { create("realmarket") { source sourceSets.main } }
         }
+
     }
 }
 
-repositories {
-    maven { url = "https://cursemaven.com" }
 
-    // Резолвим Forge і API (автоматично додається, але можна явно вказати)
+repositories {
     maven {
         name "Modmaven"
         url "https://modmaven.dev/"
@@ -45,18 +58,16 @@ repositories {
         content {
             includeGroup 'appeng'
         }
-    }    
-
-    flatDir { dirs 'libs' }
+    }
 }
 
+
+
 dependencies {
-    minecraft 'net.minecraftforge:forge:1.20.1-47.3.22'
-    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    minecraft 'net.minecraftforge:forge:1.20.1-47.3.29'
     implementation 'org.java-websocket:Java-WebSocket:1.5.3'
 
-   implementation fg.deobf("curse.maven:applied-energistics-2-223794:7148487")
-   implementation fg.deobf("curse.maven:guideme-1173950:6489464")
+    compileOnly "org.appliedenergistics:appliedenergistics2:19.2.4"
 }
 
 tasks.withType(JavaCompile).configureEach {
