@@ -1,0 +1,15 @@
+# RealMarket API Configuration
+# DO NOT commit this file with your API token to version control!
+# Store your token securely or use environment variables instead
+
+[azuriom]
+    # Your Azuriom API token - keep it secret!
+    # Get it from Azuriom admin panel: https://nestworld.site/admin
+    # For local testing, you can use environment variable: REALMARKET_API_TOKEN
+    token = "e35d9941ff9b5f6363eaffdf68913b4c"
+    
+    # API URL endpoint
+    url = "https://nestworld.site/api/azlink"
+    
+    # Server ID for Azuriom linking
+    server_id = 1

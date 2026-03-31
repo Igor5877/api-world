@@ -1,6 +1,7 @@
 package RealMarket.realmarket.api;
 
 import com.google.gson.*;
+import RealMarket.realmarket.config.ApiConfig;
 import java.net.URI;
 import java.net.http.*;
 import java.time.Duration;
@@ -10,12 +11,19 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class AzuriomClient {
-    private static final String URL = "https://nestworld.site/api/azlink";
-    private static final String TOKEN = "e35d9941ff9b5f6363eaffdf68913b4c";
     private static final Map<UUID, Integer> IDS = new ConcurrentHashMap<>();
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
             .build();
+
+    // Ініціалізація конфіга при завантаженні класу
+    static {
+        System.out.println("[RealMarket] Loading API configuration...");
+        String token = ApiConfig.getToken();
+        String url = ApiConfig.getApiUrl();
+        int serverId = ApiConfig.getServerId();
+        System.out.println("[RealMarket] API Config initialized - URL: " + url + ", Server ID: " + serverId);
+    }
 
     public static int getPlayerId(UUID uuid) {
         return IDS.getOrDefault(uuid, -1);
@@ -23,8 +31,17 @@ public class AzuriomClient {
 
     // Асинхронна синхронізація без циклу for
     public static void sync(UUID uuid, String name) {
+        String token = ApiConfig.getToken();
+        if (token == null || token.isEmpty()) {
+            System.err.println("API token not configured. Please set token in config/realmarket-api.toml");
+            return;
+        }
+        
+        String url = ApiConfig.getApiUrl();
+        int serverId = ApiConfig.getServerId();
+        
         JsonObject root = new JsonObject();
-        root.addProperty("server-id", 1);
+        root.addProperty("server-id", serverId);
         JsonArray players = new JsonArray();
         JsonObject p = new JsonObject();
         p.addProperty("name", name);
@@ -32,8 +49,8 @@ public class AzuriomClient {
         players.add(p);
         root.add("players", players);
 
-        HttpRequest req = HttpRequest.newBuilder().uri(URI.create(URL))
-                .header("Azuriom-Link-Token", TOKEN)
+        HttpRequest req = HttpRequest.newBuilder().uri(URI.create(url))
+                .header("Azuriom-Link-Token", token)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(root.toString())).build();
 
@@ -62,8 +79,14 @@ public class AzuriomClient {
     public static CompletableFuture<Double> getBalAsync(int id) {
         if (id == -1) return CompletableFuture.completedFuture(-1.0);
 
-        HttpRequest req = HttpRequest.newBuilder().uri(URI.create(URL + "/user/" + id))
-                .header("Azuriom-Link-Token", TOKEN).GET().build();
+        String token = ApiConfig.getToken();
+        if (token == null || token.isEmpty()) {
+            return CompletableFuture.failedFuture(new RuntimeException("API token not configured"));
+        }
+        
+        String url = ApiConfig.getApiUrl();
+        HttpRequest req = HttpRequest.newBuilder().uri(URI.create(url + "/user/" + id))
+                .header("Azuriom-Link-Token", token).GET().build();
 
         return HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                 .thenApply(res -> res.statusCode() == 200 ?
@@ -74,12 +97,18 @@ public class AzuriomClient {
     public static CompletableFuture<Boolean> updateAsync(int id, double amt) {
         if (id == -1) return CompletableFuture.completedFuture(false);
 
+        String token = ApiConfig.getToken();
+        if (token == null || token.isEmpty()) {
+            return CompletableFuture.failedFuture(new RuntimeException("API token not configured"));
+        }
+        
+        String url = ApiConfig.getApiUrl();
         String act = amt >= 0 ? "add" : "remove";
         JsonObject body = new JsonObject();
         body.addProperty("amount", Math.abs(amt));
 
-        HttpRequest req = HttpRequest.newBuilder().uri(URI.create(URL + "/user/" + id + "/money/" + act))
-                .header("Azuriom-Link-Token", TOKEN)
+        HttpRequest req = HttpRequest.newBuilder().uri(URI.create(url + "/user/" + id + "/money/" + act))
+                .header("Azuriom-Link-Token", token)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body.toString())).build();
 
