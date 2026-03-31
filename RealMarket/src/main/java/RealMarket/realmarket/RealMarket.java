@@ -3,6 +3,7 @@ package RealMarket.realmarket;
 import RealMarket.realmarket.api.AzuriomClient;
 import RealMarket.realmarket.block.TradeBlock;
 import RealMarket.realmarket.commands.ModCommands;
+import RealMarket.realmarket.network.ModMessages;
 import RealMarket.realmarket.world.IslandManager;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.BlockItem;
@@ -36,8 +37,11 @@ public class RealMarket {
         IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
         BLOCKS.register(bus);
         ITEMS.register(bus);
+
+        // Реєструємо пакети
+        ModMessages.register();
+
         MinecraftForge.EVENT_BUS.register(this);
-        
         IslandManager.loadPrices();
     }
 
