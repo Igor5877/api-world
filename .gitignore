@@ -92,3 +92,4 @@ playersync-common.template.toml
 *.tmp
 *.bak
 *.swp
+/RealMarket/.idea
