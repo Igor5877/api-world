@@ -15,6 +15,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
+
 public class ModCommands {
     public static void register(CommandDispatcher<CommandSourceStack> disp) {
         // --- ГРУПА КОМАНД /market ---
