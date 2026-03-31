@@ -8,15 +8,13 @@ import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.network.simple.SimpleChannel;
 
-import java.util.Optional;
-
 public class ModMessages {
     private static SimpleChannel INSTANCE;
     private static int packetId = 0;
     private static int id() { return packetId++; }
 
     public static void register() {
-        // Використовуємо новий спосіб створення каналу для Forge 47.x
+        // Створюємо канал
         INSTANCE = NetworkRegistry.newSimpleChannel(
                 new ResourceLocation(RealMarket.MODID, "main"),
                 () -> "1.0",
@@ -24,20 +22,20 @@ public class ModMessages {
                 s -> true
         );
 
-        // Реєструємо пакет торгівлі
-        INSTANCE.messageBuilder(PacketTrade.class, id(), NetworkDirection.PLAY_TO_SERVER)
-                .decoder(PacketTrade::decode)
-                .encoder(PacketTrade::encode)
-                .consumerMainThread(PacketTrade::handle)
+        // ВАЖЛИВО: Реєструємо саме PacketShopAction
+        INSTANCE.messageBuilder(PacketShopAction.class, id(), NetworkDirection.PLAY_TO_SERVER)
+                .decoder(PacketShopAction::decode)
+                .encoder(PacketShopAction::encode)
+                .consumerMainThread(PacketShopAction::handle)
                 .add();
+
+        System.out.println("[RealMarket] Network packets registered successfully!");
     }
 
-    // Відправка повідомлення на сервер (з клієнта)
     public static <MSG> void sendToServer(MSG message) {
         INSTANCE.sendToServer(message);
     }
 
-    // Відправка повідомлення конкретному гравцю (з сервера)
     public static <MSG> void sendToPlayer(MSG message, ServerPlayer player) {
         INSTANCE.send(PacketDistributor.PLAYER.with(() -> player), message);
     }
