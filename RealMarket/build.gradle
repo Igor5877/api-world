@@ -35,14 +35,28 @@ minecraft {
 }
 
 repositories {
-    mavenCentral()
-    maven { url = 'https://jitpack.io' }
+    maven { url = "https://cursemaven.com" }
+
+    // Резолвим Forge і API (автоматично додається, але можна явно вказати)
+    maven {
+        name "Modmaven"
+        url "https://modmaven.dev/"
+        // For Gradle 5.1 and above, limit it to just AE2
+        content {
+            includeGroup 'appeng'
+        }
+    }    
+
     flatDir { dirs 'libs' }
 }
 
 dependencies {
     minecraft 'net.minecraftforge:forge:1.20.1-47.3.22'
     implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation 'org.java-websocket:Java-WebSocket:1.5.3'
+
+   implementation fg.deobf("curse.maven:applied-energistics-2-223794:7148487")
+   implementation fg.deobf("curse.maven:guideme-1173950:6489464")
 }
 
 tasks.withType(JavaCompile).configureEach {
