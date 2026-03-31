@@ -19,6 +19,11 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
+import net.minecraftforge.event.server.ServerStartingEvent;
+import net.minecraftforge.event.server.ServerStoppingEvent;
+import RealMarket.realmarket.api.MarketSyncManager;
+
+import java.util.UUID;
 
 @Mod(RealMarket.MODID)
 public class RealMarket {
@@ -52,5 +57,28 @@ public class RealMarket {
     @SubscribeEvent
     public void onRegisterCommands(RegisterCommandsEvent event) {
         ModCommands.register(event.getDispatcher());
+    }
+
+    @SubscribeEvent
+    public void onServerStarting(ServerStartingEvent event) {
+        // We need an island UUID to identify the server to the backend.
+        // For real integration, you'd fetch this from NestworldModsServer provider or env variable.
+        // E.g., UUID islandUuid = NestworldModsServer.ISLAND_PROVIDER.getIslandContext().getUuid();
+        // Since we are mocking, we fetch an arbitrary UUID or rely on config if needed.
+        // In this implementation, we will assume a known UUID for testing.
+        String uuidStr = System.getenv("ISLAND_UUID");
+        if (uuidStr == null || uuidStr.isEmpty()) {
+            // Default placeholder UUID for the island
+            uuidStr = "00000000-0000-0000-0000-000000000001";
+        }
+
+        System.out.println("[RealMarket] Server starting... Initializing Market Sync Manager for Island: " + uuidStr);
+        MarketSyncManager.init(UUID.fromString(uuidStr));
+    }
+
+    @SubscribeEvent
+    public void onServerStopping(ServerStoppingEvent event) {
+        System.out.println("[RealMarket] Server stopping... Shutting down Market Sync Manager.");
+        MarketSyncManager.shutdown();
     }
 }
