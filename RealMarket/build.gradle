@@ -1,4 +1,4 @@
-    buildscript {
+buildscript {
     repositories {
         maven { url = 'https://maven.minecraftforge.net' }
         mavenCentral()
@@ -35,37 +35,20 @@ minecraft {
 }
 
 repositories {
+    maven { url = 'https://maven.minecraftforge.net' }
     mavenCentral()
-    maven { url = 'https://jitpack.io' }
-    maven {
-        name = "Modrinth"
-        url = "https://api.modrinth.com/maven"
-        content {
-            includeGroup "maven.modrinth"
-        }
-    }
-    maven {
-        name = "Modmaven"
-        url = "https://modmaven.dev"
-    }
-    maven {
-        url = "https://cursemaven.com"
-        content {
-            includeGroup "curse.maven"
-        }
-    }
+    maven { url = 'https://modmaven.dev' }
     flatDir { dirs 'libs' }
 }
 
 dependencies {
     minecraft 'net.minecraftforge:forge:1.20.1-47.3.22'
     implementation fileTree(dir: 'libs', include: ['*.jar'])
-
-    // Java-WebSocket for connecting to the API heartbeat
     implementation 'org.java-websocket:Java-WebSocket:1.5.3'
 
-    // Removing strict resolution of AE2 here since ForgeGradle deobfuscator chokes inside the sandbox without internet mirroring properly.
-    // The AE2 classes will be compiled by relying on normal compilation offline context, or via the `libs` folder in a real env.
+    compileOnly fg.deobf("appeng:appliedenergistics2-forge:15.4.8:api") {
+        transitive = false
+    }
 }
 
 tasks.withType(JavaCompile).configureEach {

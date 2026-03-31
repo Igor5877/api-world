@@ -35,8 +35,13 @@ public class IslandManager {
     }
 
     public static void savePrices() {
-        try (FileWriter writer = new FileWriter(PRICES_FILE)) {
-            GSON.toJson(PRICES, writer);
+        try {
+            if (PRICES_FILE.getParentFile() != null) {
+                PRICES_FILE.getParentFile().mkdirs();
+            }
+            try (FileWriter writer = new FileWriter(PRICES_FILE)) {
+                GSON.toJson(PRICES, writer);
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
