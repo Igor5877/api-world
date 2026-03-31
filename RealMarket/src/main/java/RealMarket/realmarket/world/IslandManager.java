@@ -1,6 +1,6 @@
-package net.market.realmarket.world;
+package RealMarket.realmarket.world;
 
-import net.market.realmarket.RealMarket;
+import RealMarket.realmarket.RealMarket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Blocks;

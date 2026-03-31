@@ -1,11 +1,11 @@
-package net.market.realmarket.commands;
+package RealMarket.realmarket.commands;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
-import net.market.realmarket.RealMarket;
-import net.market.realmarket.api.AzuriomClient;
-import net.market.realmarket.world.IslandManager;
+import RealMarket.realmarket.RealMarket;
+import RealMarket.realmarket.api.AzuriomClient;
+import RealMarket.realmarket.world.IslandManager;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.EntityArgument;

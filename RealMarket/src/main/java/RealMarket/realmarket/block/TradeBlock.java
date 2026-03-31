@@ -1,7 +1,7 @@
-package net.market.realmarket.block;
+package RealMarket.realmarket.block;
 
-import net.market.realmarket.api.AzuriomClient;
-import net.market.realmarket.client.TradeScreen;
+import RealMarket.realmarket.api.AzuriomClient;
+import RealMarket.realmarket.client.TradeScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;

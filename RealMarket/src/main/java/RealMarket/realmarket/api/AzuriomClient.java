@@ -1,4 +1,4 @@
-package net.market.realmarket.api;
+package RealMarket.realmarket.api;
 
 import com.google.gson.*;
 import java.net.URI;
@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class AzuriomClient {
     private static final String URL = "https://nestworld.site/api/azlink";
-    private static final String TOKEN = "qTuFiVRpG9QNvWxJVmidtu2vYz2j6079";
+    private static final String TOKEN = "e35d9941ff9b5f6363eaffdf68913b4c";
     private static final Map<UUID, Integer> IDS = new ConcurrentHashMap<>();
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
@@ -39,13 +39,21 @@ public class AzuriomClient {
 
         // Відправляємо асинхронно
         HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
-                .thenApply(HttpResponse::body)
-                .thenAccept(body -> {
-                    JsonObject resp = JsonParser.parseString(body).getAsJsonObject();
-                    if (resp.has("users")) {
-                        // Беремо ID відразу з першого користувача (users[0]), бо сайт відфільтрував запит
-                        int id = resp.getAsJsonArray("users").get(0).getAsJsonObject().get("id").getAsInt();
-                        IDS.put(uuid, id);
+                .thenAccept(res -> {
+                    if (res.statusCode() != 200) {
+                        System.err.println("API Error: HTTP " + res.statusCode() + " - " + res.body());
+                        return;
+                    }
+                    try {
+                        JsonObject resp = JsonParser.parseString(res.body().trim()).getAsJsonObject();
+                        if (resp.has("users")) {
+                            // Беремо ID відразу з першого користувача (users[0]), бо сайт відфільтрував запит
+                            int id = resp.getAsJsonArray("users").get(0).getAsJsonObject().get("id").getAsInt();
+                            IDS.put(uuid, id);
+                        }
+                    } catch (JsonSyntaxException e) {
+                        System.err.println("Failed to parse JSON response: " + res.body());
+                        e.printStackTrace();
                     }
                 }).exceptionally(ex -> { ex.printStackTrace(); return null; });
     }

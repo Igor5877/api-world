@@ -1,8 +1,8 @@
-package net.market.realmarket;
+package RealMarket.realmarket;
 
-import net.market.realmarket.api.AzuriomClient;
-import net.market.realmarket.block.TradeBlock;
-import net.market.realmarket.commands.ModCommands;
+import RealMarket.realmarket.api.AzuriomClient;
+import RealMarket.realmarket.block.TradeBlock;
+import RealMarket.realmarket.commands.ModCommands;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;

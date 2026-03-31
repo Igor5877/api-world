@@ -1,4 +1,4 @@
-package net.market.realmarket.client;
+package RealMarket.realmarket.client;
 
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
