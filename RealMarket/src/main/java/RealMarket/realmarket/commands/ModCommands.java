@@ -77,18 +77,32 @@ public class ModCommands {
 
                     double cost = IslandManager.PRICES.getOrDefault(p.getUUID(), 10.0) * amt;
 
-                    // Асинхронна купівля (зняття грошей)
-                    AzuriomClient.updateAsync(id, -cost).thenAccept(success -> {
+                    // Спочатку перевіряємо баланс
+                    AzuriomClient.getBalAsync(id).thenAccept(bal -> {
                         p.server.tell(new TickTask(0, () -> {
-                            if (success) {
-                                p.sendSystemMessage(Component.literal("§aКуплено " + amt + " од. за §6" + cost));
-                                net.minecraft.world.item.ItemStack itemStack = new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND, amt); // Наразі захардкоджено алмази, як тимчасове рішення, поки не буде інтеграції з AE2 або вибору товару
-                                if (!p.getInventory().add(itemStack)) {
-                                    p.drop(itemStack, false);
-                                }
-                            } else {
-                                p.sendSystemMessage(Component.literal("§cНедостатньо коштів на балансі або помилка API!"));
+                            if (bal < 0) {
+                                p.sendSystemMessage(Component.literal("§cПомилка отримання балансу з API!"));
+                                return;
                             }
+                            if (bal < cost) {
+                                p.sendSystemMessage(Component.literal("§cНедостатньо коштів! Ваш баланс: §6" + bal + " Coins§c, потрібно: §6" + cost + " Coins"));
+                                return;
+                            }
+
+                            // Асинхронна купівля (зняття грошей)
+                            AzuriomClient.updateAsync(id, -cost).thenAccept(success -> {
+                                p.server.tell(new TickTask(0, () -> {
+                                    if (success) {
+                                        p.sendSystemMessage(Component.literal("§aКуплено " + amt + " од. за §6" + cost));
+                                        net.minecraft.world.item.ItemStack itemStack = new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND, amt); // Наразі захардкоджено алмази, як тимчасове рішення, поки не буде інтеграції з AE2 або вибору товару
+                                        if (!p.getInventory().add(itemStack)) {
+                                            p.drop(itemStack, false);
+                                        }
+                                    } else {
+                                        p.sendSystemMessage(Component.literal("§cПомилка API при купівлі!"));
+                                    }
+                                }));
+                            });
                         }));
                     });
                     return 1;
