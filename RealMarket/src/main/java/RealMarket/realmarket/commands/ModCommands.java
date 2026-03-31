@@ -13,6 +13,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.TickTask;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 public class ModCommands {
     public static void register(CommandDispatcher<CommandSourceStack> disp) {
@@ -27,7 +28,6 @@ public class ModCommands {
                         return 0;
                     }
 
-                    // Асинхронне отримання балансу
                     AzuriomClient.getBalAsync(id).thenAccept(bal -> {
                         p.server.tell(new TickTask(0, () -> {
                             p.sendSystemMessage(Component.literal("§bБаланс: §6" + (bal < 0 ? "Помилка API" : bal + " Coins")));
@@ -50,9 +50,9 @@ public class ModCommands {
                         return 0;
                     }
 
+                    // Ціна за продаж (власна ціна гравця)
                     double price = IslandManager.PRICES.getOrDefault(p.getUUID(), 5.0) * amt;
 
-                    // Асинхронний продаж (додавання грошей)
                     AzuriomClient.updateAsync(id, price).thenAccept(success -> {
                         p.server.tell(new TickTask(0, () -> {
                             if (success) {
@@ -65,48 +65,54 @@ public class ModCommands {
                     });
                     return 1;
                 })))
-                .then(Commands.literal("buy").then(Commands.argument("amt", IntegerArgumentType.integer(1)).executes(c -> {
-                    ServerPlayer p = c.getSource().getPlayerOrException();
-                    int id = AzuriomClient.getPlayerId(p.getUUID());
-                    int amt = IntegerArgumentType.getInteger(c, "amt");
+                // ВИПРАВЛЕНА КОМАНДА BUY (Тепер з вибором продавця)
+                .then(Commands.literal("buy")
+                        .then(Commands.argument("seller", EntityArgument.player()) // Вибираємо, у кого купуємо
+                                .then(Commands.argument("amt", IntegerArgumentType.integer(1))
+                                        .executes(c -> {
+                                            ServerPlayer buyer = c.getSource().getPlayerOrException();
+                                            ServerPlayer seller = EntityArgument.getPlayer(c, "seller");
+                                            int amt = IntegerArgumentType.getInteger(c, "amt");
+                                            int buyerId = AzuriomClient.getPlayerId(buyer.getUUID());
 
-                    if (id == -1) {
-                        p.sendSystemMessage(Component.literal("§cСинхронізація з API... Будь ласка, зачекайте."));
-                        return 0;
-                    }
+                                            if (buyerId == -1) {
+                                                buyer.sendSystemMessage(Component.literal("§cСинхронізація з API... Будь ласка, зачекайте."));
+                                                return 0;
+                                            }
 
-                    double cost = IslandManager.PRICES.getOrDefault(p.getUUID(), 10.0) * amt;
+                                            // БЕРЕМО ЦІНУ ПРОДАВЦЯ (seller), а не покупця
+                                            double unitPrice = IslandManager.PRICES.getOrDefault(seller.getUUID(), 10.0);
+                                            double cost = unitPrice * amt;
 
-                    // Спочатку перевіряємо баланс
-                    AzuriomClient.getBalAsync(id).thenAccept(bal -> {
-                        p.server.tell(new TickTask(0, () -> {
-                            if (bal < 0) {
-                                p.sendSystemMessage(Component.literal("§cПомилка отримання балансу з API!"));
-                                return;
-                            }
-                            if (bal < cost) {
-                                p.sendSystemMessage(Component.literal("§cНедостатньо коштів! Ваш баланс: §6" + bal + " Coins§c, потрібно: §6" + cost + " Coins"));
-                                return;
-                            }
+                                            AzuriomClient.getBalAsync(buyerId).thenAccept(bal -> {
+                                                buyer.server.tell(new TickTask(0, () -> {
+                                                    if (bal < 0) {
+                                                        buyer.sendSystemMessage(Component.literal("§cПомилка отримання балансу!"));
+                                                        return;
+                                                    }
+                                                    if (bal < cost) {
+                                                        buyer.sendSystemMessage(Component.literal("§cНедостатньо коштів!"));
+                                                        buyer.sendSystemMessage(Component.literal("§7Баланс: §6" + bal + "§7, Потрібно: §c" + cost + " §7(Ціна " + seller.getName().getString() + ": " + unitPrice + ")"));
+                                                        return;
+                                                    }
 
-                            // Асинхронна купівля (зняття грошей)
-                            AzuriomClient.updateAsync(id, -cost).thenAccept(success -> {
-                                p.server.tell(new TickTask(0, () -> {
-                                    if (success) {
-                                        p.sendSystemMessage(Component.literal("§aКуплено " + amt + " од. за §6" + cost));
-                                        net.minecraft.world.item.ItemStack itemStack = new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.DIAMOND, amt); // Наразі захардкоджено алмази, як тимчасове рішення, поки не буде інтеграції з AE2 або вибору товару
-                                        if (!p.getInventory().add(itemStack)) {
-                                            p.drop(itemStack, false);
-                                        }
-                                    } else {
-                                        p.sendSystemMessage(Component.literal("§cПомилка API при купівлі!"));
-                                    }
-                                }));
-                            });
-                        }));
-                    });
-                    return 1;
-                })))
+                                                    AzuriomClient.updateAsync(buyerId, -cost).thenAccept(success -> {
+                                                        buyer.server.tell(new TickTask(0, () -> {
+                                                            if (success) {
+                                                                buyer.sendSystemMessage(Component.literal("§aКуплено " + amt + " од. у " + seller.getName().getString() + " за §6" + cost));
+                                                                ItemStack itemStack = new ItemStack(Items.DIAMOND, amt);
+                                                                if (!buyer.getInventory().add(itemStack)) {
+                                                                    buyer.drop(itemStack, false);
+                                                                }
+                                                            } else {
+                                                                buyer.sendSystemMessage(Component.literal("§cПомилка API при купівлі!"));
+                                                            }
+                                                        }));
+                                                    });
+                                                }));
+                                            });
+                                            return 1;
+                                        }))))
                 .then(Commands.literal("getblock").requires(s -> s.hasPermission(2)).executes(c -> {
                     c.getSource().getPlayerOrException().addItem(new ItemStack(RealMarket.TRADE_ITEM.get()));
                     return 1;
@@ -133,7 +139,7 @@ public class ModCommands {
                     ServerPlayer p = c.getSource().getPlayerOrException();
                     double val = DoubleArgumentType.getDouble(c, "val");
                     IslandManager.PRICES.put(p.getUUID(), val);
-                    IslandManager.savePrices();
+                    IslandManager.savePrices(); // Метод має бути реалізований в IslandManager
                     p.sendSystemMessage(Component.literal("§aЦіну на товари встановлено: §6" + val));
                     return 1;
                 })))
