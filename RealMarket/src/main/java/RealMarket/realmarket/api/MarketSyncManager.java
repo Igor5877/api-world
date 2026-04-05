@@ -6,10 +6,9 @@ import RealMarket.realmarket.config.ApiConfig;
 
 import appeng.api.networking.IGrid;
 import appeng.api.networking.storage.IStorageService;
-import appeng.api.networking.storage.IItemStorageChannel;
 import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.AEKey;
-import appeng.api.stacks.IAEItemStack;
+import appeng.api.storage.MEStorage;
 
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
@@ -26,7 +25,6 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -44,7 +42,6 @@ public class MarketSyncManager {
     public static void init(UUID islandUuid) {
         currentIslandUuid = islandUuid;
         connectWebSocket();
-
         scheduler.scheduleAtFixedRate(() -> {
             syncInventory();
             checkWebSocketConnection();
@@ -53,15 +50,14 @@ public class MarketSyncManager {
 
     private static void connectWebSocket() {
         if (wsClient != null && wsClient.isOpen()) return;
-
         try {
-            String baseUrl = ApiConfig.getApiUrl().replace("http://", "ws://").replace("https://", "wss://");
+            String baseUrl = ApiConfig.getApiUrl()
+                    .replace("http://", "ws://")
+                    .replace("https://", "wss://");
             int apiIndex = baseUrl.indexOf("/api/");
             if (apiIndex > 0) baseUrl = baseUrl.substring(0, apiIndex);
-
-            URI wsUri = new URI(baseUrl + "/ws/island_" + currentIslandUuid.toString());
+            URI wsUri = new URI(baseUrl + "/ws/island_" + currentIslandUuid);
             System.out.println("[RealMarket] Connecting to WebSocket: " + wsUri);
-
             wsClient = new MarketWebSocketClient(wsUri);
             wsClient.connect();
         } catch (Exception e) {
@@ -71,14 +67,13 @@ public class MarketSyncManager {
 
     private static void checkWebSocketConnection() {
         if (wsClient == null || !wsClient.isOpen()) {
-            System.out.println("[RealMarket] WebSocket disconnected. Attempting to reconnect...");
+            System.out.println("[RealMarket] WebSocket disconnected, reconnecting...");
             connectWebSocket();
         }
     }
 
     private static void syncInventory() {
-        System.out.println("[RealMarket] Syncing AE2 Inventory to backend...");
-
+        System.out.println("[RealMarket] Syncing AE2 inventory...");
         Map<String, JsonObject> aggregatedItems = new HashMap<>();
         double defaultPrice = 10.0;
 
@@ -89,32 +84,22 @@ public class MarketSyncManager {
             IStorageService storageService = grid.getService(IStorageService.class);
             if (storageService == null) continue;
 
-            IItemStorageChannel channel = storageService.getStorageChannel(IItemStorageChannel.class);
-            if (channel == null) continue;
+            MEStorage storage = storageService.getInventory();
+            if (storage == null) continue;
 
-            Map<AEKey, Long> items = new HashMap<>();
+            var stacks = storage.getAvailableStacks();
+            for (var keyEntry : stacks) {
+                AEKey key = keyEntry.getKey();
+                long amount = keyEntry.getLongValue();
 
-            // Проходимо всі предмети у каналі
-            channel.extractItems(stack -> {
-                AEKey key = stack.getDefinition();
-                long count = stack.getStackSize();
-                items.put(key, count);
-                return stack.copy(); // не зменшуємо стек у AE2
-            });
+                if (!(key instanceof AEItemKey itemKey)) continue;  // <- continue, не return
 
-            for (Map.Entry<AEKey, Long> entry : items.entrySet()) {
-                AEKey key = entry.getKey();
-                long amount = entry.getValue();
-
-                if (!(key instanceof AEItemKey itemKey)) continue;
-
-                IAEItemStack aeStack = channel.createStack(itemKey, amount);
-                ItemStack stack = aeStack.createItemStack(1);
+                ItemStack stack = itemKey.toStack(1);
                 Item item = stack.getItem();
                 ResourceLocation regName = BuiltInRegistries.ITEM.getKey(item);
                 String itemId = regName != null ? regName.toString() : "minecraft:air";
 
-                if (itemId.equals("minecraft:air")) continue;
+                if (itemId.equals("minecraft:air")) continue;  // <- continue, не return
 
                 String nbtStr = stack.hasTag() ? stack.getTag().toString() : null;
                 String uniqueId = itemId + (nbtStr != null ? nbtStr : "");
@@ -131,12 +116,15 @@ public class MarketSyncManager {
                     obj.addProperty("price", defaultPrice);
                     obj.addProperty("is_for_sale", true);
                     obj.addProperty("version", 1);
-
                     aggregatedItems.put(uniqueId, obj);
                 }
             }
         }
 
+        sendSyncRequest(aggregatedItems);
+    }
+
+    private static void sendSyncRequest(Map<String, JsonObject> aggregatedItems) {
         JsonObject root = new JsonObject();
         JsonArray itemsArray = new JsonArray();
         aggregatedItems.values().forEach(itemsArray::add);
@@ -147,7 +135,6 @@ public class MarketSyncManager {
             String baseUrl = ApiConfig.getApiUrl();
             int apiIndex = baseUrl.indexOf("/api/");
             if (apiIndex > 0) baseUrl = baseUrl.substring(0, apiIndex);
-
             String url = baseUrl + "/api/v1/market/islands/" + currentIslandUuid + "/inventory/sync";
 
             HttpRequest req = HttpRequest.newBuilder()
@@ -159,21 +146,20 @@ public class MarketSyncManager {
             HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(res -> {
                         if (res.statusCode() != 200) {
-                            System.err.println("[RealMarket] Inventory sync failed: " + res.statusCode() + " " + res.body());
+                            System.err.println("[RealMarket] Sync failed: " + res.statusCode() + " " + res.body());
                         } else {
-                            System.out.println("[RealMarket] Successfully synced inventory (" + aggregatedItems.size() + " unique item stacks).");
+                            System.out.println("[RealMarket] Synced " + aggregatedItems.size() + " stacks.");
                         }
                     }).exceptionally(ex -> {
-                        System.err.println("[RealMarket] Network error syncing inventory: " + ex.getMessage());
+                        System.err.println("[RealMarket] Network error: " + ex.getMessage());
                         return null;
                     });
         } catch (Exception e) {
-            System.err.println("[RealMarket] Failed to format inventory sync request: " + e.getMessage());
+            System.err.println("[RealMarket] Sync request error: " + e.getMessage());
         }
     }
 
     public static void shutdown() {
-        System.out.println("[RealMarket] Shutting down market synchronization...");
         scheduler.shutdown();
         if (wsClient != null) wsClient.close();
     }

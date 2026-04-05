@@ -10,7 +10,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
-
 public class ModCommands {
     public static void register(CommandDispatcher<CommandSourceStack> disp) {
 
