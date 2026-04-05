@@ -1,50 +1,84 @@
-    buildscript {
-    repositories {
-        maven { url = 'https://maven.minecraftforge.net' }
-        mavenCentral()
-    }
-    dependencies {
-        classpath 'net.minecraftforge.gradle:ForgeGradle:6.0.24'
-    }
+plugins {
+    id 'java-library'
+    id "net.neoforged.moddev.legacyforge" version "2.0.91"
+    id 'idea'
 }
-
-apply plugin: 'net.minecraftforge.gradle'
-apply plugin: 'idea'
 
 group = 'net.market.realmarket'
 version = '1.0'
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
-minecraft {
-    mappings channel: 'official', version: '1.20.1'
-    copyIdeResources = true
-    runs {
-        client {
-                workingDirectory project.file('run')
-                property 'forge.logging.markers', 'REGISTRIES'
-                args '--username', 'Chaos1924'
-                mods { create("realmarket") { source sourceSets.main } }
-        }
-        server {
-            workingDirectory project.file('run')
-            property 'forge.logging.markers', 'REGISTRIES'
-            mods { create("realmarket") { source sourceSets.main } }
+repositories {
+    mavenCentral()
+    maven {
+        name = "Modmaven"
+        url = "https://modmaven.dev/"
+        content {
+            includeGroup 'appeng'
+            includeGroup 'org.appliedenergistics'
         }
     }
 }
 
-repositories {
-    mavenCentral()
-    maven { url = 'https://jitpack.io' }
-    flatDir { dirs 'libs' }
+legacyForge {
+    version = "1.20.1-47.3.22"  // версія яку використовує сам AE2
+
+    runs {
+        client {
+            client()
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            programArgument '--username'
+            programArgument 'Chaos1924'
+        }
+        server {
+            server()
+        }
+    }
+
+    mods {
+        "realmarket" {
+            sourceSet(sourceSets.main)
+        }
+    }
 }
 
 dependencies {
-    minecraft 'net.minecraftforge:forge:1.20.1-47.3.22'
-    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    compileOnly "appeng:appliedenergistics2-forge:15.4.8:api"
+    implementation "appeng:appliedenergistics2-forge:15.4.8"
+    implementation 'org.java-websocket:Java-WebSocket:1.5.3'
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 }
 
-tasks.withType(JavaCompile).configureEach {
-    options.encoding = 'UTF-8'
+// Додай в build.gradle
+tasks.register('setupDevMods') {
+    group = 'setup'
+    description = 'Copies required dev mod jars to run/mods/'
+
+    doLast {
+        def modsDir = file('run/mods')
+        modsDir.mkdirs()
+
+        // GuideME deobf jar з ForgeGradle кешу
+        def guidemeDeobf = fileTree(dir: "${gradle.gradleUserHomeDir}/caches/forge_gradle/deobf_dependencies/maven/modrinth/guideme",
+            include: '**/*mapped_official_1.20.1.jar').files.find { !it.name.endsWith('.input') }
+
+        if (guidemeDeobf) {
+            copy {
+                from guidemeDeobf
+                into modsDir
+                rename { 'guideme.jar' }
+            }
+            println "✓ guideme.jar copied"
+        } else {
+            // Якщо кешу ще немає — спочатку треба завантажити залежності
+            throw new GradleException("GuideME deobf jar not found in cache. Run './gradlew dependencies' first, then run this task again.")
+        }
+    }
+
+    dependsOn configurations.runtimeClasspath
 }
+
+// Автоматично запускати перед runClient/runServer
+tasks.named('runClient') { dependsOn 'setupDevMods' }
+tasks.named('runServer') { dependsOn 'setupDevMods' }

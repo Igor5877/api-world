@@ -1,9 +1,7 @@
 package RealMarket.realmarket.block;
 
 import RealMarket.realmarket.api.AzuriomClient;
-import RealMarket.realmarket.client.TradeScreen;
 import RealMarket.realmarket.world.IslandManager;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionHand;
@@ -36,24 +34,14 @@ public class TradeBlock extends Block {
     @Override
     public InteractionResult use(BlockState state, Level world, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) {
         if (world.isClientSide) {
-            int id = AzuriomClient.getPlayerId(player.getUUID());
-
-            // Отримуємо ціну острова (якщо вона є в пам'яті)
-            double price = IslandManager.PRICES.getOrDefault(player.getUUID(), 10.0);
-
-            if (id != -1) {
-                // Асинхронний запит балансу через Azuriom
-                AzuriomClient.getBalAsync(id).thenAccept(bal -> {
-                    // Повертаємося в потік Minecraft для відкриття GUI
-                    Minecraft.getInstance().tell(() -> {
-                        Minecraft.getInstance().setScreen(new TradeScreen(bal, price));
-                    });
-                });
-            } else {
-                // Швидке повідомлення над інвентарем, якщо ID ще не підтягнувся
-                player.displayClientMessage(Component.literal("§cСинхронізація ID... Спробуйте ще раз"), true);
-            }
+            openClientScreen(player);
         }
         return InteractionResult.SUCCESS;
+    }
+
+    private void openClientScreen(Player player) {
+        net.minecraftforge.fml.DistExecutor.unsafeRunWhenOn(net.minecraftforge.api.distmarker.Dist.CLIENT, () -> () -> {
+            RealMarket.realmarket.client.ClientProxy.openTradeScreen(player);
+        });
     }
 }
