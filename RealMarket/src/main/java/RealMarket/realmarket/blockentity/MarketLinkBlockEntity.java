@@ -9,15 +9,18 @@ import appeng.api.networking.GridHelper;
 import appeng.api.util.AECableType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import RealMarket.realmarket.RealMarket;
 
 import javax.annotation.Nullable;
+import java.util.UUID;
 
 public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNodeHost, IGridNodeListener<MarketLinkBlockEntity> {
 
     private final IManagedGridNode mainNode = GridHelper.createManagedNode(this, this);
+    private UUID islandUuid;
 
     public MarketLinkBlockEntity(BlockPos pPos, BlockState pBlockState) {
         super(RealMarket.MARKET_LINK_BE.get(), pPos, pBlockState);
@@ -74,5 +77,30 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
             return this.mainNode.getNode().getGrid();
         }
         return null;
+    }
+
+    public UUID getIslandUuid() {
+        return islandUuid;
+    }
+
+    public void setIslandUuid(UUID islandUuid) {
+        this.islandUuid = islandUuid;
+        this.setChanged();
+    }
+
+    @Override
+    protected void saveAdditional(CompoundTag tag) {
+        super.saveAdditional(tag);
+        if (this.islandUuid != null) {
+            tag.putUUID("islandUuid", this.islandUuid);
+        }
+    }
+
+    @Override
+    public void load(CompoundTag tag) {
+        super.load(tag);
+        if (tag.hasUUID("islandUuid")) {
+            this.islandUuid = tag.getUUID("islandUuid");
+        }
     }
 }
