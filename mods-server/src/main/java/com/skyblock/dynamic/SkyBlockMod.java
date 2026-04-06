@@ -18,6 +18,10 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.config.ModConfigEvent;
+import net.minecraftforge.fml.ModList;
+import java.lang.reflect.Method;
+import java.util.UUID;
+import java.util.function.Function;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
@@ -68,6 +72,34 @@ public class SkyBlockMod {
      */
     private void commonSetup(final FMLCommonSetupEvent event) {
         LOGGER.info("SkyBlockMod: Common Setup Initialized.");
+
+        event.enqueueWork(() -> {
+            if (ModList.get().isLoaded("realmarket")) {
+                try {
+                    Class<?> apiClass = Class.forName("RealMarket.realmarket.api.MarketIslandApi");
+                    Method registerMethod = apiClass.getMethod("registerProvider", Function.class);
+
+                    Function<UUID, UUID> provider = (playerUuid) -> {
+                        if (com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.isThisAnIslandServer()) {
+                            String ownerUuidStr = com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.getCurrentServerOwnerUuid();
+                            if (ownerUuidStr != null && !ownerUuidStr.isEmpty()) {
+                                try {
+                                    return UUID.fromString(ownerUuidStr);
+                                } catch (IllegalArgumentException e) {
+                                    // Invalid UUID format
+                                }
+                            }
+                        }
+                        return com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.getCachedTeamId(playerUuid);
+                    };
+
+                    registerMethod.invoke(null, provider);
+                    LOGGER.info("Successfully registered Island Provider with RealMarket.");
+                } catch (Exception e) {
+                    LOGGER.error("Failed to register Island Provider with RealMarket", e);
+                }
+            }
+        });
     }
 
     /**
