@@ -43,8 +43,28 @@ public class PlayerEventHandler {
      */
     @SubscribeEvent
     public void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
-        MinecraftServer server = event.getEntity().getServer();
-        if (server != null && server.getPlayerCount() - 1 == 0) {
+        MinecraftServer server = null;
+        try {
+            server = event.getEntity().getServer();
+        } catch (NoSuchMethodError e) {
+            server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        }
+
+        int playerCount = -1;
+        if (server != null) {
+            try {
+                playerCount = server.getPlayerCount();
+            } catch (NoSuchMethodError e) {
+                try {
+                    java.lang.reflect.Method getPlayerCountMethod = server.getClass().getMethod("getPlayerCount");
+                    playerCount = (int) getPlayerCountMethod.invoke(server);
+                } catch (Exception ex) {
+                    playerCount = server.getPlayerList().getPlayerCount(); // Another potential fallback
+                }
+            }
+        }
+
+        if (server != null && playerCount - 1 <= 0) {
             if (SkyBlockMod.isIslandServer() && SkyBlockMod.hasPlayerJoinedWithinFirstHour()) {
                 LOGGER.info("Last player logged out. Scheduling island freeze in 5 minutes.");
                 scheduleFreezeTask(SkyBlockMod.getOwnerUuid());

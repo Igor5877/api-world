@@ -112,7 +112,10 @@ public class NestworldModsServer {
          */
         public UUID refreshAndGetTeamId(UUID playerUuid) {
             LOGGER.info("Attempting to refresh team data for player {}...", playerUuid);
-            Path cachePath = ServerLifecycleHooks.getCurrentServer().getServerDirectory().toPath().resolve("world").resolve("serverconfig").resolve("cached_team_data.json");
+
+            // Using pure Path.toAbsolutePath() to avoid MinecraftServer SRG mapping issues (m_6237_)
+            Path serverBasePath = java.nio.file.Paths.get("").toAbsolutePath();
+            Path cachePath = serverBasePath.resolve("world").resolve("serverconfig").resolve("cached_team_data.json");
 
             try {
                 String apiUrl = Config.getApiBaseUrl() + "teams/my_team/";

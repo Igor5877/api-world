@@ -1,9 +1,7 @@
 package RealMarket.realmarket.block;
 
 import RealMarket.realmarket.api.AzuriomClient;
-import RealMarket.realmarket.client.TradeScreen;
 import RealMarket.realmarket.world.IslandManager;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionHand;
@@ -17,6 +15,8 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.fml.DistExecutor;
 
 public class TradeBlock extends Block {
     // Форма блоку
@@ -44,9 +44,9 @@ public class TradeBlock extends Block {
             if (id != -1) {
                 // Асинхронний запит балансу через Azuriom
                 AzuriomClient.getBalAsync(id).thenAccept(bal -> {
-                    // Повертаємося в потік Minecraft для відкриття GUI
-                    Minecraft.getInstance().tell(() -> {
-                        Minecraft.getInstance().setScreen(new TradeScreen(bal, price));
+                    // Безпечний виклик клієнтського коду через DistExecutor (лише на клієнті)
+                    DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> {
+                        RealMarket.realmarket.client.ClientHooks.openTradeScreen(bal, price);
                     });
                 });
             } else {
