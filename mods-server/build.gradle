@@ -151,7 +151,7 @@ dependencies {
     implementation 'com.electronwill.night-config:toml:3.6.6'
 }
 shadowJar {
-    relocate 'org.java_websocket', 'com.yournamespace.libs.org.java_websocket'
+    // relocate 'org.java_websocket', 'com.yournamespace.libs.org.java_websocket'
     
     dependencies {
         exclude(dependency('org.apache.maven:.*'))
