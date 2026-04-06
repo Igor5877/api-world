@@ -123,7 +123,20 @@ public class SkyBlockMod {
     public void onServerAboutToStart(ServerAboutToStartEvent event) {
         serverStartTime = System.currentTimeMillis();
         playerJoinedWithinFirstHour = false;
-        Path serverBasePath = event.getServer().getServerDirectory().toPath();
+
+        // Fix for NoSuchMethodError in some mappings environments (m_6237_())
+        // Using Path to get the current working directory which is the server directory
+        Path serverBasePath = java.nio.file.Paths.get("").toAbsolutePath();
+        try {
+            // Attempt to use the server directory if available, otherwise fallback to CWD
+            java.io.File serverDir = event.getServer().getFile("");
+            if (serverDir != null) {
+                 serverBasePath = serverDir.toPath();
+            }
+        } catch (NoSuchMethodError | Exception e) {
+             LOGGER.warn("Could not get server directory via getServer().getFile(\"\"). Using current working directory instead: " + serverBasePath);
+        }
+
         loadIslandContextData(serverBasePath);
 
         if (islandContext.isIslandServer()) {
