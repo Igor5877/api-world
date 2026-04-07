@@ -174,7 +174,13 @@ public class SkyBlockMod {
             return;
         }
         try {
-            String wsUrl = Config.getApiBaseUrl().replaceFirst("http", "ws") + "ws/" + islandContext.getOwnerUuid();
+            String baseUrl = Config.getApiBaseUrl()
+                    .replace("http://", "ws://")
+                    .replace("https://", "wss://");
+            int apiIndex = baseUrl.indexOf("/api/");
+            if (apiIndex > 0) baseUrl = baseUrl.substring(0, apiIndex);
+
+            String wsUrl = baseUrl + "/ws/island_" + islandContext.getOwnerUuid();
             webSocketClient = new com.skyblock.dynamic.utils.IslandWebSocketClient(new URI(wsUrl), islandContext.getOwnerUuid());
             LOGGER.info("SkyBlockMod: Attempting to connect to WebSocket at {}", wsUrl);
             webSocketClient.connect();

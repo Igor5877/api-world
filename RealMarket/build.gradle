@@ -47,8 +47,6 @@ legacyForge {
 dependencies {
     compileOnly "appeng:appliedenergistics2-forge:15.4.8:api"
     implementation "appeng:appliedenergistics2-forge:15.4.8"
-    implementation 'org.java-websocket:Java-WebSocket:1.5.3'
-    additionalRuntimeClasspath 'org.java-websocket:Java-WebSocket:1.5.3'
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 }
 
