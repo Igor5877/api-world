@@ -38,6 +38,18 @@ public class QuestTeamBridge {
      * @param memberUuids A collection of UUIDs for all members of the team (including the owner).
      */
     public void syncTeamData(UUID ownerUuid, Collection<UUID> memberUuids) {
+        if (!net.minecraftforge.fml.ModList.get().isLoaded("ftbquests")) {
+            return; // Soft dependency: do nothing if FTB Quests is not installed
+        }
+        
+        try {
+            _syncTeamDataInternal(ownerUuid, memberUuids);
+        } catch (NoClassDefFoundError | Exception e) {
+             // Catch potential linkage errors if classes are missing
+        }
+    }
+
+    private void _syncTeamDataInternal(UUID ownerUuid, Collection<UUID> memberUuids) {
         ServerQuestFile file = ServerQuestFile.INSTANCE;
         if (file == null || file.server == null) {
             // Can't do anything without the server instance

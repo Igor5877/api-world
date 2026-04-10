@@ -88,9 +88,10 @@ minecraft {
         }
 
         server {
-            property 'forge.enabledGameTestNamespaces', mod_id
-            args '--nogui'
-        }
+    property 'forge.enabledGameTestNamespaces', mod_id
+    args '--nogui'
+    jvmArgs "-Xbootclasspath/a:${System.getProperty('user.home')}/.gradle/caches/modules-2/files-2.1/org.java-websocket/Java-WebSocket/1.5.3/9c26b6a6e732a1242db576a50dc3a12e446e2717/Java-WebSocket-1.5.3.jar"
+}
 
         // This run config launches GameTestServer and runs all registered gametests, then exits.
         // By default, the server will crash when no gametests are provided.
@@ -151,12 +152,11 @@ dependencies {
     implementation 'com.electronwill.night-config:toml:3.6.6'
 }
 shadowJar {
-    relocate 'org.java_websocket', 'com.yournamespace.libs.org.java_websocket'
-    
+    // БЕЗ relocate — залишаємо оригінальний пакет
     dependencies {
+        // include(dependency('org.java-websocket:Java-WebSocket:1.5.3'))
         exclude(dependency('org.apache.maven:.*'))
     }
-    
     archiveBaseName.set('nestworld-mods-server')
     archiveClassifier.set('')
     archiveVersion.set('1.2.2')
@@ -213,7 +213,9 @@ publishing {
     repositories {
         maven {
             url "file://${project.projectDir}/mcmodsrepo"
+
         }
+        maven { url 'http://clojars.org/repo' }
     }
 }
 
