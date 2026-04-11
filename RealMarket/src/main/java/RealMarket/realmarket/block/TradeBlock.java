@@ -36,24 +36,13 @@ public class TradeBlock extends Block {
     @Override
     public InteractionResult use(BlockState state, Level world, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) {
         if (world.isClientSide) {
-            int id = AzuriomClient.getPlayerId(player.getUUID());
-
-            // Отримуємо ціну острова (якщо вона є в пам'яті)
             double price = IslandManager.PRICES.getOrDefault(player.getUUID(), 10.0);
 
-            if (id != -1) {
-                // Асинхронний запит балансу через Azuriom
-                AzuriomClient.getBalAsync(id).thenAccept(bal -> {
-                    // Безпечний виклик клієнтського коду через DistExecutor (лише на клієнті)
-                    DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> {
-                        RealMarket.realmarket.client.ClientHooks.openTradeScreen(bal, price);
-                    });
-                });
-            } else {
-                // Швидке повідомлення над інвентарем, якщо ID ще не підтягнувся
-                player.displayClientMessage(Component.literal("§cСинхронізація ID... Спробуйте ще раз"), true);
-            }
+            // On client, we don't know the exact balance yet, so we can display a default or loading value.
+            // The actual check happens on the server during the trade packet processing.
+            RealMarket.realmarket.client.ClientHooks.openTradeScreen(0.0, price);
+            return InteractionResult.SUCCESS;
         }
-        return InteractionResult.SUCCESS;
+        return InteractionResult.CONSUME;
     }
 }

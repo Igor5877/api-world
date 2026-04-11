@@ -78,10 +78,10 @@ public class PacketShopAction {
                             if (!p.getInventory().add(reward)) {
                                 p.drop(reward, false);
                             }
-                            p.sendSystemMessage(Component.literal("§a[Shop] Ви придбали §f" + amt + " од. §aза §6" + totalCost + " Coins"));
+                            ModMessages.sendToPlayer(new PacketTradeResponse(true, "§a[Shop] Ви придбали §f" + amt + " од. §aза §6" + totalCost + " Coins", currentBalance - totalCost), p);
                         }));
                     } else {
-                        p.sendSystemMessage(Component.literal("§c[API] Помилка під час транзакції. Гроші не знято."));
+                        ModMessages.sendToPlayer(new PacketTradeResponse(false, "§c[API] Помилка під час транзакції. Гроші не знято.", currentBalance), p);
                     }
                 });
             }));
@@ -104,16 +104,18 @@ public class PacketShopAction {
         double reward = unitPrice * amt;
 
         // 2. Асинхронно нараховуємо гроші на сайт
-        AzuriomClient.updateAsync(apiId, reward).thenAccept(success -> {
-            if (success) {
-                // 3. Якщо сайт підтвердив - забираємо предмети
-                p.server.tell(new TickTask(0, () -> {
-                    handStack.shrink(amt);
-                    p.sendSystemMessage(Component.literal("§6[Shop] Продано! Ви отримали §e" + reward + " Coins §6на баланс сайту."));
-                }));
-            } else {
-                p.sendSystemMessage(Component.literal("§c[API] Сайт відхилив транзакцію. Спробуйте пізніше."));
-            }
+        AzuriomClient.getBalAsync(apiId).thenAccept(currentBalance -> {
+            AzuriomClient.updateAsync(apiId, reward).thenAccept(success -> {
+                if (success) {
+                    // 3. Якщо сайт підтвердив - забираємо предмети
+                    p.server.tell(new TickTask(0, () -> {
+                        handStack.shrink(amt);
+                        ModMessages.sendToPlayer(new PacketTradeResponse(true, "§6[Shop] Продано! Ви отримали §e" + reward + " Coins §6на баланс сайту.", currentBalance + reward), p);
+                    }));
+                } else {
+                    ModMessages.sendToPlayer(new PacketTradeResponse(false, "§c[API] Сайт відхилив транзакцію. Спробуйте пізніше.", currentBalance), p);
+                }
+            });
         });
     }
 

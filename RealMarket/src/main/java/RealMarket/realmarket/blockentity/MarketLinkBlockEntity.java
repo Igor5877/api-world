@@ -13,6 +13,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import RealMarket.realmarket.RealMarket;
+import RealMarket.realmarket.api.MarketSyncManager;
 
 import javax.annotation.Nullable;
 import java.util.UUID;
@@ -39,6 +40,9 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
         super.onLoad();
         if (level != null && !level.isClientSide()) {
             this.mainNode.create(level, getBlockPos());
+            if (this.islandUuid != null) {
+                MarketSyncManager.init(this.islandUuid);
+            }
         }
         RealMarket.addActiveMarketLink(this);
     }

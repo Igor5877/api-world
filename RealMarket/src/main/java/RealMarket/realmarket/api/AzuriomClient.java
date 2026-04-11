@@ -9,12 +9,21 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.lang.reflect.Type;
+import com.google.gson.reflect.TypeToken;
 
 public class AzuriomClient {
     private static final Map<UUID, Integer> IDS = new ConcurrentHashMap<>();
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
             .build();
+
+    private static final File IDS_FILE = new File("config/realmarket-player-ids.json");
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     // Ініціалізація конфіга при завантаженні класу
     static {
@@ -23,6 +32,31 @@ public class AzuriomClient {
         String url = ApiConfig.getApiUrl();
         int serverId = ApiConfig.getServerId();
         System.out.println("[RealMarket] API Config initialized - URL: " + url + ", Server ID: " + serverId);
+        loadIds();
+    }
+
+    private static void loadIds() {
+        if (!IDS_FILE.exists()) return;
+        try (FileReader reader = new FileReader(IDS_FILE)) {
+            Type type = new TypeToken<Map<UUID, Integer>>(){}.getType();
+            Map<UUID, Integer> loaded = GSON.fromJson(reader, type);
+            if (loaded != null) {
+                IDS.putAll(loaded);
+            }
+        } catch (IOException e) {
+            System.err.println("[RealMarket] Failed to load IDS: " + e.getMessage());
+        }
+    }
+
+    private static void saveIds() {
+        try {
+            IDS_FILE.getParentFile().mkdirs();
+            try (FileWriter writer = new FileWriter(IDS_FILE)) {
+                GSON.toJson(IDS, writer);
+            }
+        } catch (IOException e) {
+            System.err.println("[RealMarket] Failed to save IDS: " + e.getMessage());
+        }
     }
 
     public static int getPlayerId(UUID uuid) {
@@ -71,6 +105,7 @@ public class AzuriomClient {
                                     // Беремо ID відразу з першого користувача (users[0]), бо сайт відфільтрував запит
                                     int id = users.get(0).getAsJsonObject().get("id").getAsInt();
                                     IDS.put(uuid, id);
+                                    saveIds();
                                     System.out.println("[RealMarket] Synced player " + name + " -> ID " + id);
                                 }
                             }
