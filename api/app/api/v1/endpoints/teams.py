@@ -11,9 +11,25 @@ from app.schemas.team import TeamCreate, Team as TeamSchema, TeamMember, TeamCre
 from app.crud import crud_team
 from app.models.team import Team
 from app.services.island_service import island_service
+from app.services.websocket_manager import manager as websocket_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+async def broadcast_team_update(db: AsyncSession, team_id: int):
+    """Fetches the latest team data and broadcasts it via WebSocket."""
+    team = await db.get(Team, team_id)
+    if team:
+        # Load members for complete payload
+        result = await db.execute(select(Team).where(Team.id == team_id).options(selectinload(Team.members)))
+        team_with_members = result.scalars().first()
+        if team_with_members:
+            schema = TeamSchema.model_validate(team_with_members)
+            payload = {
+                "event": "TEAM_UPDATED",
+                "payload": schema.model_dump(mode='json')
+            }
+            await websocket_manager.send_personal_message(payload, f"island_{team_with_members.owner_uuid}")
 
 @router.post("/create_solo", response_model=TeamSchema, status_code=201)
 async def create_solo_island_and_team(
@@ -125,6 +141,7 @@ async def rename_team_endpoint(
             raise HTTPException(status_code=409, detail="A team with this name already exists.")
         
         updated_team = await crud_team.rename_team(db, team=team, new_name=team_in.name)
+        await broadcast_team_update(db, updated_team.id)
         return updated_team
     
     return team # Return original if no name was provided in payload
@@ -166,6 +183,7 @@ async def accept_invite(
             team_to_join=team,
             background_tasks=background_tasks
         )
+        await broadcast_team_update(db, updated_team.id)
         return updated_team
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -208,5 +226,6 @@ async def leave_team(
     else:
         # Just remove the member
         await crud_team.remove_member(db, team=team, player_uuid=player_uuid)
+        await broadcast_team_update(db, team.id)
     
     return

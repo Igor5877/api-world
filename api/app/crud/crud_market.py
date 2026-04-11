@@ -36,4 +36,14 @@ class CRUDMarketItem:
             logger.error(f"Error syncing market inventory for island {island_uuid}: {e}", exc_info=True)
             raise e
 
+    async def get_island_inventory(self, db_session: AsyncSession, island_uuid: str) -> List[MarketItem]:
+        """
+        Retrieves the current market inventory for a specific island.
+        """
+        from sqlalchemy import select
+        result = await db_session.execute(
+            select(MarketItem).where(MarketItem.island_uuid == island_uuid)
+        )
+        return result.scalars().all()
+
 crud_market = CRUDMarketItem()
