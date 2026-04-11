@@ -29,6 +29,12 @@ public class ModMessages {
                 .consumerMainThread(PacketShopAction::handle)
                 .add();
 
+        INSTANCE.messageBuilder(PacketTradeResponse.class, id(), NetworkDirection.PLAY_TO_CLIENT)
+                .decoder(PacketTradeResponse::decode)
+                .encoder(PacketTradeResponse::encode)
+                .consumerMainThread(PacketTradeResponse::handle)
+                .add();
+
         System.out.println("[RealMarket] Network packets registered successfully!");
     }
 

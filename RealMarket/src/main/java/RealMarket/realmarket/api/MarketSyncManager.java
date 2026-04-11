@@ -39,8 +39,13 @@ public class MarketSyncManager {
             .connectTimeout(Duration.ofSeconds(5))
             .build();
 
+    private static boolean isInitialized = false;
+
     public static void init(UUID islandUuid) {
+        if (islandUuid == null) return;
         currentIslandUuid = islandUuid;
+        if (isInitialized) return;
+        isInitialized = true;
         connectWebSocket();
         scheduler.scheduleAtFixedRate(() -> {
             syncInventory();
@@ -137,11 +142,17 @@ public class MarketSyncManager {
             if (apiIndex > 0) baseUrl = baseUrl.substring(0, apiIndex);
             String url = baseUrl + "/api/v1/market/islands/" + currentIslandUuid + "/inventory/sync";
 
-            HttpRequest req = HttpRequest.newBuilder()
+            String token = ApiConfig.getToken();
+            HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(payload))
-                    .build();
+                    .POST(HttpRequest.BodyPublishers.ofString(payload));
+
+            if (token != null && !token.isEmpty()) {
+                reqBuilder.header("Authorization", "Bearer " + token);
+            }
+
+            HttpRequest req = reqBuilder.build();
 
             HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(res -> {

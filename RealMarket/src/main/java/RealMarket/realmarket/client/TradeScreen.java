@@ -8,7 +8,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 public class TradeScreen extends Screen {
-    private final double balance;
+    private double balance;
     private final double unitPrice;
     private int amount = 1;
 
@@ -16,6 +16,10 @@ public class TradeScreen extends Screen {
         super(Component.literal("Market Terminal"));
         this.balance = balance;
         this.unitPrice = unitPrice;
+    }
+
+    public void updateBalance(double newBalance) {
+        this.balance = newBalance;
     }
 
     @Override

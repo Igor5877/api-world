@@ -27,7 +27,10 @@ import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
 import java.util.Collections;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import RealMarket.realmarket.api.MarketIslandApi;
+import RealMarket.realmarket.api.MarketSyncManager;
 
 @Mod(RealMarket.MODID)
 public class RealMarket {
@@ -92,6 +95,11 @@ public class RealMarket {
     public void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             AzuriomClient.sync(player.getUUID(), player.getName().getString());
+            UUID islandUuid = MarketIslandApi.getIslandUuid(player.getUUID());
+            if (islandUuid == null) {
+                islandUuid = player.getUUID();
+            }
+            MarketSyncManager.init(islandUuid);
         }
     }
 
