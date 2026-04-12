@@ -42,10 +42,18 @@ async def purchase_item(
             item_id=payload.item_id,
             quantity=payload.quantity,
         )
-        # Повідомляємо острів через WebSocket щоб витягнув предмети з AE2
+        # Зберігаємо pending — острів може бути офлайн
+        pending = await crud_market.create_pending_extraction(
+            db_session=db,
+            island_uuid=island_uuid,
+            item_id=payload.item_id,
+            quantity=payload.quantity,
+        )
+        # Намагаємось надіслати WS зараз (якщо острів онлайн)
         await websocket_manager.send_personal_message(
             {
                 "type": "market_purchase",
+                "pending_id": pending.id,
                 "item_id": payload.item_id,
                 "quantity": payload.quantity,
             },
@@ -57,6 +65,24 @@ async def purchase_item(
     except Exception as e:
         logger.error(f"Failed to process purchase for {island_uuid}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Purchase failed.")
+
+
+@router.post("/islands/{island_uuid}/extraction/{pending_id}/confirm", status_code=status.HTTP_200_OK)
+async def confirm_extraction(
+    island_uuid: str,
+    pending_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """
+    Called by the island mod after successfully extracting items from AE2.
+    Deletes the pending extraction record.
+    """
+    deleted = await crud_market.confirm_extraction(
+        db_session=db, pending_id=pending_id, island_uuid=island_uuid
+    )
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pending extraction not found.")
+    return {"confirmed": pending_id}
 
 
 @router.post("/islands/{island_uuid}/inventory/sync", status_code=status.HTTP_200_OK)

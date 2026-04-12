@@ -61,10 +61,11 @@ public class MarketWebSocketClient {
                     if (webSocket != null) webSocket.sendText("{\"type\":\"pong\"}", true);
                 }
                 case "market_purchase" -> {
-                    String itemId  = msg.get("item_id").getAsString();
-                    int    qty     = msg.get("quantity").getAsInt();
-                    System.out.println("[RealMarket] Purchase received: " + qty + "x " + itemId + " — extracting from AE2");
-                    MarketSyncManager.extractFromAE2(itemId, qty);
+                    String itemId   = msg.get("item_id").getAsString();
+                    int    qty      = msg.get("quantity").getAsInt();
+                    int    pendingId = msg.has("pending_id") ? msg.get("pending_id").getAsInt() : -1;
+                    System.out.println("[RealMarket] Purchase received: " + qty + "x " + itemId + " (pending_id=" + pendingId + ") — extracting from AE2");
+                    MarketSyncManager.extractFromAE2(itemId, qty, pendingId);
                 }
                 default -> { /* ігноруємо невідомі повідомлення */ }
             }

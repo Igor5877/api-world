@@ -273,7 +273,7 @@ public class MarketSyncManager {
      * Витягує предмети з AE2 мережі острова після купівлі на спавні.
      * Викликається з WebSocket повідомлення "market_purchase".
      */
-    public static void extractFromAE2(String itemId, int quantity) {
+    public static void extractFromAE2(String itemId, int quantity, int pendingId) {
         Item item = BuiltInRegistries.ITEM.get(ResourceLocation.tryParse(itemId));
         if (item == null) {
             System.err.println("[RealMarket] extractFromAE2: unknown item " + itemId);
@@ -309,8 +309,36 @@ public class MarketSyncManager {
 
         if (totalExtracted > 0) {
             System.out.println("[RealMarket] Extracted " + totalExtracted + "x " + itemId + " from AE2 (requested " + quantity + ")");
+            if (pendingId > 0) confirmExtraction(pendingId);
         } else {
             System.err.println("[RealMarket] extractFromAE2: could not extract " + quantity + "x " + itemId + " — items may already be gone");
+            // Підтверджуємо навіть якщо не вдалось витягти — щоб не зациклюватись
+            if (pendingId > 0) confirmExtraction(pendingId);
+        }
+    }
+
+    /** Підтверджує extraction — видаляє pending запис в API. */
+    private static void confirmExtraction(int pendingId) {
+        if (currentIslandUuid == null) return;
+        try {
+            String url = apiBase() + "/api/v1/market/islands/" + currentIslandUuid + "/extraction/" + pendingId + "/confirm";
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(res -> {
+                        if (res.statusCode() == 200)
+                            System.out.println("[RealMarket] Extraction confirmed: pending_id=" + pendingId);
+                        else
+                            System.err.println("[RealMarket] Confirm failed: " + res.statusCode());
+                    }).exceptionally(ex -> {
+                        System.err.println("[RealMarket] Confirm error: " + ex.getMessage());
+                        return null;
+                    });
+        } catch (Exception e) {
+            System.err.println("[RealMarket] confirmExtraction error: " + e.getMessage());
         }
     }
 

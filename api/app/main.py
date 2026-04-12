@@ -271,6 +271,29 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         client_id: The ID of the client.
     """
     await websocket_manager.connect(websocket, client_id)
+
+    # Якщо це острів — одразу надсилаємо всі pending extractions
+    if client_id.startswith("island_"):
+        island_uuid = client_id[len("island_"):]
+        try:
+            from app.crud.crud_market import crud_market
+            async with AsyncSessionLocal() as db:
+                pending = await crud_market.get_pending_extractions(db, island_uuid)
+                for p in pending:
+                    await websocket_manager.send_personal_message(
+                        {
+                            "type": "market_purchase",
+                            "pending_id": p.id,
+                            "item_id": p.item_id,
+                            "quantity": p.quantity,
+                        },
+                        client_id,
+                    )
+                if pending:
+                    logger.info(f"Sent {len(pending)} pending extractions to {client_id}")
+        except Exception as e:
+            logger.error(f"Failed to send pending extractions to {client_id}: {e}")
+
     try:
         while True:
             await websocket.receive_text()
