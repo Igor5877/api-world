@@ -13,21 +13,35 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import RealMarket.realmarket.RealMarket;
+import RealMarket.realmarket.api.MarketSyncManager;
 
 import javax.annotation.Nullable;
 import java.util.UUID;
 
 public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNodeHost, IGridNodeListener<MarketLinkBlockEntity> {
 
+    /**
+     * SOURCE — на острові: читає AE2, пушить до API.
+     * SINK   — на спавні: тягне з API, надає TradeBlock.
+     */
+    public enum BlockMode { SOURCE, SINK }
+
     private final IManagedGridNode mainNode = GridHelper.createManagedNode(this, this);
-    private UUID islandUuid;
+
+    private BlockMode mode = BlockMode.SINK;
+    /** SOURCE: UUID власного острова. */
+    private UUID sourceIslandUuid;
+    /** SINK: UUID острова продавця, отриманий через Memory Card. */
+    private UUID linkedIslandUuid;
 
     public MarketLinkBlockEntity(BlockPos pPos, BlockState pBlockState) {
         super(RealMarket.MARKET_LINK_BE.get(), pPos, pBlockState);
-        this.mainNode.setIdlePowerUsage(0.5d); // Example power usage
+        this.mainNode.setIdlePowerUsage(0.5d);
         this.mainNode.setInWorldNode(true);
         this.mainNode.setVisualRepresentation(RealMarket.MARKET_LINK_ITEM.get());
     }
+
+    // ── AE2 grid ────────────────────────────────────────────────────────────
 
     @Override
     public void onSaveChanges(MarketLinkBlockEntity nodeOwner, IGridNode node) {
@@ -39,6 +53,9 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
         super.onLoad();
         if (level != null && !level.isClientSide()) {
             this.mainNode.create(level, getBlockPos());
+            if (mode == BlockMode.SOURCE && sourceIslandUuid != null) {
+                MarketSyncManager.init(sourceIslandUuid);
+            }
         }
         RealMarket.addActiveMarketLink(this);
     }
@@ -79,28 +96,44 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
         return null;
     }
 
-    public UUID getIslandUuid() {
-        return islandUuid;
+    // ── Getters / setters ───────────────────────────────────────────────────
+
+    public BlockMode getMode() { return mode; }
+    public void setMode(BlockMode mode) { this.mode = mode; this.setChanged(); }
+
+    public UUID getSourceIslandUuid() { return sourceIslandUuid; }
+    public void setSourceIslandUuid(UUID uuid) {
+        this.sourceIslandUuid = uuid;
+        this.setChanged();
+        if (mode == BlockMode.SOURCE && uuid != null && level != null && !level.isClientSide()) {
+            MarketSyncManager.init(uuid);
+        }
     }
 
-    public void setIslandUuid(UUID islandUuid) {
-        this.islandUuid = islandUuid;
-        this.setChanged();
+    public UUID getLinkedIslandUuid() { return linkedIslandUuid; }
+    public void setLinkedIslandUuid(UUID uuid) { this.linkedIslandUuid = uuid; this.setChanged(); }
+
+    /** Повертає актуальний UUID залежно від режиму. */
+    @Nullable
+    public UUID getActiveIslandUuid() {
+        return mode == BlockMode.SOURCE ? sourceIslandUuid : linkedIslandUuid;
     }
+
+    // ── NBT ─────────────────────────────────────────────────────────────────
 
     @Override
     protected void saveAdditional(CompoundTag tag) {
         super.saveAdditional(tag);
-        if (this.islandUuid != null) {
-            tag.putUUID("islandUuid", this.islandUuid);
-        }
+        tag.putString("mode", mode.name());
+        if (sourceIslandUuid != null) tag.putUUID("sourceIslandUuid", sourceIslandUuid);
+        if (linkedIslandUuid != null) tag.putUUID("linkedIslandUuid", linkedIslandUuid);
     }
 
     @Override
     public void load(CompoundTag tag) {
         super.load(tag);
-        if (tag.hasUUID("islandUuid")) {
-            this.islandUuid = tag.getUUID("islandUuid");
-        }
+        try { mode = BlockMode.valueOf(tag.getString("mode")); } catch (Exception ignored) {}
+        if (tag.hasUUID("sourceIslandUuid")) sourceIslandUuid = tag.getUUID("sourceIslandUuid");
+        if (tag.hasUUID("linkedIslandUuid")) linkedIslandUuid = tag.getUUID("linkedIslandUuid");
     }
 }

@@ -2,6 +2,7 @@ package RealMarket.realmarket.api;
 
 import RealMarket.realmarket.RealMarket;
 import RealMarket.realmarket.blockentity.MarketLinkBlockEntity;
+import RealMarket.realmarket.blockentity.MarketLinkBlockEntity.BlockMode;
 import RealMarket.realmarket.config.ApiConfig;
 
 import appeng.api.networking.IGrid;
@@ -10,27 +11,29 @@ import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.AEKey;
 import appeng.api.storage.MEStorage;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.core.registries.BuiltInRegistries;
-
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 
 public class MarketSyncManager {
+
+    // Кеш інвентарів для SINK блоків: island_uuid → список предметів
+    public record CachedItem(String itemId, String itemNbt, long quantity, double price, boolean isForSale) {}
+    private static final Map<UUID, List<CachedItem>> sinkCache = new ConcurrentHashMap<>();
 
     private static MarketWebSocketClient wsClient;
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
@@ -39,23 +42,203 @@ public class MarketSyncManager {
             .connectTimeout(Duration.ofSeconds(5))
             .build();
 
+    private static boolean initialized = false;
+
     public static void init(UUID islandUuid) {
         currentIslandUuid = islandUuid;
         connectWebSocket();
-        scheduler.scheduleAtFixedRate(() -> {
-            syncInventory();
-            checkWebSocketConnection();
-        }, 30, 30, TimeUnit.SECONDS);
+        if (!initialized) {
+            initialized = true;
+            scheduler.scheduleAtFixedRate(() -> {
+                syncSourceBlocks();
+                fetchSinkInventories();
+                checkWebSocketConnection();
+            }, 30, 30, TimeUnit.SECONDS);
+        }
     }
+
+    /** Примусова негайна синхронізація (для дев-команд). */
+    public static void triggerSync() {
+        if (currentIslandUuid == null) {
+            System.err.println("[RealMarket] triggerSync: currentIslandUuid is null, call init() first");
+            return;
+        }
+        scheduler.submit(() -> {
+            syncSourceBlocks();
+            fetchSinkInventories();
+        });
+    }
+
+    // ── SOURCE: пуш AE2 → API ────────────────────────────────────────────────
+
+    private static void syncSourceBlocks() {
+        System.out.println("[RealMarket] Syncing SOURCE blocks...");
+        Map<String, JsonObject> aggregatedItems = new HashMap<>();
+        double defaultPrice = 10.0;
+
+        for (MarketLinkBlockEntity link : RealMarket.getActiveMarketLinks()) {
+            if (link.getMode() != BlockMode.SOURCE) continue;
+
+            IGrid grid = link.getGrid();
+            if (grid == null) continue;
+
+            IStorageService storageService = grid.getService(IStorageService.class);
+            if (storageService == null) continue;
+
+            MEStorage storage = storageService.getInventory();
+            if (storage == null) continue;
+
+            UUID islandUuid = link.getSourceIslandUuid();
+            if (islandUuid == null) islandUuid = currentIslandUuid;
+
+            for (var keyEntry : storage.getAvailableStacks()) {
+                AEKey key = keyEntry.getKey();
+                long amount = keyEntry.getLongValue();
+
+                if (!(key instanceof AEItemKey itemKey)) continue;
+
+                ItemStack stack = itemKey.toStack(1);
+                Item item = stack.getItem();
+                ResourceLocation regName = BuiltInRegistries.ITEM.getKey(item);
+                String itemId = regName != null ? regName.toString() : "minecraft:air";
+                if (itemId.equals("minecraft:air")) continue;
+
+                String nbtStr = stack.hasTag() ? stack.getTag().toString() : null;
+                String uniqueId = itemId + (nbtStr != null ? nbtStr : "");
+
+                if (aggregatedItems.containsKey(uniqueId)) {
+                    JsonObject existing = aggregatedItems.get(uniqueId);
+                    existing.addProperty("quantity", existing.get("quantity").getAsLong() + amount);
+                } else {
+                    JsonObject obj = new JsonObject();
+                    obj.addProperty("island_uuid", islandUuid.toString());
+                    obj.addProperty("item_id", itemId);
+                    if (nbtStr != null) obj.addProperty("item_nbt", nbtStr);
+                    obj.addProperty("quantity", amount);
+                    obj.addProperty("price", defaultPrice);
+                    obj.addProperty("is_for_sale", true);
+                    obj.addProperty("version", 1);
+                    aggregatedItems.put(uniqueId, obj);
+                }
+            }
+        }
+
+        if (!aggregatedItems.isEmpty()) {
+            sendSyncRequest(aggregatedItems, islandUuidForSync());
+        }
+    }
+
+    private static UUID islandUuidForSync() {
+        for (MarketLinkBlockEntity link : RealMarket.getActiveMarketLinks()) {
+            if (link.getMode() == BlockMode.SOURCE && link.getSourceIslandUuid() != null)
+                return link.getSourceIslandUuid();
+        }
+        return currentIslandUuid;
+    }
+
+    private static void sendSyncRequest(Map<String, JsonObject> aggregatedItems, UUID islandUuid) {
+        JsonObject root = new JsonObject();
+        JsonArray itemsArray = new JsonArray();
+        aggregatedItems.values().forEach(itemsArray::add);
+        root.add("items", itemsArray);
+
+        try {
+            String url = apiBase() + "/api/v1/market/islands/" + islandUuid + "/inventory/sync";
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(root.toString()))
+                    .build();
+
+            HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(res -> {
+                        if (res.statusCode() != 200)
+                            System.err.println("[RealMarket] Sync failed: " + res.statusCode() + " " + res.body());
+                        else
+                            System.out.println("[RealMarket] Synced " + aggregatedItems.size() + " stacks.");
+                    }).exceptionally(ex -> {
+                        System.err.println("[RealMarket] Sync network error: " + ex.getMessage());
+                        return null;
+                    });
+        } catch (Exception e) {
+            System.err.println("[RealMarket] Sync request error: " + e.getMessage());
+        }
+    }
+
+    // ── SINK: тягнемо інвентар з API → кеш ──────────────────────────────────
+
+    private static void fetchSinkInventories() {
+        Set<UUID> toFetch = new HashSet<>();
+        for (MarketLinkBlockEntity link : RealMarket.getActiveMarketLinks()) {
+            if (link.getMode() == BlockMode.SINK && link.getLinkedIslandUuid() != null)
+                toFetch.add(link.getLinkedIslandUuid());
+        }
+        for (UUID targetUuid : toFetch) {
+            fetchInventoryFromApi(targetUuid);
+        }
+    }
+
+    private static void fetchInventoryFromApi(UUID islandUuid) {
+        try {
+            String url = apiBase() + "/api/v1/market/islands/" + islandUuid + "/inventory";
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .GET()
+                    .build();
+
+            HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(res -> {
+                        if (res.statusCode() != 200) {
+                            System.err.println("[RealMarket] Fetch inventory failed: " + res.statusCode());
+                            return;
+                        }
+                        try {
+                            List<CachedItem> items = new ArrayList<>();
+                            JsonArray arr = JsonParser.parseString(res.body()).getAsJsonArray();
+                            for (JsonElement el : arr) {
+                                JsonObject obj = el.getAsJsonObject();
+                                items.add(new CachedItem(
+                                        obj.get("item_id").getAsString(),
+                                        obj.has("item_nbt") && !obj.get("item_nbt").isJsonNull()
+                                                ? obj.get("item_nbt").getAsString() : null,
+                                        obj.get("quantity").getAsLong(),
+                                        obj.get("price").getAsDouble(),
+                                        obj.get("is_for_sale").getAsBoolean()
+                                ));
+                            }
+                            sinkCache.put(islandUuid, items);
+                            System.out.println("[RealMarket] Fetched " + items.size() + " items for island " + islandUuid);
+                        } catch (Exception e) {
+                            System.err.println("[RealMarket] Failed to parse inventory: " + e.getMessage());
+                        }
+                    }).exceptionally(ex -> {
+                        System.err.println("[RealMarket] Fetch network error: " + ex.getMessage());
+                        return null;
+                    });
+        } catch (Exception e) {
+            System.err.println("[RealMarket] Fetch request error: " + e.getMessage());
+        }
+    }
+
+    /** Повертає кешований інвентар для SINK блоку. Викликається TradeBlock. */
+    public static List<CachedItem> getCachedInventory(UUID islandUuid) {
+        return sinkCache.getOrDefault(islandUuid, Collections.emptyList());
+    }
+
+    /** Примусово оновити кеш для конкретного острова (наприклад після купівлі). */
+    public static void invalidateCache(UUID islandUuid) {
+        sinkCache.remove(islandUuid);
+        fetchInventoryFromApi(islandUuid);
+    }
+
+    // ── WebSocket ────────────────────────────────────────────────────────────
 
     private static void connectWebSocket() {
         if (wsClient != null && wsClient.isOpen()) return;
         try {
-            String baseUrl = ApiConfig.getApiUrl()
+            String baseUrl = ApiConfig.getApiWorldUrl()
                     .replace("http://", "ws://")
                     .replace("https://", "wss://");
-            int apiIndex = baseUrl.indexOf("/api/");
-            if (apiIndex > 0) baseUrl = baseUrl.substring(0, apiIndex);
             URI wsUri = new URI(baseUrl + "/ws/island_" + currentIslandUuid);
             System.out.println("[RealMarket] Connecting to WebSocket: " + wsUri);
             wsClient = new MarketWebSocketClient(wsUri);
@@ -72,95 +255,14 @@ public class MarketSyncManager {
         }
     }
 
-    private static void syncInventory() {
-        System.out.println("[RealMarket] Syncing AE2 inventory...");
-        Map<String, JsonObject> aggregatedItems = new HashMap<>();
-        double defaultPrice = 10.0;
-
-        for (MarketLinkBlockEntity link : RealMarket.getActiveMarketLinks()) {
-            IGrid grid = link.getGrid();
-            if (grid == null) continue;
-
-            IStorageService storageService = grid.getService(IStorageService.class);
-            if (storageService == null) continue;
-
-            MEStorage storage = storageService.getInventory();
-            if (storage == null) continue;
-
-            var stacks = storage.getAvailableStacks();
-            for (var keyEntry : stacks) {
-                AEKey key = keyEntry.getKey();
-                long amount = keyEntry.getLongValue();
-
-                if (!(key instanceof AEItemKey itemKey)) continue;  // <- continue, не return
-
-                ItemStack stack = itemKey.toStack(1);
-                Item item = stack.getItem();
-                ResourceLocation regName = BuiltInRegistries.ITEM.getKey(item);
-                String itemId = regName != null ? regName.toString() : "minecraft:air";
-
-                if (itemId.equals("minecraft:air")) continue;  // <- continue, не return
-
-                String nbtStr = stack.hasTag() ? stack.getTag().toString() : null;
-                String uniqueId = itemId + (nbtStr != null ? nbtStr : "");
-
-                if (aggregatedItems.containsKey(uniqueId)) {
-                    JsonObject existing = aggregatedItems.get(uniqueId);
-                    existing.addProperty("quantity", existing.get("quantity").getAsLong() + amount);
-                } else {
-                    JsonObject obj = new JsonObject();
-                    obj.addProperty("island_uuid", currentIslandUuid.toString());
-                    obj.addProperty("item_id", itemId);
-                    if (nbtStr != null) obj.addProperty("item_nbt", nbtStr);
-                    obj.addProperty("quantity", amount);
-                    obj.addProperty("price", defaultPrice);
-                    obj.addProperty("is_for_sale", true);
-                    obj.addProperty("version", 1);
-                    aggregatedItems.put(uniqueId, obj);
-                }
-            }
-        }
-
-        sendSyncRequest(aggregatedItems);
-    }
-
-    private static void sendSyncRequest(Map<String, JsonObject> aggregatedItems) {
-        JsonObject root = new JsonObject();
-        JsonArray itemsArray = new JsonArray();
-        aggregatedItems.values().forEach(itemsArray::add);
-        root.add("items", itemsArray);
-        String payload = root.toString();
-
-        try {
-            String baseUrl = ApiConfig.getApiUrl();
-            int apiIndex = baseUrl.indexOf("/api/");
-            if (apiIndex > 0) baseUrl = baseUrl.substring(0, apiIndex);
-            String url = baseUrl + "/api/v1/market/islands/" + currentIslandUuid + "/inventory/sync";
-
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(payload))
-                    .build();
-
-            HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(res -> {
-                        if (res.statusCode() != 200) {
-                            System.err.println("[RealMarket] Sync failed: " + res.statusCode() + " " + res.body());
-                        } else {
-                            System.out.println("[RealMarket] Synced " + aggregatedItems.size() + " stacks.");
-                        }
-                    }).exceptionally(ex -> {
-                        System.err.println("[RealMarket] Network error: " + ex.getMessage());
-                        return null;
-                    });
-        } catch (Exception e) {
-            System.err.println("[RealMarket] Sync request error: " + e.getMessage());
-        }
-    }
-
     public static void shutdown() {
         scheduler.shutdown();
         if (wsClient != null) wsClient.close();
+    }
+
+    // ── Утиліти ──────────────────────────────────────────────────────────────
+
+    private static String apiBase() {
+        return ApiConfig.getApiWorldUrl();
     }
 }
