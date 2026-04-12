@@ -6,7 +6,9 @@ import RealMarket.realmarket.blockentity.MarketLinkBlockEntity;
 import RealMarket.realmarket.blockentity.MarketLinkBlockEntity.BlockMode;
 import RealMarket.realmarket.network.ModMessages;
 import RealMarket.realmarket.network.PacketOpenTradeUI;
-import RealMarket.realmarket.world.IslandManager;
+
+import java.util.List;
+import java.util.stream.Collectors;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -49,21 +51,28 @@ public class TradeBlock extends Block {
                 return InteractionResult.SUCCESS;
             }
 
-            // Шукаємо сусідній SINK MarketLinkBlock (з'єднаний через Memory Card)
+            // Шукаємо сусідній SINK MarketLinkBlock
             UUID linkedIslandUuid = findLinkedSinkUuid(world, pos);
-            double price;
-            if (linkedIslandUuid != null) {
-                // Використовуємо ціну з кешу SINK блоку (перший предмет як приклад)
-                var items = MarketSyncManager.getCachedInventory(linkedIslandUuid);
-                price = items.isEmpty() ? 10.0 : items.get(0).price();
-            } else {
-                // Fallback: стара поведінка (немає підключеного SINK блоку)
-                price = IslandManager.PRICES.getOrDefault(player.getUUID(), 10.0);
+            if (linkedIslandUuid == null) {
+                serverPlayer.displayClientMessage(Component.literal("§c[Market] Немає підключеного SINK блоку поруч!"), true);
+                return InteractionResult.SUCCESS;
             }
 
-            final double finalPrice = price;
+            // Будуємо список предметів з кешу
+            List<PacketOpenTradeUI.ItemEntry> entries = MarketSyncManager.getCachedInventory(linkedIslandUuid)
+                    .stream()
+                    .filter(MarketSyncManager.CachedItem::isForSale)
+                    .map(i -> new PacketOpenTradeUI.ItemEntry(i.itemId(), i.price(), i.quantity()))
+                    .collect(Collectors.toList());
+
+            if (entries.isEmpty()) {
+                serverPlayer.displayClientMessage(Component.literal("§e[Market] Інвентар острова порожній або ще не синхронізовано."), true);
+                return InteractionResult.SUCCESS;
+            }
+
+            final UUID finalUuid = linkedIslandUuid;
             AzuriomClient.getBalAsync(id).thenAccept(bal ->
-                    ModMessages.sendToPlayer(new PacketOpenTradeUI(bal, finalPrice), serverPlayer)
+                    ModMessages.sendToPlayer(new PacketOpenTradeUI(bal, finalUuid, entries), serverPlayer)
             );
         }
         return InteractionResult.SUCCESS;

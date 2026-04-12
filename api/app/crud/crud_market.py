@@ -46,4 +46,36 @@ class CRUDMarketItem:
         )
         return result.scalars().all()
 
+    async def purchase_item(
+        self,
+        db_session: AsyncSession,
+        island_uuid: str,
+        item_id: str,
+        quantity: int,
+    ) -> dict:
+        """
+        Deducts quantity after a purchase. Returns the result.
+        Raises ValueError if item not found or not enough stock.
+        """
+        from sqlalchemy import select
+        result = await db_session.execute(
+            select(MarketItem).where(
+                MarketItem.island_uuid == island_uuid,
+                MarketItem.item_id == item_id,
+                MarketItem.is_for_sale == True,
+            )
+        )
+        item = result.scalars().first()
+
+        if item is None:
+            raise ValueError(f"Item '{item_id}' not found or not for sale.")
+        if item.quantity < quantity:
+            raise ValueError(f"Not enough stock. Available: {item.quantity}, requested: {quantity}.")
+
+        item.quantity -= quantity
+        if item.quantity <= 0:
+            await db_session.delete(item)
+        await db_session.commit()
+        return {"item_id": item_id, "purchased": quantity, "remaining": max(0, item.quantity - quantity)}
+
 crud_market = CRUDMarketItem()

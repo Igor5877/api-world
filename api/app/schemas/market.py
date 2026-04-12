@@ -24,3 +24,8 @@ class MarketItemInDB(MarketItemBase):
     id: int
 
     model_config = {"from_attributes": True}
+
+class PurchaseRequest(BaseModel):
+    """Payload for purchasing items from an island's market."""
+    item_id: str = Field(..., description="Minecraft registry ID of the item to purchase.")
+    quantity: int = Field(..., gt=0, description="Amount to purchase.")

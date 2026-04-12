@@ -33,6 +33,13 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
     private UUID sourceIslandUuid;
     /** SINK: UUID острова продавця, отриманий через Memory Card. */
     private UUID linkedIslandUuid;
+    /**
+     * SINK (опціонально): якщо встановлено — цей блок показує тільки один конкретний предмет.
+     * Null = показувати всі предмети острова (поточна поведінка).
+     * Використовується для режиму "один термінал = один предмет".
+     * Поки не активовано в TradeBlock — підготовлено для майбутнього.
+     */
+    private String filteredItemId = null;
 
     public MarketLinkBlockEntity(BlockPos pPos, BlockState pBlockState) {
         super(RealMarket.MARKET_LINK_BE.get(), pPos, pBlockState);
@@ -55,6 +62,8 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
             this.mainNode.create(level, getBlockPos());
             if (mode == BlockMode.SOURCE && sourceIslandUuid != null) {
                 MarketSyncManager.init(sourceIslandUuid);
+            } else if (mode == BlockMode.SINK && linkedIslandUuid != null) {
+                MarketSyncManager.initSink();
             }
         }
         RealMarket.addActiveMarketLink(this);
@@ -113,6 +122,9 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
     public UUID getLinkedIslandUuid() { return linkedIslandUuid; }
     public void setLinkedIslandUuid(UUID uuid) { this.linkedIslandUuid = uuid; this.setChanged(); }
 
+    public String getFilteredItemId() { return filteredItemId; }
+    public void setFilteredItemId(String itemId) { this.filteredItemId = itemId; this.setChanged(); }
+
     /** Повертає актуальний UUID залежно від режиму. */
     @Nullable
     public UUID getActiveIslandUuid() {
@@ -127,6 +139,7 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
         tag.putString("mode", mode.name());
         if (sourceIslandUuid != null) tag.putUUID("sourceIslandUuid", sourceIslandUuid);
         if (linkedIslandUuid != null) tag.putUUID("linkedIslandUuid", linkedIslandUuid);
+        if (filteredItemId != null) tag.putString("filteredItemId", filteredItemId);
     }
 
     @Override
@@ -135,5 +148,6 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
         try { mode = BlockMode.valueOf(tag.getString("mode")); } catch (Exception ignored) {}
         if (tag.hasUUID("sourceIslandUuid")) sourceIslandUuid = tag.getUUID("sourceIslandUuid");
         if (tag.hasUUID("linkedIslandUuid")) linkedIslandUuid = tag.getUUID("linkedIslandUuid");
+        if (tag.contains("filteredItemId")) filteredItemId = tag.getString("filteredItemId");
     }
 }
