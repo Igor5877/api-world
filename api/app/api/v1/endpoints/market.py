@@ -8,6 +8,7 @@ from app.api.deps import get_db
 from typing import List
 from app.crud.crud_market import crud_market
 from app.schemas.market import MarketItemSync, MarketItemInDB, PurchaseRequest
+from app.services.websocket_manager import manager as websocket_manager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -40,6 +41,15 @@ async def purchase_item(
             island_uuid=island_uuid,
             item_id=payload.item_id,
             quantity=payload.quantity,
+        )
+        # Повідомляємо острів через WebSocket щоб витягнув предмети з AE2
+        await websocket_manager.send_personal_message(
+            {
+                "type": "market_purchase",
+                "item_id": payload.item_id,
+                "quantity": payload.quantity,
+            },
+            f"island_{island_uuid}",
         )
         return result
     except ValueError as e:
