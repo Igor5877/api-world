@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, BigInteger, Float, Boolean, DateTime
 from sqlalchemy.sql import func
 from app.db.base_class import Base
+from sqlalchemy import Index
 
 class MarketItem(Base):
     """Represents an item synced from a player's RealMarket terminal on their Island.
@@ -28,4 +29,20 @@ class MarketItem(Base):
     version = Column(Integer, nullable=False, default=1)
     
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), index=True)
+
+
+class MarketPendingExtraction(Base):
+    """
+    Зберігає купівлі, які ще не були підтверджені островом (extraction з AE2).
+    Якщо острів офлайн під час купівлі — запис залишається тут.
+    При підключенні острова через WebSocket — API надсилає всі pending записи.
+    Після успішного extraction острів викликає confirm → запис видаляється.
+    """
+    __tablename__ = "market_pending_extractions"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    island_uuid = Column(String(36), nullable=False, index=True)
+    item_id    = Column(String(255), nullable=False)
+    quantity   = Column(Integer, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
 

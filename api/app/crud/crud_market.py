@@ -1,7 +1,7 @@
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete
-from app.models.market import MarketItem
+from sqlalchemy import delete, select
+from app.models.market import MarketItem, MarketPendingExtraction
 from app.schemas.market import MarketItemCreate
 import logging
 
@@ -77,5 +77,45 @@ class CRUDMarketItem:
             await db_session.delete(item)
         await db_session.commit()
         return {"item_id": item_id, "purchased": quantity, "remaining": max(0, item.quantity - quantity)}
+
+    # ── Pending extractions ───────────────────────────────────────────────
+
+    async def create_pending_extraction(
+        self, db_session: AsyncSession, island_uuid: str, item_id: str, quantity: int
+    ) -> MarketPendingExtraction:
+        record = MarketPendingExtraction(
+            island_uuid=island_uuid,
+            item_id=item_id,
+            quantity=quantity,
+        )
+        db_session.add(record)
+        await db_session.commit()
+        await db_session.refresh(record)
+        return record
+
+    async def get_pending_extractions(
+        self, db_session: AsyncSession, island_uuid: str
+    ) -> List[MarketPendingExtraction]:
+        result = await db_session.execute(
+            select(MarketPendingExtraction).where(MarketPendingExtraction.island_uuid == island_uuid)
+        )
+        return result.scalars().all()
+
+    async def confirm_extraction(
+        self, db_session: AsyncSession, pending_id: int, island_uuid: str
+    ) -> bool:
+        result = await db_session.execute(
+            select(MarketPendingExtraction).where(
+                MarketPendingExtraction.id == pending_id,
+                MarketPendingExtraction.island_uuid == island_uuid,
+            )
+        )
+        record = result.scalars().first()
+        if record is None:
+            return False
+        await db_session.delete(record)
+        await db_session.commit()
+        return True
+
 
 crud_market = CRUDMarketItem()
