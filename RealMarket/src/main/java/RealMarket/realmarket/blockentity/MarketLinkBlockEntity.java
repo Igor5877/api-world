@@ -10,6 +10,7 @@ import appeng.api.util.AECableType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import RealMarket.realmarket.RealMarket;
@@ -61,6 +62,7 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
         if (level != null && !level.isClientSide()) {
             this.mainNode.create(level, getBlockPos());
             if (mode == BlockMode.SOURCE && sourceIslandUuid != null) {
+                forceLoadChunk(true);
                 MarketSyncManager.init(sourceIslandUuid);
             } else if (mode == BlockMode.SINK && linkedIslandUuid != null) {
                 MarketSyncManager.initSink();
@@ -73,6 +75,7 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
     public void setRemoved() {
         super.setRemoved();
         if (level != null && !level.isClientSide()) {
+            if (mode == BlockMode.SOURCE) forceLoadChunk(false);
             this.mainNode.destroy();
         }
         RealMarket.removeActiveMarketLink(this);
@@ -85,6 +88,16 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
             this.mainNode.destroy();
         }
         RealMarket.removeActiveMarketLink(this);
+    }
+
+    /** Примусово тримати чанк SOURCE блоку завантаженим — щоб AE2 grid працював без гравця. */
+    private void forceLoadChunk(boolean force) {
+        if (level instanceof ServerLevel serverLevel) {
+            int chunkX = getBlockPos().getX() >> 4;
+            int chunkZ = getBlockPos().getZ() >> 4;
+            serverLevel.setChunkForced(chunkX, chunkZ, force);
+            System.out.println("[RealMarket] Chunk [" + chunkX + "," + chunkZ + "] force-load: " + force);
+        }
     }
 
     @Nullable
@@ -115,6 +128,7 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
         this.sourceIslandUuid = uuid;
         this.setChanged();
         if (mode == BlockMode.SOURCE && uuid != null && level != null && !level.isClientSide()) {
+            forceLoadChunk(true);
             MarketSyncManager.init(uuid);
         }
     }

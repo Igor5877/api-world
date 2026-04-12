@@ -45,6 +45,12 @@ public class MarketSyncManager {
     private static MarketWebSocketClient wsClient;
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     private static UUID currentIslandUuid;
+
+    /** Черга pending extractions що прийшли до того як AE2 була готова. */
+    public record PendingExtraction(String itemId, int quantity, int pendingId) {}
+    private static final List<PendingExtraction> extractionQueue = new CopyOnWriteArrayList<>();
+    /** true = перший sync пройшов, AE2 готова до extraction */
+    private static volatile boolean ae2Ready = false;
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
             .build();
@@ -85,6 +91,33 @@ public class MarketSyncManager {
     // ── SOURCE: пуш AE2 → API ────────────────────────────────────────────────
 
     private static void syncSourceBlocks() {
+        // Якщо AE2 ще не готова — перевіримо чи є активний grid і drain черги ДО читання інвентаря
+        if (!ae2Ready) {
+            boolean hasActiveGrid = false;
+            for (MarketLinkBlockEntity link : RealMarket.getActiveMarketLinks()) {
+                if (link.getMode() == BlockMode.SOURCE && link.getGrid() != null) {
+                    hasActiveGrid = true;
+                    break;
+                }
+            }
+            if (hasActiveGrid) {
+                ae2Ready = true;
+                List<PendingExtraction> queued = new ArrayList<>(extractionQueue);
+                extractionQueue.clear();
+                if (!queued.isEmpty()) {
+                    System.out.println("[RealMarket] AE2 ready — draining " + queued.size() + " queued extractions before sync");
+                    for (PendingExtraction p : queued) {
+                        extractFromAE2(p.itemId(), p.quantity(), p.pendingId());
+                    }
+                } else {
+                    System.out.println("[RealMarket] AE2 ready — no queued extractions");
+                }
+            } else {
+                System.out.println("[RealMarket] Syncing SOURCE blocks...");
+                return; // Нема active grid — ще рано синхронізувати
+            }
+        }
+
         System.out.println("[RealMarket] Syncing SOURCE blocks...");
         Map<String, JsonObject> aggregatedItems = new HashMap<>();
         double defaultPrice = 10.0;
@@ -274,6 +307,12 @@ public class MarketSyncManager {
      * Викликається з WebSocket повідомлення "market_purchase".
      */
     public static void extractFromAE2(String itemId, int quantity, int pendingId) {
+        if (!ae2Ready) {
+            System.out.println("[RealMarket] AE2 not ready yet — queuing extraction: " + quantity + "x " + itemId + " (pending_id=" + pendingId + ")");
+            extractionQueue.add(new PendingExtraction(itemId, quantity, pendingId));
+            return;
+        }
+
         Item item = BuiltInRegistries.ITEM.get(ResourceLocation.tryParse(itemId));
         if (item == null) {
             System.err.println("[RealMarket] extractFromAE2: unknown item " + itemId);
