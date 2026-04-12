@@ -1,5 +1,8 @@
 package RealMarket.realmarket.api;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
@@ -26,10 +29,7 @@ public class MarketWebSocketClient {
 
                 @Override
                 public CompletionStage<?> onText(WebSocket ws, CharSequence data, boolean last) {
-                    String message = data.toString();
-                    if (message.contains("\"type\": \"ping\"") || message.contains("\"type\":\"ping\"")) {
-                        ws.sendText("{\"type\": \"pong\"}", true);
-                    }
+                    handleMessage(data.toString());
                     return WebSocket.Listener.super.onText(ws, data, last);
                 }
 
@@ -44,13 +44,33 @@ public class MarketWebSocketClient {
                     System.err.println("[RealMarket] WebSocket Error: " + error.getMessage());
                 }
             })
-            .thenAccept(ws -> {
-                webSocket = ws;
-            })
+            .thenAccept(ws -> webSocket = ws)
             .exceptionally(ex -> {
                 System.err.println("[RealMarket] Failed to connect WebSocket to " + serverUri + ": " + ex.getMessage());
                 return null;
             });
+    }
+
+    private void handleMessage(String raw) {
+        try {
+            JsonObject msg = JsonParser.parseString(raw).getAsJsonObject();
+            String type = msg.has("type") ? msg.get("type").getAsString() : "";
+
+            switch (type) {
+                case "ping" -> {
+                    if (webSocket != null) webSocket.sendText("{\"type\":\"pong\"}", true);
+                }
+                case "market_purchase" -> {
+                    String itemId  = msg.get("item_id").getAsString();
+                    int    qty     = msg.get("quantity").getAsInt();
+                    System.out.println("[RealMarket] Purchase received: " + qty + "x " + itemId + " — extracting from AE2");
+                    MarketSyncManager.extractFromAE2(itemId, qty);
+                }
+                default -> { /* ігноруємо невідомі повідомлення */ }
+            }
+        } catch (Exception e) {
+            System.err.println("[RealMarket] Failed to parse WS message: " + e.getMessage());
+        }
     }
 
     public boolean isOpen() {
@@ -58,8 +78,6 @@ public class MarketWebSocketClient {
     }
 
     public void close() {
-        if (webSocket != null) {
-            webSocket.abort();
-        }
+        if (webSocket != null) webSocket.abort();
     }
 }

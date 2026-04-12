@@ -10,6 +10,13 @@ import appeng.api.networking.storage.IStorageService;
 import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.AEKey;
 import appeng.api.storage.MEStorage;
+import appeng.api.storage.StorageHelper;
+import appeng.api.networking.energy.IEnergyService;
+import appeng.api.networking.security.IActionSource;
+
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
+import net.minecraft.core.registries.BuiltInRegistries;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -259,6 +266,51 @@ public class MarketSyncManager {
                     });
         } catch (Exception e) {
             System.err.println("[RealMarket] purchaseItem error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Витягує предмети з AE2 мережі острова після купівлі на спавні.
+     * Викликається з WebSocket повідомлення "market_purchase".
+     */
+    public static void extractFromAE2(String itemId, int quantity) {
+        Item item = BuiltInRegistries.ITEM.get(ResourceLocation.tryParse(itemId));
+        if (item == null) {
+            System.err.println("[RealMarket] extractFromAE2: unknown item " + itemId);
+            return;
+        }
+
+        AEItemKey key = AEItemKey.of(item);
+        long totalExtracted = 0;
+
+        for (MarketLinkBlockEntity link : RealMarket.getActiveMarketLinks()) {
+            if (link.getMode() != BlockMode.SOURCE) continue;
+            IGrid grid = link.getGrid();
+            if (grid == null) continue;
+
+            IStorageService storage = grid.getService(IStorageService.class);
+            IEnergyService energy   = grid.getService(IEnergyService.class);
+            if (storage == null || energy == null) continue;
+
+            long toExtract = quantity - totalExtracted;
+            if (toExtract <= 0) break;
+
+            long extracted = StorageHelper.poweredExtraction(
+                    energy,
+                    storage.getInventory(),
+                    key,
+                    toExtract,
+                    IActionSource.empty()
+            );
+            totalExtracted += extracted;
+
+            if (totalExtracted >= quantity) break;
+        }
+
+        if (totalExtracted > 0) {
+            System.out.println("[RealMarket] Extracted " + totalExtracted + "x " + itemId + " from AE2 (requested " + quantity + ")");
+        } else {
+            System.err.println("[RealMarket] extractFromAE2: could not extract " + quantity + "x " + itemId + " — items may already be gone");
         }
     }
 
