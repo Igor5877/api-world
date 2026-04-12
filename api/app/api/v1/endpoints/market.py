@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from typing import List
 from app.crud.crud_market import crud_market
-from app.schemas.market import MarketItemSync, MarketItemInDB
+from app.schemas.market import MarketItemSync, MarketItemInDB, PurchaseRequest
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -23,6 +23,31 @@ async def get_island_inventory(
     """
     items = await crud_market.get_island_inventory(db_session=db, island_uuid=island_uuid)
     return items
+
+@router.post("/islands/{island_uuid}/purchase", status_code=status.HTTP_200_OK)
+async def purchase_item(
+    island_uuid: str,
+    payload: PurchaseRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """
+    Called by the Hub mod after a player successfully pays for an item.
+    Deducts the purchased quantity from the island's market inventory.
+    """
+    try:
+        result = await crud_market.purchase_item(
+            db_session=db,
+            island_uuid=island_uuid,
+            item_id=payload.item_id,
+            quantity=payload.quantity,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to process purchase for {island_uuid}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Purchase failed.")
+
 
 @router.post("/islands/{island_uuid}/inventory/sync", status_code=status.HTTP_200_OK)
 async def sync_island_inventory(

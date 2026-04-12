@@ -44,25 +44,31 @@ public class MarketSyncManager {
 
     private static boolean initialized = false;
 
+    /** Викликається на острові (SOURCE блок) — встановлює UUID і стартує всі задачі. */
     public static void init(UUID islandUuid) {
         currentIslandUuid = islandUuid;
         connectWebSocket();
+        startScheduler();
+    }
+
+    /** Викликається на спавні (SINK блок) — стартує тільки fetch задачу без WS. */
+    public static void initSink() {
+        startScheduler();
+    }
+
+    private static void startScheduler() {
         if (!initialized) {
             initialized = true;
             scheduler.scheduleAtFixedRate(() -> {
                 syncSourceBlocks();
                 fetchSinkInventories();
-                checkWebSocketConnection();
-            }, 30, 30, TimeUnit.SECONDS);
+                if (currentIslandUuid != null) checkWebSocketConnection();
+            }, 10, 30, TimeUnit.SECONDS);
         }
     }
 
     /** Примусова негайна синхронізація (для дев-команд). */
     public static void triggerSync() {
-        if (currentIslandUuid == null) {
-            System.err.println("[RealMarket] triggerSync: currentIslandUuid is null, call init() first");
-            return;
-        }
         scheduler.submit(() -> {
             syncSourceBlocks();
             fetchSinkInventories();
@@ -223,6 +229,37 @@ public class MarketSyncManager {
     /** Повертає кешований інвентар для SINK блоку. Викликається TradeBlock. */
     public static List<CachedItem> getCachedInventory(UUID islandUuid) {
         return sinkCache.getOrDefault(islandUuid, Collections.emptyList());
+    }
+
+    /** Дедактує кількість після купівлі через API, потім оновлює кеш. */
+    public static void purchaseItem(UUID islandUuid, String itemId, int quantity) {
+        try {
+            String url = apiBase() + "/api/v1/market/islands/" + islandUuid + "/purchase";
+            com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+            body.addProperty("item_id", itemId);
+            body.addProperty("quantity", quantity);
+
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
+                    .build();
+
+            HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(res -> {
+                        if (res.statusCode() == 200) {
+                            System.out.println("[RealMarket] Purchase deducted: " + quantity + "x " + itemId);
+                            invalidateCache(islandUuid);
+                        } else {
+                            System.err.println("[RealMarket] Purchase deduct failed: " + res.statusCode() + " " + res.body());
+                        }
+                    }).exceptionally(ex -> {
+                        System.err.println("[RealMarket] Purchase request error: " + ex.getMessage());
+                        return null;
+                    });
+        } catch (Exception e) {
+            System.err.println("[RealMarket] purchaseItem error: " + e.getMessage());
+        }
     }
 
     /** Примусово оновити кеш для конкретного острова (наприклад після купівлі). */
