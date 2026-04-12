@@ -22,11 +22,16 @@ public class ModMessages {
                 s -> true
         );
 
-        // ВАЖЛИВО: Реєструємо саме PacketShopAction
         INSTANCE.messageBuilder(PacketShopAction.class, id(), NetworkDirection.PLAY_TO_SERVER)
                 .decoder(PacketShopAction::decode)
                 .encoder(PacketShopAction::encode)
                 .consumerMainThread(PacketShopAction::handle)
+                .add();
+
+        INSTANCE.messageBuilder(PacketOpenTradeUI.class, id(), NetworkDirection.PLAY_TO_CLIENT)
+                .decoder(PacketOpenTradeUI::decode)
+                .encoder(PacketOpenTradeUI::encode)
+                .consumerMainThread(PacketOpenTradeUI::handle)
                 .add();
 
         System.out.println("[RealMarket] Network packets registered successfully!");
