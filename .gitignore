@@ -98,3 +98,5 @@ api/app/models/__pycache__/team.cpython-312.pyc
 /api/app/services/__pycache__
 /api/app/crud/__pycache__
 /api/app/__pycache__
+RealMarket/.idea/modules/RealMarket.main.iml
+RealMarket/.idea/modules/RealMarket.test.iml
