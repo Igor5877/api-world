@@ -294,6 +294,22 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         except Exception as e:
             logger.error(f"Failed to send pending extractions to {client_id}: {e}")
 
+    # Якщо це спавн-хаб — надсилаємо всі pending warp команди
+    if client_id == "spawn_hub":
+        try:
+            from app.crud.crud_warps import crud_warps
+            async with AsyncSessionLocal() as db:
+                pending = await crud_warps.get_all_pending(db)
+                for p in pending:
+                    await websocket_manager.send_personal_message(
+                        {"type": p.command, "uuid": p.player_uuid, "pending_id": p.id},
+                        client_id,
+                    )
+                if pending:
+                    logger.info(f"Sent {len(pending)} pending warp commands to spawn_hub")
+        except Exception as e:
+            logger.error(f"Failed to send pending warp commands to spawn_hub: {e}")
+
     try:
         while True:
             await websocket.receive_text()
@@ -308,10 +324,11 @@ async def read_root():
 # Include your API routers
 from app.api.v1.endpoints import teams as teams_router_module
 from app.api.v1.endpoints import market as market_router_module
+from app.api.v1.endpoints import warps as warps_router_module
 
 app.include_router(
     islands_router_module.router,
-    prefix=f"{settings.API_V1_STR}/islands", 
+    prefix=f"{settings.API_V1_STR}/islands",
     tags=["Islands"]
 )
 
@@ -325,6 +342,12 @@ app.include_router(
     market_router_module.router,
     prefix=f"{settings.API_V1_STR}/market",
     tags=["Market"]
+)
+
+app.include_router(
+    warps_router_module.router,
+    prefix=f"{settings.API_V1_STR}/warps",
+    tags=["Warps"]
 )
 
 # For development, you might run this with: uvicorn app.main:app --reload

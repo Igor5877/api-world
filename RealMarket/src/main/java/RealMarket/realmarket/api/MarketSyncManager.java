@@ -67,9 +67,10 @@ public class MarketSyncManager {
         startScheduler();
     }
 
-    /** Викликається на спавні (SINK блок) — стартує тільки fetch задачу без WS. */
+    /** Викликається на спавні (SINK блок) — стартує fetch задачу і hub WS для команд. */
     public static void initSink() {
         startScheduler();
+        HubCommandClient.init();
     }
 
     private static void startScheduler() {

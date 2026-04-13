@@ -53,6 +53,20 @@ class MarketTransaction(Base):
     created_at        = Column(DateTime, server_default=func.now(), index=True)
 
 
+class WarpPendingCommand(Base):
+    """
+    Черга команд для спавн-сервера (створення/призупинення/відновлення варп-платформ).
+    Зберігається якщо spawn_hub офлайн — надсилається при наступному підключенні.
+    Після виконання мод викликає confirm → запис видаляється.
+    """
+    __tablename__ = "warp_pending_commands"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    player_uuid = Column(String(36), nullable=False, index=True)
+    command     = Column(String(50), nullable=False)  # island_create / island_suspend / island_restore / island_delete
+    created_at  = Column(DateTime, server_default=func.now())
+
+
 class MarketPendingExtraction(Base):
     """
     Зберігає купівлі, які ще не були підтверджені островом (extraction з AE2).
