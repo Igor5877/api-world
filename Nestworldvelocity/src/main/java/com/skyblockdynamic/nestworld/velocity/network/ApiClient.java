@@ -30,6 +30,8 @@ public class ApiClient {
      * @param logger The logger.
      * @param config The plugin configuration.
      */
+    public String getApiUrlBase() { return apiUrlBase; }
+
     public ApiClient(Logger logger, PluginConfig config) {
         this.logger = logger;
         this.apiUrlBase = config.getApiUrl();

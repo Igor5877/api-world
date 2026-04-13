@@ -126,7 +126,7 @@ public class NestworldVelocityPlugin {
         CommandMeta warpAdminMeta = commandManager.metaBuilder("warp-admin")
                 .plugin(this)
                 .build();
-        commandManager.register(warpAdminMeta, new WarpAdminCommand(this.apiClient, logger));
+        commandManager.register(warpAdminMeta, new WarpAdminCommand(this.apiClient, server, logger));
         logger.info("Registered /warp-admin command.");
         
         logger.info("NestworldVelocityPlugin initialized successfully with listeners, config, and commands!");

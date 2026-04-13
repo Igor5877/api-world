@@ -1,9 +1,11 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session as get_db
 from app.crud.crud_warps import crud_warps
+from app.models.island import Island
 from app.services.websocket_manager import manager as websocket_manager
 
 router = APIRouter()
@@ -68,3 +70,16 @@ async def warp_hub_status(db: AsyncSession = Depends(get_db)):
         "spawn_hub_online": HUB_CLIENT_ID in websocket_manager.active_connections,
         "pending_count": len(pending),
     }
+
+
+@router.get("/player-uuid/{player_name}", status_code=status.HTTP_200_OK)
+async def get_uuid_by_name(player_name: str, db: AsyncSession = Depends(get_db)):
+    """Повертає UUID гравця за його ніком (шукає в таблиці islands)."""
+    result = await db.execute(
+        select(Island.player_uuid).where(Island.player_name == player_name).limit(1)
+    )
+    player_uuid = result.scalar_one_or_none()
+    if not player_uuid:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"Player '{player_name}' not found.")
+    return {"player_name": player_name, "player_uuid": player_uuid}
