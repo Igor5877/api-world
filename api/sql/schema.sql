@@ -97,3 +97,12 @@ CREATE TABLE IF NOT EXISTS island_backups (
 -- and last_seen_at is older than 5 minutes (candidate for freezing)
 -- This query would need external info, but the `last_seen_at` is key:
 -- SELECT * FROM islands WHERE status = 'RUNNING' AND last_seen_at < NOW() - INTERVAL 5 MINUTE;
+
+-- Migration: warp_pending_commands (команди для spawn_hub, що чекають виконання)
+CREATE TABLE IF NOT EXISTS warp_pending_commands (
+    id          INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    player_uuid VARCHAR(36)  NOT NULL,
+    command     VARCHAR(50)  NOT NULL,
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_player_uuid (player_uuid)
+);
