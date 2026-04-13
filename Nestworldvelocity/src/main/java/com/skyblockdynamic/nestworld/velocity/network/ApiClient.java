@@ -240,6 +240,58 @@ public class ApiClient {
                 .exceptionally(ex -> new ApiResponse(ex.getMessage()));
     }
     
+    // ── Warp platform commands ───────────────────────────────────────────────
+
+    /**
+     * Надсилає команду створення варп-платформи для гравця.
+     */
+    public CompletableFuture<ApiResponse> warpCreate(UUID playerUuid) {
+        return postWarpCommand("create", playerUuid);
+    }
+
+    /**
+     * Надсилає команду призупинення варп-платформи (підписка закінчилась).
+     */
+    public CompletableFuture<ApiResponse> warpSuspend(UUID playerUuid) {
+        return postWarpCommand("suspend", playerUuid);
+    }
+
+    /**
+     * Надсилає команду відновлення варп-платформи (підписка поновлена).
+     */
+    public CompletableFuture<ApiResponse> warpRestore(UUID playerUuid) {
+        return postWarpCommand("restore", playerUuid);
+    }
+
+    /**
+     * Надсилає команду остаточного видалення збережених даних платформи.
+     */
+    public CompletableFuture<ApiResponse> warpDelete(UUID playerUuid) {
+        return postWarpCommand("delete", playerUuid);
+    }
+
+    private CompletableFuture<ApiResponse> postWarpCommand(String action, UUID playerUuid) {
+        String path = "/warps/" + playerUuid.toString() + "/" + action;
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(apiUrlBase + path))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .timeout(this.requestTimeout)
+                .build();
+
+        logger.info("[WarpAdmin] POST {} for {}", path, playerUuid);
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(httpResponse -> {
+                    logger.info("[WarpAdmin] {} → status {}", action, httpResponse.statusCode());
+                    return new ApiResponse(httpResponse.statusCode(), httpResponse.body());
+                })
+                .exceptionally(ex -> {
+                    logger.error("[WarpAdmin] {} request failed: {}", action, ex.getMessage());
+                    return new ApiResponse(ex.getMessage());
+                });
+    }
+
     /**
      * Renames a team.
      *
