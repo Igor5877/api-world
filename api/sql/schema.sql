@@ -81,6 +81,9 @@ CREATE TABLE IF NOT EXISTS island_backups (
 -- `external_port` in `islands` table is UNIQUE (if used for direct host port mapping).
 -- `player_uuid` in `island_queue` table is UNIQUE.
 
+-- Migration: add seller_azuriom_id to market_items
+-- ALTER TABLE market_items ADD COLUMN seller_azuriom_id INT NULL;
+
 -- Example of how to get the next player from the queue:
 -- SELECT player_uuid FROM island_queue ORDER BY requested_at ASC LIMIT 1;
 

@@ -27,7 +27,8 @@ class MarketItem(Base):
     price = Column(Float, nullable=False, default=10.0)
     is_for_sale = Column(Boolean, nullable=False, default=True)
     version = Column(Integer, nullable=False, default=1)
-    
+    seller_azuriom_id = Column(Integer, nullable=True)
+
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), index=True)
 
 

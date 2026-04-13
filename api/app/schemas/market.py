@@ -10,6 +10,7 @@ class MarketItemBase(BaseModel):
     price: float = Field(10.0, description="Price per unit.")
     is_for_sale: bool = Field(True, description="Whether the item is for sale.")
     version: int = Field(1, description="Data schema version.")
+    seller_azuriom_id: Optional[int] = Field(None, description="Azuriom user ID of the island owner (seller).")
 
 class MarketItemCreate(MarketItemBase):
     """Properties to receive via API on creation."""

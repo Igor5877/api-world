@@ -1,6 +1,7 @@
 package RealMarket.realmarket.api;
 
 import RealMarket.realmarket.RealMarket;
+import RealMarket.realmarket.api.MarketIslandApi;
 import RealMarket.realmarket.blockentity.MarketLinkBlockEntity;
 import RealMarket.realmarket.blockentity.MarketLinkBlockEntity.BlockMode;
 import RealMarket.realmarket.config.ApiConfig;
@@ -39,12 +40,14 @@ import java.util.concurrent.*;
 public class MarketSyncManager {
 
     // Кеш інвентарів для SINK блоків: island_uuid → список предметів
-    public record CachedItem(String itemId, String itemNbt, long quantity, double price, boolean isForSale) {}
+    public record CachedItem(String itemId, String itemNbt, long quantity, double price, boolean isForSale, int sellerAzuriomId) {}
     private static final Map<UUID, List<CachedItem>> sinkCache = new ConcurrentHashMap<>();
 
     private static MarketWebSocketClient wsClient;
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     private static UUID currentIslandUuid;
+    /** Azuriom ID власника острова (продавця). -1 якщо ще не відомий. */
+    private static volatile int sellerAzuriomId = -1;
 
     /** Черга pending extractions що прийшли до того як AE2 була готова. */
     public record PendingExtraction(String itemId, int quantity, int pendingId) {}
@@ -90,6 +93,30 @@ public class MarketSyncManager {
 
     // ── SOURCE: пуш AE2 → API ────────────────────────────────────────────────
 
+    /**
+     * Намагається знайти Azuriom ID власника острова серед онлайн-гравців.
+     * Порівнює island UUID кожного гравця через MarketIslandApi.
+     * Зберігає результат — повторний виклик повертає кешоване значення.
+     */
+    private static void tryResolveSellerAzuriomId() {
+        if (sellerAzuriomId != -1 || currentIslandUuid == null) return;
+        for (MarketLinkBlockEntity link : RealMarket.getActiveMarketLinks()) {
+            if (link.getMode() != BlockMode.SOURCE) continue;
+            if (!(link.getLevel() instanceof net.minecraft.server.level.ServerLevel sl)) continue;
+            for (net.minecraft.server.level.ServerPlayer player : sl.getServer().getPlayerList().getPlayers()) {
+                UUID pIsland = MarketIslandApi.getIslandUuid(player.getUUID());
+                if (currentIslandUuid.equals(pIsland)) {
+                    int id = AzuriomClient.getPlayerId(player.getUUID());
+                    if (id != -1) {
+                        sellerAzuriomId = id;
+                        System.out.println("[RealMarket] Seller Azuriom ID resolved: " + id + " for island " + currentIslandUuid);
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
     private static void syncSourceBlocks() {
         // Якщо AE2 ще не готова — перевіримо чи є активний grid і drain черги ДО читання інвентаря
         if (!ae2Ready) {
@@ -118,6 +145,7 @@ public class MarketSyncManager {
             }
         }
 
+        tryResolveSellerAzuriomId();
         System.out.println("[RealMarket] Syncing SOURCE blocks...");
         Map<String, JsonObject> aggregatedItems = new HashMap<>();
         double defaultPrice = 10.0;
@@ -164,6 +192,7 @@ public class MarketSyncManager {
                     obj.addProperty("price", defaultPrice);
                     obj.addProperty("is_for_sale", true);
                     obj.addProperty("version", 1);
+                    if (sellerAzuriomId != -1) obj.addProperty("seller_azuriom_id", sellerAzuriomId);
                     aggregatedItems.put(uniqueId, obj);
                 }
             }
@@ -249,7 +278,9 @@ public class MarketSyncManager {
                                                 ? obj.get("item_nbt").getAsString() : null,
                                         obj.get("quantity").getAsLong(),
                                         obj.get("price").getAsDouble(),
-                                        obj.get("is_for_sale").getAsBoolean()
+                                        obj.get("is_for_sale").getAsBoolean(),
+                                        obj.has("seller_azuriom_id") && !obj.get("seller_azuriom_id").isJsonNull()
+                                                ? obj.get("seller_azuriom_id").getAsInt() : -1
                                 ));
                             }
                             sinkCache.put(islandUuid, items);
