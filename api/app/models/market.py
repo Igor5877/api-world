@@ -1,7 +1,6 @@
-from sqlalchemy import Column, Integer, String, BigInteger, Float, Boolean, DateTime, UniqueConstraint
+from sqlalchemy import Column, Integer, String, BigInteger, Float, Boolean, DateTime, Index
 from sqlalchemy.sql import func
 from app.db.base_class import Base
-from sqlalchemy import Index
 
 class MarketItem(Base):
     """Represents an item synced from a player's RealMarket terminal on their Island.
@@ -32,7 +31,8 @@ class MarketItem(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), index=True)
 
     __table_args__ = (
-        UniqueConstraint('island_uuid', 'item_id', 'item_nbt', name='uq_island_item'),
+        Index('uq_island_item', 'island_uuid', 'item_id', 'item_nbt',
+              unique=True, mysql_length={'item_id': 100, 'item_nbt': 100}),
     )
 
 
