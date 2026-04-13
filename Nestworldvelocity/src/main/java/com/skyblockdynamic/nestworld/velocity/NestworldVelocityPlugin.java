@@ -28,6 +28,7 @@ import com.skyblockdynamic.nestworld.velocity.commands.SpawnCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.TeamCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.IslandCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.TpaCommand;
+import com.skyblockdynamic.nestworld.velocity.commands.WarpAdminCommand;
 import com.skyblockdynamic.nestworld.velocity.locale.LocaleManager;
 
 /**
@@ -121,6 +122,12 @@ public class NestworldVelocityPlugin {
         commandManager.register(tpaCommand.createTpAcceptCommand());
         commandManager.register(tpaCommand.createTpDenyCommand());
         logger.info("Registered TPA commands.");
+
+        CommandMeta warpAdminMeta = commandManager.metaBuilder("warp-admin")
+                .plugin(this)
+                .build();
+        commandManager.register(warpAdminMeta, new WarpAdminCommand(this.apiClient, logger));
+        logger.info("Registered /warp-admin command.");
         
         logger.info("NestworldVelocityPlugin initialized successfully with listeners, config, and commands!");
         logger.info("API URL configured to: {}", pluginConfig.getApiUrl());
