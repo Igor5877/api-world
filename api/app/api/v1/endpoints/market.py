@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from typing import List
 from app.crud.crud_market import crud_market
-from app.schemas.market import MarketItemSync, MarketItemInDB, PurchaseRequest
+from app.schemas.market import MarketItemSync, MarketItemInDB, PurchaseRequest, MarketTransactionInDB
 from app.services.websocket_manager import manager as websocket_manager
 
 router = APIRouter()
@@ -41,6 +41,7 @@ async def purchase_item(
             island_uuid=island_uuid,
             item_id=payload.item_id,
             quantity=payload.quantity,
+            buyer_azuriom_id=payload.buyer_azuriom_id,
         )
         # Зберігаємо pending — острів може бути офлайн
         pending = await crud_market.create_pending_extraction(
@@ -83,6 +84,15 @@ async def confirm_extraction(
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pending extraction not found.")
     return {"confirmed": pending_id}
+
+
+@router.get("/islands/{island_uuid}/transactions", response_model=List[MarketTransactionInDB])
+async def get_island_transactions(
+    island_uuid: str,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Повертає історію купівель для конкретного острова."""
+    return await crud_market.get_island_transactions(db_session=db, island_uuid=island_uuid)
 
 
 @router.post("/islands/{island_uuid}/inventory/sync", status_code=status.HTTP_200_OK)

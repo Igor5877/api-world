@@ -30,3 +30,17 @@ class PurchaseRequest(BaseModel):
     """Payload for purchasing items from an island's market."""
     item_id: str = Field(..., description="Minecraft registry ID of the item to purchase.")
     quantity: int = Field(..., gt=0, description="Amount to purchase.")
+    buyer_azuriom_id: Optional[int] = Field(None, description="Azuriom user ID of the buyer.")
+
+class MarketTransactionInDB(BaseModel):
+    id: int
+    island_uuid: str
+    item_id: str
+    quantity: int
+    unit_price: float
+    total_price: float
+    buyer_azuriom_id: Optional[int]
+    seller_azuriom_id: Optional[int]
+    created_at: Optional[str]
+
+    model_config = {"from_attributes": True}

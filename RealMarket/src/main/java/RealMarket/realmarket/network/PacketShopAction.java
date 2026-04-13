@@ -101,7 +101,7 @@ public class PacketShopAction {
                                 p.drop(reward, false);
                             }
                             p.sendSystemMessage(Component.literal("§a[Shop] Ви придбали §f" + amt + "x " + itemId + " §aза §6" + totalCost + " Coins"));
-                            MarketSyncManager.purchaseItem(islandUuid, itemId, amt);
+                            MarketSyncManager.purchaseItem(islandUuid, itemId, amt, apiId);
                         }));
                         // Кредитуємо продавця
                         if (sellerId != -1) {
