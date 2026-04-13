@@ -1,36 +1,47 @@
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete, select
-from app.models.market import MarketItem, MarketPendingExtraction
+from app.models.market import MarketItem, MarketPendingExtraction, MarketTransaction
 from app.schemas.market import MarketItemCreate
 import logging
+from sqlalchemy.dialects.mysql import insert as mysql_insert
 
 logger = logging.getLogger(__name__)
 
 class CRUDMarketItem:
     async def sync_island_inventory(self, db_session: AsyncSession, island_uuid: str, items: List[MarketItemCreate]) -> None:
         """
-        Replaces the entire market inventory for a specific island with the new synced data.
-        Since AE2 inventories change completely every few seconds, the most efficient 
-        approach is to delete the old records for that island and insert the fresh ones.
+        Syncs the AE2 inventory using UPSERT — стабільні ID, без зростання AUTO_INCREMENT.
+        - Існуючі предмети оновлюються (quantity, price, seller_azuriom_id тощо)
+        - Нові вставляються
+        - Ті що зникли з AE2 — видаляються
         """
         try:
-            # 1. Delete old items for this island
-            await db_session.execute(
-                delete(MarketItem).where(MarketItem.island_uuid == island_uuid)
-            )
+            incoming_keys = {(item.item_id, item.item_nbt) for item in items}
 
-            # 2. Insert new items if any exist
+            # 1. UPSERT: вставити або оновити кожен предмет
             if items:
-                # Convert pydantic models to dicts suitable for bulk insert
-                items_data = [item.model_dump() for item in items]
-                
-                # Bulk insert operations are much faster than add_all() for many rows
-                db_session.add_all([MarketItem(**data) for data in items_data])
-            
-            # 3. Commit the transaction
+                for item in items:
+                    stmt = mysql_insert(MarketItem).values(**item.model_dump())
+                    stmt = stmt.on_duplicate_key_update(
+                        quantity=stmt.inserted.quantity,
+                        price=stmt.inserted.price,
+                        is_for_sale=stmt.inserted.is_for_sale,
+                        seller_azuriom_id=stmt.inserted.seller_azuriom_id,
+                        version=stmt.inserted.version,
+                    )
+                    await db_session.execute(stmt)
+
+            # 2. Видалити предмети яких більше нема в AE2
+            existing_result = await db_session.execute(
+                select(MarketItem).where(MarketItem.island_uuid == island_uuid)
+            )
+            for row in existing_result.scalars().all():
+                if (row.item_id, row.item_nbt) not in incoming_keys:
+                    await db_session.delete(row)
+
             await db_session.commit()
-            logger.debug(f"Successfully synced {len(items)} market items for island {island_uuid}")
+            logger.debug(f"Synced {len(items)} items for island {island_uuid} via UPSERT")
         except Exception as e:
             await db_session.rollback()
             logger.error(f"Error syncing market inventory for island {island_uuid}: {e}", exc_info=True)
@@ -52,6 +63,7 @@ class CRUDMarketItem:
         island_uuid: str,
         item_id: str,
         quantity: int,
+        buyer_azuriom_id: int = None,
     ) -> dict:
         """
         Deducts quantity after a purchase. Returns the result.
@@ -72,11 +84,40 @@ class CRUDMarketItem:
         if item.quantity < quantity:
             raise ValueError(f"Not enough stock. Available: {item.quantity}, requested: {quantity}.")
 
+        unit_price = item.price
+        seller_azuriom_id = item.seller_azuriom_id
+
         item.quantity -= quantity
         if item.quantity <= 0:
             await db_session.delete(item)
+
+        # Записуємо в історію транзакцій
+        tx = MarketTransaction(
+            island_uuid=island_uuid,
+            item_id=item_id,
+            quantity=quantity,
+            unit_price=unit_price,
+            total_price=unit_price * quantity,
+            buyer_azuriom_id=buyer_azuriom_id,
+            seller_azuriom_id=seller_azuriom_id,
+        )
+        db_session.add(tx)
+
         await db_session.commit()
         return {"item_id": item_id, "purchased": quantity, "remaining": max(0, item.quantity - quantity)}
+
+    # ── Transactions ─────────────────────────────────────────────────────
+
+    async def get_island_transactions(
+        self, db_session: AsyncSession, island_uuid: str
+    ) -> List[MarketTransaction]:
+        result = await db_session.execute(
+            select(MarketTransaction)
+            .where(MarketTransaction.island_uuid == island_uuid)
+            .order_by(MarketTransaction.created_at.desc())
+            .limit(100)
+        )
+        return result.scalars().all()
 
     # ── Pending extractions ───────────────────────────────────────────────
 

@@ -303,12 +303,13 @@ public class MarketSyncManager {
     }
 
     /** Дедактує кількість після купівлі через API, потім оновлює кеш. */
-    public static void purchaseItem(UUID islandUuid, String itemId, int quantity) {
+    public static void purchaseItem(UUID islandUuid, String itemId, int quantity, int buyerAzuriomId) {
         try {
             String url = apiBase() + "/api/v1/market/islands/" + islandUuid + "/purchase";
             com.google.gson.JsonObject body = new com.google.gson.JsonObject();
             body.addProperty("item_id", itemId);
             body.addProperty("quantity", quantity);
+            if (buyerAzuriomId != -1) body.addProperty("buyer_azuriom_id", buyerAzuriomId);
 
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(url))

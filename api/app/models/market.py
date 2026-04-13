@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, BigInteger, Float, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, BigInteger, Float, Boolean, DateTime, UniqueConstraint
 from sqlalchemy.sql import func
 from app.db.base_class import Base
 from sqlalchemy import Index
@@ -30,6 +30,27 @@ class MarketItem(Base):
     seller_azuriom_id = Column(Integer, nullable=True)
 
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), index=True)
+
+    __table_args__ = (
+        UniqueConstraint('island_uuid', 'item_id', 'item_nbt', name='uq_island_item'),
+    )
+
+
+class MarketTransaction(Base):
+    """
+    Історія кожної купівлі/продажу на маркеті.
+    """
+    __tablename__ = "market_transactions"
+
+    id                = Column(Integer, primary_key=True, autoincrement=True)
+    island_uuid       = Column(String(36), nullable=False, index=True)
+    item_id           = Column(String(255), nullable=False)
+    quantity          = Column(Integer, nullable=False)
+    unit_price        = Column(Float, nullable=False)
+    total_price       = Column(Float, nullable=False)
+    buyer_azuriom_id  = Column(Integer, nullable=True)
+    seller_azuriom_id = Column(Integer, nullable=True)
+    created_at        = Column(DateTime, server_default=func.now(), index=True)
 
 
 class MarketPendingExtraction(Base):
