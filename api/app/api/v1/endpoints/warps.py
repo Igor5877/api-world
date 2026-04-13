@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.db.session import get_db_session as get_db
 from app.crud.crud_warps import crud_warps
 from app.services.websocket_manager import manager as websocket_manager
 
