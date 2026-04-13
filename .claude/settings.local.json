@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api-dev.nestworld.site)",
+      "Bash(./gradlew build:*)",
+      "Bash(./gradlew compileJava)"
+    ]
+  }
+}

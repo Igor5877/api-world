@@ -30,7 +30,7 @@ legacyForge {
             client()
             systemProperty 'forge.logging.markers', 'REGISTRIES'
             programArgument '--username'
-            programArgument 'Chaos1924'
+            programArgument 'Chaos1945'
         }
         server {
             server()
