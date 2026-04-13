@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.db.session import get_db_session as get_db
 from typing import List
 from app.crud.crud_market import crud_market
 from app.schemas.market import MarketItemSync, MarketItemInDB, PurchaseRequest, MarketTransactionInDB
