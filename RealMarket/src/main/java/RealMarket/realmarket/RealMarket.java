@@ -19,8 +19,10 @@ import net.minecraft.world.level.material.MapColor;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
+import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -29,8 +31,6 @@ import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
 
-import java.util.Collections;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -68,19 +68,20 @@ public class RealMarket {
                             .of(MarketLinkBlockEntity::new, MARKET_LINK_BLOCK.get())
                             .build(null));
 
-    private static final Set<MarketLinkBlockEntity> ACTIVE_LINKS =
-            Collections.newSetFromMap(new ConcurrentHashMap<>());
+    // Використовуємо BlockPos як ключ для уникнення дублікатів
+    private static final ConcurrentHashMap<net.minecraft.core.BlockPos, MarketLinkBlockEntity> ACTIVE_LINKS =
+            new ConcurrentHashMap<>();
 
-    public static Set<MarketLinkBlockEntity> getActiveMarketLinks() {
-        return Collections.unmodifiableSet(ACTIVE_LINKS);
+    public static java.util.Collection<MarketLinkBlockEntity> getActiveMarketLinks() {
+        return ACTIVE_LINKS.values();
     }
 
     public static void addActiveMarketLink(MarketLinkBlockEntity link) {
-        ACTIVE_LINKS.add(link);
+        ACTIVE_LINKS.put(link.getBlockPos(), link);
     }
 
     public static void removeActiveMarketLink(MarketLinkBlockEntity link) {
-        ACTIVE_LINKS.remove(link);
+        ACTIVE_LINKS.remove(link.getBlockPos(), link);
     }
 
     public RealMarket(FMLJavaModLoadingContext context) {
@@ -91,7 +92,9 @@ public class RealMarket {
         BLOCK_ENTITIES.register(bus);
         
         MinecraftForge.EVENT_BUS.register(this);
+        IslandManager.initPaths();
         IslandManager.loadPrices();
+        IslandManager.loadSlots();
     }
 
     @SubscribeEvent
@@ -112,7 +115,6 @@ public class RealMarket {
         if (uuidStr == null || uuidStr.isEmpty()) {
             uuidStr = "00000000-0000-0000-0000-000000000001";
         }
-        
         System.out.println("[RealMarket] Server starting... Initializing Market Sync Manager for Island: " + uuidStr);
         MarketSyncManager.init(UUID.fromString(uuidStr));
     }
@@ -121,5 +123,26 @@ public class RealMarket {
     public void onServerStopping(ServerStoppingEvent event) {
         System.out.println("[RealMarket] Server stopping... Shutting down Market Sync Manager.");
         MarketSyncManager.shutdown();
+    }
+
+    @SubscribeEvent
+    public void onBlockBreak(BlockEvent.BreakEvent event) {
+        if (!(event.getLevel() instanceof net.minecraft.server.level.ServerLevel)) return;
+        if (!(event.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
+
+        // Адміни можуть ламати
+        if (player.hasPermissions(2)) return;
+
+        if (!event.getState().is(MARKET_LINK_BLOCK.get())) return;
+
+        var be = event.getLevel().getBlockEntity(event.getPos());
+        if (be instanceof MarketLinkBlockEntity link) {
+            if (link.getActiveIslandUuid() != null) {
+                event.setResult(Event.Result.DENY);
+                event.setCanceled(true);
+                player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                        "§c[Market] Цей блок захищений і не може бути зламаний!"));
+            }
+        }
     }
 }
