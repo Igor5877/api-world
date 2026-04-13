@@ -107,8 +107,8 @@ public class WarpAdminCommand implements SimpleCommand {
 
     /**
      * Розв'язує UUID гравця за іменем:
-     * 1. Шукає серед онлайн-гравців Velocity (миттєво).
-     * 2. Якщо не знайшов — запитує наш FastAPI /warps/player-uuid/{name}.
+     * 1. Онлайн-гравці Velocity (миттєво).
+     * 2. GET /api/v1/warps/player-uuid/{name} — шукає в team_members по player_name.
      */
     private CompletableFuture<Optional<UUID>> resolveUuid(String playerName) {
         // 1. Онлайн-гравці
@@ -117,7 +117,7 @@ public class WarpAdminCommand implements SimpleCommand {
             return CompletableFuture.completedFuture(Optional.of(online.get().getUniqueId()));
         }
 
-        // 2. Наш FastAPI (шукає в таблиці islands по player_name)
+        // 2. Наш FastAPI (team_members.player_name → player_uuid)
         return CompletableFuture.supplyAsync(() -> {
             try {
                 String url = apiClient.getApiUrlBase() + "/warps/player-uuid/" + playerName;
@@ -131,14 +131,17 @@ public class WarpAdminCommand implements SimpleCommand {
 
                 if (res.statusCode() == 200) {
                     JsonObject obj = JsonParser.parseString(res.body()).getAsJsonObject();
-                    return Optional.of(UUID.fromString(obj.get("player_uuid").getAsString()));
+                    UUID uuid = UUID.fromString(obj.get("player_uuid").getAsString());
+                    logger.info("[WarpAdmin] Resolved '{}' → {}", playerName, uuid);
+                    return Optional.of(uuid);
                 } else if (res.statusCode() == 404) {
                     logger.warn("[WarpAdmin] Player '{}' not found in API", playerName);
                 } else {
-                    logger.error("[WarpAdmin] API returned {} for '{}': {}", res.statusCode(), playerName, res.body());
+                    logger.error("[WarpAdmin] API {} for '{}': {}", res.statusCode(), playerName, res.body());
                 }
             } catch (Exception e) {
-                logger.error("[WarpAdmin] UUID lookup error for '{}': {}", playerName, e.getMessage());
+                logger.error("[WarpAdmin] UUID lookup error for '{}': {} — {}",
+                        playerName, e.getClass().getSimpleName(), e.getMessage(), e);
             }
             return Optional.empty();
         });

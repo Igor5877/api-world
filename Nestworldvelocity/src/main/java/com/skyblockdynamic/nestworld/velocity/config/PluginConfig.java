@@ -121,7 +121,7 @@ public class PluginConfig {
             String apiUrl = toml.getString("api.base_url", "http://127.0.0.1:8000/api/v1");
             String fallbackServer = toml.getString("general.fallback_server", "hub");
             boolean autoRedirect = toml.getBoolean("general.auto_redirect_to_island_on_login", false);
-            
+
             long timeout = toml.getLong("api.request_timeout_seconds", 10L);
             long interval = toml.getLong("api.polling_interval_millis", 2000L);
             long attempts = toml.getLong("api.max_polling_attempts", 15L);
@@ -134,7 +134,6 @@ public class PluginConfig {
             logger.info("API Request Timeout: {}s", timeout);
             logger.info("Polling Interval: {}ms, Max Attempts: {}", interval, attempts);
             logger.info("TPA Timeout: {}s", tpaTimeout);
-
 
             return new PluginConfig(apiUrl, fallbackServer, (int)timeout, (int)interval, (int)attempts, autoRedirect, (int)tpaTimeout);
 

@@ -11,9 +11,11 @@ class TeamMemberBase(BaseModel):
 
     Attributes:
         player_uuid: The UUID of the player.
+        player_name: The Minecraft nickname of the player.
         role: The role of the team member.
     """
     player_uuid: str
+    player_name: Optional[str] = None
     role: RoleEnum
 
 # Properties to receive via API on creation (role is optional, defaults to member)
@@ -45,10 +47,10 @@ class TeamCreate(TeamBase):
 
     Attributes:
         owner_uuid: The UUID of the player who owns the team.
+        owner_name: The Minecraft nickname of the owner.
     """
-    # The owner_uuid will be extracted from the authenticated user/token in a real app
-    # For now, we might pass it in the request body for simplicity.
     owner_uuid: str
+    owner_name: Optional[str] = None
 
 class TeamUpdate(BaseModel):
     """Schema for updating a team.

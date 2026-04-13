@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session as get_db
 from app.crud.crud_warps import crud_warps
-from app.models.island import Island
+from app.models.team import TeamMember
 from app.services.websocket_manager import manager as websocket_manager
 
 router = APIRouter()
@@ -74,9 +74,11 @@ async def warp_hub_status(db: AsyncSession = Depends(get_db)):
 
 @router.get("/player-uuid/{player_name}", status_code=status.HTTP_200_OK)
 async def get_uuid_by_name(player_name: str, db: AsyncSession = Depends(get_db)):
-    """Повертає UUID гравця за його ніком (шукає в таблиці islands)."""
+    """Повертає UUID гравця за його ніком (шукає в team_members по player_name)."""
     result = await db.execute(
-        select(Island.player_uuid).where(Island.player_name == player_name).limit(1)
+        select(TeamMember.player_uuid)
+        .where(TeamMember.player_name == player_name)
+        .limit(1)
     )
     player_uuid = result.scalar_one_or_none()
     if not player_uuid:

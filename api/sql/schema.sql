@@ -98,6 +98,10 @@ CREATE TABLE IF NOT EXISTS island_backups (
 -- This query would need external info, but the `last_seen_at` is key:
 -- SELECT * FROM islands WHERE status = 'RUNNING' AND last_seen_at < NOW() - INTERVAL 5 MINUTE;
 
+-- Migration: add player_name to team_members for UUID lookup by nickname
+-- ALTER TABLE team_members ADD COLUMN player_name VARCHAR(32) NULL AFTER player_uuid;
+-- ALTER TABLE team_members ADD INDEX idx_team_members_player_name (player_name);
+
 -- Migration: warp_pending_commands (команди для spawn_hub, що чекають виконання)
 CREATE TABLE IF NOT EXISTS warp_pending_commands (
     id          INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,

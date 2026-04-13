@@ -102,6 +102,7 @@ async def create_team(db: AsyncSession, *, team_in: TeamCreate) -> Team:
     # Create the owner's TeamMember object
     owner_member = TeamMember(
         player_uuid=team_in.owner_uuid,
+        player_name=team_in.owner_name,
         role=RoleEnum.owner,
         team=new_team
     )
@@ -113,7 +114,7 @@ async def create_team(db: AsyncSession, *, team_in: TeamCreate) -> Team:
     # to get the new_team.id for island creation.
     return new_team
 
-async def add_member(db: AsyncSession, *, team: Team, player_uuid: str, role: RoleEnum = RoleEnum.member) -> TeamMember:
+async def add_member(db: AsyncSession, *, team: Team, player_uuid: str, player_name: str = None, role: RoleEnum = RoleEnum.member) -> TeamMember:
     """Adds a new member to a team.
 
     Args:
@@ -128,6 +129,7 @@ async def add_member(db: AsyncSession, *, team: Team, player_uuid: str, role: Ro
     new_member = TeamMember(
         team_id=team.id,
         player_uuid=player_uuid,
+        player_name=player_name,
         role=role
     )
     db.add(new_member)
