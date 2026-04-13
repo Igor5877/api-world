@@ -18,6 +18,8 @@ import net.minecraft.world.level.material.MapColor;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -25,8 +27,6 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
-import java.util.Collections;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Mod(RealMarket.MODID)
@@ -63,19 +63,20 @@ public class RealMarket {
                             .of(MarketLinkBlockEntity::new, MARKET_LINK_BLOCK.get())
                             .build(null));
 
-    private static final Set<MarketLinkBlockEntity> ACTIVE_LINKS =
-            Collections.newSetFromMap(new ConcurrentHashMap<>());
+    // Ключ — BlockPos, щоб один блок ніколи не дублювався
+    private static final ConcurrentHashMap<net.minecraft.core.BlockPos, MarketLinkBlockEntity> ACTIVE_LINKS =
+            new ConcurrentHashMap<>();
 
-    public static Set<MarketLinkBlockEntity> getActiveMarketLinks() {
-        return Collections.unmodifiableSet(ACTIVE_LINKS);
+    public static java.util.Collection<MarketLinkBlockEntity> getActiveMarketLinks() {
+        return ACTIVE_LINKS.values();
     }
 
     public static void addActiveMarketLink(MarketLinkBlockEntity link) {
-        ACTIVE_LINKS.add(link);
+        ACTIVE_LINKS.put(link.getBlockPos(), link);
     }
 
     public static void removeActiveMarketLink(MarketLinkBlockEntity link) {
-        ACTIVE_LINKS.remove(link);
+        ACTIVE_LINKS.remove(link.getBlockPos(), link);
     }
 
     public RealMarket(FMLJavaModLoadingContext context) {
@@ -85,7 +86,9 @@ public class RealMarket {
         ITEMS.register(bus);
         BLOCK_ENTITIES.register(bus);
         MinecraftForge.EVENT_BUS.register(this);
+        IslandManager.initPaths();
         IslandManager.loadPrices();
+        IslandManager.loadSlots();
     }
 
     @SubscribeEvent
@@ -98,5 +101,33 @@ public class RealMarket {
     @SubscribeEvent
     public void onRegisterCommands(RegisterCommandsEvent event) {
         ModCommands.register(event.getDispatcher());
+    }
+
+    /**
+     * Забороняє гравцям ламати захищені MarketLink блоки.
+     * SOURCE блок на острові та SINK блок на спавні — недоступні гравцям.
+     * Адміни (permission level 2+) можуть ламати завжди.
+     */
+    @SubscribeEvent
+    public void onBlockBreak(BlockEvent.BreakEvent event) {
+        if (!(event.getLevel() instanceof net.minecraft.server.level.ServerLevel)) return;
+        if (!(event.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
+
+        // Дозволяємо адмінам
+        if (player.hasPermissions(2)) return;
+
+        // Перевіряємо чи це MarketLink блок
+        if (!event.getState().is(MARKET_LINK_BLOCK.get())) return;
+
+        // Перевіряємо чи блок захищений (має встановлений UUID)
+        var be = event.getLevel().getBlockEntity(event.getPos());
+        if (be instanceof MarketLinkBlockEntity link) {
+            if (link.getActiveIslandUuid() != null) {
+                event.setResult(Event.Result.DENY);
+                event.setCanceled(true);
+                player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                        "§c[Market] Цей блок захищений і не може бути зламаний!"));
+            }
+        }
     }
 }

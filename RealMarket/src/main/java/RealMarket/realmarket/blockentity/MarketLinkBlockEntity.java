@@ -67,8 +67,8 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
             } else if (mode == BlockMode.SINK && linkedIslandUuid != null) {
                 MarketSyncManager.initSink();
             }
+            RealMarket.addActiveMarketLink(this);
         }
-        RealMarket.addActiveMarketLink(this);
     }
 
     @Override
@@ -77,8 +77,8 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
         if (level != null && !level.isClientSide()) {
             if (mode == BlockMode.SOURCE) forceLoadChunk(false);
             this.mainNode.destroy();
+            RealMarket.removeActiveMarketLink(this);
         }
-        RealMarket.removeActiveMarketLink(this);
     }
 
     @Override
@@ -86,8 +86,8 @@ public class MarketLinkBlockEntity extends BlockEntity implements IInWorldGridNo
         super.onChunkUnloaded();
         if (level != null && !level.isClientSide()) {
             this.mainNode.destroy();
+            RealMarket.removeActiveMarketLink(this);
         }
-        RealMarket.removeActiveMarketLink(this);
     }
 
     /** Примусово тримати чанк SOURCE блоку завантаженим — щоб AE2 grid працював без гравця. */

@@ -146,21 +146,78 @@ public class ModCommands {
 
         // --- /island ---
         disp.register(Commands.literal("island")
-                .then(Commands.literal("create").executes(c -> {
-                    ServerPlayer p = c.getSource().getPlayerOrException();
-                    IslandManager.createIsland(p.serverLevel(), p.getId());
-                    p.sendSystemMessage(Component.literal("§a[Island] §fВаш торговий острів успішно сформовано!"));
-                    return 1;
-                }))
-                .then(Commands.literal("visit")
+                // /island create — створює платформу для себе
+                .then(Commands.literal("create")
+                        .requires(s -> s.hasPermission(2))
+                        .executes(c -> {
+                            ServerPlayer p = c.getSource().getPlayerOrException();
+                            IslandManager.createIsland(p.serverLevel(), p.getUUID());
+                            p.sendSystemMessage(Component.literal("§a[Island] §fПлатформу успішно сформовано!"));
+                            return 1;
+                        })
+                        // /island create <player> — адмін створює для іншого гравця
                         .then(Commands.argument("target", EntityArgument.player())
                                 .executes(c -> {
                                     ServerPlayer p = c.getSource().getPlayerOrException();
                                     ServerPlayer target = EntityArgument.getPlayer(c, "target");
-                                    var pos = IslandManager.getIslandCoords(target.getId());
-                                    p.teleportTo(pos.getX() + 0.5, pos.getY() + 1.5, pos.getZ() + 0.5);
-                                    p.sendSystemMessage(Component.literal("§e[Travel] §fВи прибули на острів гравця §b" + target.getScoreboardName()));
+                                    IslandManager.createIsland(p.serverLevel(), target.getUUID());
+                                    p.sendSystemMessage(Component.literal("§a[Island] §fПлатформу створено для §b" + target.getScoreboardName()));
                                     return 1;
+                                })))
+
+                // /island visit <player> — телепорт на платформу гравця
+                .then(Commands.literal("visit")
+                        .requires(s -> s.hasPermission(2))
+                        .then(Commands.argument("target", EntityArgument.player())
+                                .executes(c -> {
+                                    ServerPlayer p = c.getSource().getPlayerOrException();
+                                    ServerPlayer target = EntityArgument.getPlayer(c, "target");
+                                    var pos = IslandManager.getIslandCoords(target.getUUID());
+                                    p.teleportTo(pos.getX() + 0.5, pos.getY() + 1.5, pos.getZ() + 0.5);
+                                    p.sendSystemMessage(Component.literal("§e[Island] §fВи на платформі §b" + target.getScoreboardName()));
+                                    return 1;
+                                })))
+
+                // /island suspend <player> — зберігає і видаляє платформу (блокування/завершення підписки)
+                .then(Commands.literal("suspend")
+                        .requires(s -> s.hasPermission(2))
+                        .then(Commands.argument("target", EntityArgument.player())
+                                .executes(c -> {
+                                    ServerPlayer p = c.getSource().getPlayerOrException();
+                                    ServerPlayer target = EntityArgument.getPlayer(c, "target");
+                                    IslandManager.suspendPlatform(p.serverLevel(), target.getUUID());
+                                    p.sendSystemMessage(Component.literal("§e[Island] §fПлатформу §b" + target.getScoreboardName() + " §fзбережено та видалено."));
+                                    return 1;
+                                })))
+
+                // /island restore <player> — відновлює платформу зі збереженого файлу
+                .then(Commands.literal("restore")
+                        .requires(s -> s.hasPermission(2))
+                        .then(Commands.argument("target", EntityArgument.player())
+                                .executes(c -> {
+                                    ServerPlayer p = c.getSource().getPlayerOrException();
+                                    ServerPlayer target = EntityArgument.getPlayer(c, "target");
+                                    boolean ok = IslandManager.restorePlatform(p.serverLevel(), target.getUUID());
+                                    if (ok) {
+                                        p.sendSystemMessage(Component.literal("§a[Island] §fПлатформу §b" + target.getScoreboardName() + " §fвідновлено!"));
+                                    } else {
+                                        p.sendSystemMessage(Component.literal("§c[Island] §fНемає збереженої платформи для §b" + target.getScoreboardName()));
+                                    }
+                                    return ok ? 1 : 0;
+                                })))
+
+                // /island delete <player> — остаточно видаляє збережені дані (після 30 днів)
+                .then(Commands.literal("delete")
+                        .requires(s -> s.hasPermission(2))
+                        .then(Commands.argument("target", EntityArgument.player())
+                                .executes(c -> {
+                                    ServerPlayer p = c.getSource().getPlayerOrException();
+                                    ServerPlayer target = EntityArgument.getPlayer(c, "target");
+                                    boolean ok = IslandManager.deleteSavedPlatform(target.getUUID());
+                                    p.sendSystemMessage(ok
+                                            ? Component.literal("§a[Island] §fДані платформи §b" + target.getScoreboardName() + " §fвидалено.")
+                                            : Component.literal("§c[Island] §fНемає збережених даних для §b" + target.getScoreboardName()));
+                                    return ok ? 1 : 0;
                                 })))
         );
     }
