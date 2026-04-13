@@ -84,7 +84,7 @@ class IslandService:
         safe_player_name = "".join(c if c.isalnum() else '-' for c in player_name)
         # We still need to parse the string UUID to get its hex part for the name
         team_name = f"island-of-{safe_player_name}-{uuid.UUID(player_uuid).hex[:8]}"
-        team_create_data = TeamCreate(name=team_name, owner_uuid=player_uuid)
+        team_create_data = TeamCreate(name=team_name, owner_uuid=player_uuid, owner_name=player_name)
 
         team_db_model = await crud_team.create_team(db=db_session, team_in=team_create_data)
         await db_session.flush()

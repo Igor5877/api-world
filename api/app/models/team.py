@@ -67,7 +67,8 @@ class TeamMember(Base):
     
     team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
     player_uuid = Column(String(36), nullable=False, index=True)
-    
+    player_name = Column(String(32), nullable=True, index=True)
+
     role = Column(
         SQLAlchemyEnum(RoleEnum, name="role_enum", create_constraint=True, validate_strings=True),
         nullable=False,
