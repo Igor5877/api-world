@@ -270,16 +270,15 @@ class CRUDMarketItem:
             }
             await db_session.delete(tx)
 
-        # Відновити кількість в market_items (або вставити назад якщо видалили)
-        item_result = await db_session.execute(
-            select(MarketItem).where(
+        # Відновити кількість атомарним UPDATE (захист від concurrent cancel race)
+        await db_session.execute(
+            sqlalchemy_update(MarketItem)
+            .where(
                 MarketItem.team_id == team_id,
                 MarketItem.item_id == record.item_id,
             )
+            .values(quantity=MarketItem.quantity + record.quantity)
         )
-        item = item_result.scalars().first()
-        if item:
-            item.quantity += record.quantity
         # Якщо item вже видалений (була куплена остання штука) — не відновлюємо,
         # наступний sync відновить з AE2
 
