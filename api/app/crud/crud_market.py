@@ -1,6 +1,6 @@
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, tuple_, not_, func, update as sqlalchemy_update
 from app.models.market import MarketItem, MarketPendingExtraction, MarketTransaction
 from app.schemas.market import MarketItemCreate
 import logging
@@ -9,20 +9,62 @@ from sqlalchemy.dialects.mysql import insert as mysql_insert
 logger = logging.getLogger(__name__)
 
 class CRUDMarketItem:
-    async def sync_island_inventory(self, db_session: AsyncSession, island_uuid: str, items: List[MarketItemCreate]) -> None:
+    async def sync_island_inventory(self, db_session: AsyncSession, team_id: int, items: List[MarketItemCreate]) -> list[dict]:
         """
-        Syncs the AE2 inventory using UPSERT — стабільні ID, без зростання AUTO_INCREMENT.
-        - Існуючі предмети оновлюються (quantity, price, seller_azuriom_id тощо)
-        - Нові вставляються
-        - Ті що зникли з AE2 — видаляються
+        Syncs the AE2 inventory using bulk UPSERT + single DELETE.
+        Враховує pending extractions (борги продавця):
+        - Якщо AE2 має предмети що є в pending → повертає список для негайного re-triggering extraction
+        - Якщо AE2 < pending → борг залишається, extraction буде повторено пізніше
+
+        Повертає список {pending_id, item_id, quantity} які треба відправити острову через WS.
         """
         try:
-            incoming_keys = {(item.item_id, item.item_nbt) for item in items}
+            triggered_extractions: list[dict] = []
 
-            # 1. UPSERT: вставити або оновити кожен предмет
             if items:
+                # Отримати всі pending extractions для цієї команди
+                pending_rows_result = await db_session.execute(
+                    select(MarketPendingExtraction)
+                    .where(MarketPendingExtraction.team_id == team_id)
+                    .order_by(MarketPendingExtraction.created_at.asc())  # найстаріші першими
+                )
+                pending_rows = pending_rows_result.scalars().all()
+
+                # Згрупувати суму по item_id
+                pending_by_item: dict[str, int] = {}
+                for row in pending_rows:
+                    pending_by_item[row.item_id] = pending_by_item.get(row.item_id, 0) + row.quantity
+
+                # Побудувати мапи AE2 кількостей
+                ae2_by_item: dict[str, int] = {item.item_id: item.quantity for item in items}
+
+                # Знайти pending які тепер можна виконати (AE2 нарешті має предмети)
+                for row in pending_rows:
+                    ae2_qty = ae2_by_item.get(row.item_id, 0)
+                    already_reserved = sum(
+                        r.quantity for r in pending_rows
+                        if r.item_id == row.item_id and r.created_at < row.created_at
+                    )
+                    if ae2_qty > already_reserved:
+                        # Для цього pending є достатньо в AE2 → тригерити extraction
+                        triggered_extractions.append({
+                            "pending_id": row.id,
+                            "item_id": row.item_id,
+                            "quantity": row.quantity,
+                        })
+
+                # Розрахувати ефективну кількість для вітрини (AE2 - весь борг)
+                adjusted_items = []
                 for item in items:
-                    stmt = mysql_insert(MarketItem).values(**item.model_dump())
+                    reserved = pending_by_item.get(item.item_id, 0)
+                    effective_qty = item.quantity - reserved
+                    if effective_qty > 0:
+                        adjusted_items.append(item.model_copy(update={"quantity": effective_qty}))
+                    # effective_qty <= 0 → предмет повністю в боргу, не показуємо на вітрині
+
+                if adjusted_items:
+                    values = [{"team_id": team_id, **item.model_dump()} for item in adjusted_items]
+                    stmt = mysql_insert(MarketItem).values(values)
                     stmt = stmt.on_duplicate_key_update(
                         quantity=stmt.inserted.quantity,
                         price=stmt.inserted.price,
@@ -32,50 +74,63 @@ class CRUDMarketItem:
                     )
                     await db_session.execute(stmt)
 
-            # 2. Видалити предмети яких більше нема в AE2
-            existing_result = await db_session.execute(
-                select(MarketItem).where(MarketItem.island_uuid == island_uuid)
-            )
-            for row in existing_result.scalars().all():
-                if (row.item_id, row.item_nbt) not in incoming_keys:
-                    await db_session.delete(row)
+                # Видалити предмети яких більше нема в AE2 або повністю зарезервовані
+                # Використовуємо adjusted_items (вже без зарезервованих)
+                visible_pairs = [(item.item_id, item.item_nbt) for item in adjusted_items]
+                if visible_pairs:
+                    await db_session.execute(
+                        delete(MarketItem).where(
+                            MarketItem.team_id == team_id,
+                            not_(
+                                tuple_(MarketItem.item_id, MarketItem.item_nbt).in_(visible_pairs)
+                            ),
+                        )
+                    )
+                else:
+                    # Всі предмети зарезервовані pending-ами — очистити вітрину
+                    await db_session.execute(
+                        delete(MarketItem).where(MarketItem.team_id == team_id)
+                    )
+            else:
+                await db_session.execute(
+                    delete(MarketItem).where(MarketItem.team_id == team_id)
+                )
 
             await db_session.commit()
-            logger.debug(f"Synced {len(items)} items for island {island_uuid} via UPSERT")
+            logger.debug(
+                f"Synced {len(items)} items for team {team_id}. "
+                f"Triggered {len(triggered_extractions)} debt extractions."
+            )
+            return triggered_extractions
         except Exception as e:
             await db_session.rollback()
-            logger.error(f"Error syncing market inventory for island {island_uuid}: {e}", exc_info=True)
-            raise e
+            logger.error(f"Error syncing market inventory for team {team_id}: {e}", exc_info=True)
+            raise
 
-    async def get_island_inventory(self, db_session: AsyncSession, island_uuid: str) -> List[MarketItem]:
-        """
-        Retrieves the current market inventory for a specific island.
-        """
-        from sqlalchemy import select
+    async def get_island_inventory(self, db_session: AsyncSession, team_id: int) -> List[MarketItem]:
         result = await db_session.execute(
-            select(MarketItem).where(MarketItem.island_uuid == island_uuid)
+            select(MarketItem).where(MarketItem.team_id == team_id)
         )
         return result.scalars().all()
 
     async def purchase_item(
         self,
         db_session: AsyncSession,
-        island_uuid: str,
+        team_id: int,
         item_id: str,
         quantity: int,
         buyer_azuriom_id: int = None,
     ) -> dict:
         """
-        Deducts quantity after a purchase. Returns the result.
+        Deducts quantity after a purchase.
         Raises ValueError if item not found or not enough stock.
         """
-        from sqlalchemy import select
         result = await db_session.execute(
             select(MarketItem).where(
-                MarketItem.island_uuid == island_uuid,
+                MarketItem.team_id == team_id,
                 MarketItem.item_id == item_id,
                 MarketItem.is_for_sale == True,
-            )
+            ).with_for_update()  # Row-level lock — захист від concurrent purchases
         )
         item = result.scalars().first()
 
@@ -91,9 +146,8 @@ class CRUDMarketItem:
         if item.quantity <= 0:
             await db_session.delete(item)
 
-        # Записуємо в історію транзакцій
         tx = MarketTransaction(
-            island_uuid=island_uuid,
+            team_id=team_id,
             item_id=item_id,
             quantity=quantity,
             unit_price=unit_price,
@@ -102,18 +156,17 @@ class CRUDMarketItem:
             seller_azuriom_id=seller_azuriom_id,
         )
         db_session.add(tx)
-
         await db_session.commit()
-        return {"item_id": item_id, "purchased": quantity, "remaining": max(0, item.quantity - quantity)}
+        return {"item_id": item_id, "purchased": quantity, "remaining": max(0, item.quantity)}
 
-    # ── Transactions ─────────────────────────────────────────────────────
+    # ── Transactions ──────────────────────────────────────────────────────
 
     async def get_island_transactions(
-        self, db_session: AsyncSession, island_uuid: str
+        self, db_session: AsyncSession, team_id: int
     ) -> List[MarketTransaction]:
         result = await db_session.execute(
             select(MarketTransaction)
-            .where(MarketTransaction.island_uuid == island_uuid)
+            .where(MarketTransaction.team_id == team_id)
             .order_by(MarketTransaction.created_at.desc())
             .limit(100)
         )
@@ -122,41 +175,119 @@ class CRUDMarketItem:
     # ── Pending extractions ───────────────────────────────────────────────
 
     async def create_pending_extraction(
-        self, db_session: AsyncSession, island_uuid: str, item_id: str, quantity: int
+        self, db_session: AsyncSession, team_id: int, item_id: str, quantity: int
     ) -> MarketPendingExtraction:
-        record = MarketPendingExtraction(
-            island_uuid=island_uuid,
-            item_id=item_id,
-            quantity=quantity,
-        )
+        record = MarketPendingExtraction(team_id=team_id, item_id=item_id, quantity=quantity)
         db_session.add(record)
         await db_session.commit()
         await db_session.refresh(record)
         return record
 
     async def get_pending_extractions(
-        self, db_session: AsyncSession, island_uuid: str
+        self, db_session: AsyncSession, team_id: int
     ) -> List[MarketPendingExtraction]:
         result = await db_session.execute(
-            select(MarketPendingExtraction).where(MarketPendingExtraction.island_uuid == island_uuid)
+            select(MarketPendingExtraction).where(MarketPendingExtraction.team_id == team_id)
         )
         return result.scalars().all()
 
     async def confirm_extraction(
-        self, db_session: AsyncSession, pending_id: int, island_uuid: str
-    ) -> bool:
+        self, db_session: AsyncSession, pending_id: int, team_id: int
+    ) -> dict | None:
+        """
+        Острів підтвердив extraction. Знаходимо транзакцію і кредитуємо продавця.
+        Повертає {seller_azuriom_id, total_price} для виклику Azuriom API.
+        """
         result = await db_session.execute(
             select(MarketPendingExtraction).where(
                 MarketPendingExtraction.id == pending_id,
-                MarketPendingExtraction.island_uuid == island_uuid,
+                MarketPendingExtraction.team_id == team_id,
             )
         )
         record = result.scalars().first()
         if record is None:
-            return False
+            return None
+
+        # Знайти найстарішу неоплачену транзакцію для цього предмету
+        tx_result = await db_session.execute(
+            select(MarketTransaction).where(
+                MarketTransaction.team_id == team_id,
+                MarketTransaction.item_id == record.item_id,
+                MarketTransaction.seller_paid == False,
+            )
+            .order_by(MarketTransaction.created_at.asc())
+            .limit(1)
+        )
+        tx = tx_result.scalars().first()
+
+        seller_info = None
+        if tx:
+            tx.seller_paid = True
+            seller_info = {
+                "seller_azuriom_id": tx.seller_azuriom_id,
+                "total_price": float(tx.total_price),
+            }
+
         await db_session.delete(record)
         await db_session.commit()
-        return True
+        return seller_info or {}
+
+    async def cancel_purchase(
+        self, db_session: AsyncSession, pending_id: int, team_id: int
+    ) -> dict | None:
+        """
+        Скасовує покупку — відновлює кількість в market_items і видаляє pending.
+        Викликається якщо Azuriom не зміг зняти гроші з покупця після резервування в API.
+        Повертає {buyer_azuriom_id, total_price} якщо потрібен рефанд.
+        """
+        result = await db_session.execute(
+            select(MarketPendingExtraction).where(
+                MarketPendingExtraction.id == pending_id,
+                MarketPendingExtraction.team_id == team_id,
+            )
+        )
+        record = result.scalars().first()
+        if record is None:
+            return None
+
+        # Знайти транзакцію (якщо вже записана)
+        tx_result = await db_session.execute(
+            select(MarketTransaction).where(
+                MarketTransaction.team_id == team_id,
+                MarketTransaction.item_id == record.item_id,
+                MarketTransaction.seller_paid == False,
+            )
+            .order_by(MarketTransaction.created_at.desc())
+            .limit(1)
+        )
+        tx = tx_result.scalars().first()
+
+        refund_info = None
+        if tx:
+            refund_info = {
+                "buyer_azuriom_id": tx.buyer_azuriom_id,
+                "total_price": float(tx.total_price),
+            }
+            await db_session.delete(tx)
+
+        # Відновити кількість в market_items (або вставити назад якщо видалили)
+        item_result = await db_session.execute(
+            select(MarketItem).where(
+                MarketItem.team_id == team_id,
+                MarketItem.item_id == record.item_id,
+            )
+        )
+        item = item_result.scalars().first()
+        if item:
+            item.quantity += record.quantity
+        # Якщо item вже видалений (була куплена остання штука) — не відновлюємо,
+        # наступний sync відновить з AE2
+
+        await db_session.delete(record)
+        await db_session.commit()
+
+        logger.info(f"Purchase cancelled: pending {pending_id}, team {team_id}")
+        return refund_info
 
 
 crud_market = CRUDMarketItem()

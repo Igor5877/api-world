@@ -2,7 +2,6 @@ from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLAlchemyEnum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
-from app.schemas.island import IslandStatusEnum # Use the same Enum for consistency
 import enum
 
 class IslandStatusEnum(str, enum.Enum):
@@ -108,25 +107,6 @@ class IslandQueue(Base):
 
     # Relationship to Island (optional)
     # island = relationship("Island", back_populates="queue_entry")
-
-
-class IslandSetting(Base):
-    """Represents a setting for an island.
-
-    Attributes:
-        island_id: The ID of the island this setting belongs to.
-        setting_key: The key of the setting.
-        setting_value: The value of the setting.
-    """
-    __tablename__ = "island_settings"
-
-    # Using island.id as foreign key as per schema.sql
-    island_id = Column(Integer, ForeignKey("islands.id", ondelete="CASCADE"), primary_key=True)
-    setting_key = Column(String(255), primary_key=True)
-    setting_value = Column(Text, nullable=True)
-
-    # Relationship to Island (optional)
-    # island = relationship("Island", back_populates="settings")
 
 
 class IslandBackup(Base):

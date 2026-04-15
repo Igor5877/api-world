@@ -303,8 +303,12 @@ public class MarketSyncManager {
         return sinkCache.getOrDefault(islandUuid, Collections.emptyList());
     }
 
-    /** Дедактує кількість після купівлі через API, потім оновлює кеш. */
-    public static void purchaseItem(UUID islandUuid, String itemId, int quantity, int buyerAzuriomId) {
+    /**
+     * Резервує покупку через API і повертає pending_id через callback.
+     * Callback отримує null якщо API відхилив (conflict / помилка).
+     */
+    public static void reservePurchaseAsync(UUID islandUuid, String itemId, int quantity, int buyerAzuriomId,
+                                            java.util.function.Consumer<Integer> callback) {
         try {
             String url = apiBase() + "/api/v1/market/islands/" + islandUuid + "/purchase";
             com.google.gson.JsonObject body = new com.google.gson.JsonObject();
@@ -321,17 +325,56 @@ public class MarketSyncManager {
             HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(res -> {
                         if (res.statusCode() == 200) {
-                            System.out.println("[RealMarket] Purchase deducted: " + quantity + "x " + itemId);
-                            invalidateCache(islandUuid);
+                            try {
+                                com.google.gson.JsonObject resp = com.google.gson.JsonParser
+                                        .parseString(res.body()).getAsJsonObject();
+                                // API повертає pending_id з WS-повідомлення; але сам purchase
+                                // не повертає pending_id напряму — читаємо його якщо є,
+                                // інакше шукаємо у стандартному полі
+                                int pendingId = resp.has("pending_id") ? resp.get("pending_id").getAsInt() : -1;
+                                System.out.println("[RealMarket] Purchase reserved: " + quantity + "x " + itemId
+                                        + " pending_id=" + pendingId);
+                                callback.accept(pendingId != -1 ? pendingId : null);
+                            } catch (Exception e) {
+                                System.err.println("[RealMarket] Parse reserve response error: " + e.getMessage());
+                                callback.accept(null);
+                            }
                         } else {
-                            System.err.println("[RealMarket] Purchase deduct failed: " + res.statusCode() + " " + res.body());
+                            System.err.println("[RealMarket] Purchase reserve failed: " + res.statusCode() + " " + res.body());
+                            callback.accept(null);
                         }
                     }).exceptionally(ex -> {
                         System.err.println("[RealMarket] Purchase request error: " + ex.getMessage());
+                        callback.accept(null);
                         return null;
                     });
         } catch (Exception e) {
-            System.err.println("[RealMarket] purchaseItem error: " + e.getMessage());
+            System.err.println("[RealMarket] reservePurchaseAsync error: " + e.getMessage());
+            callback.accept(null);
+        }
+    }
+
+    /** Скасовує резервування покупки (коли оплата провалилась). */
+    public static void cancelPurchaseAsync(UUID islandUuid, int pendingId) {
+        try {
+            String url = apiBase() + "/api/v1/market/islands/" + islandUuid + "/purchase/" + pendingId + "/cancel";
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(res -> {
+                        if (res.statusCode() == 200)
+                            System.out.println("[RealMarket] Purchase cancelled: pending_id=" + pendingId);
+                        else
+                            System.err.println("[RealMarket] Cancel failed: " + res.statusCode() + " " + res.body());
+                    }).exceptionally(ex -> {
+                        System.err.println("[RealMarket] Cancel error: " + ex.getMessage());
+                        return null;
+                    });
+        } catch (Exception e) {
+            System.err.println("[RealMarket] cancelPurchaseAsync error: " + e.getMessage());
         }
     }
 
@@ -383,13 +426,14 @@ public class MarketSyncManager {
             System.out.println("[RealMarket] Extracted " + totalExtracted + "x " + itemId + " from AE2 (requested " + quantity + ")");
             if (pendingId > 0) confirmExtraction(pendingId);
         } else {
-            System.err.println("[RealMarket] extractFromAE2: could not extract " + quantity + "x " + itemId + " — items may already be gone");
-            // Підтверджуємо навіть якщо не вдалось витягти — щоб не зациклюватись
-            if (pendingId > 0) confirmExtraction(pendingId);
+            // Предметів ще нема в AE2 — продавець в боргу. Зберігаємо pending,
+            // API повторно надішле WS коли з'являться предмети при наступному sync.
+            System.err.println("[RealMarket] extractFromAE2: could not extract " + quantity + "x " + itemId + " — debt recorded, will retry on next sync");
+            if (pendingId > 0) failExtraction(pendingId);
         }
     }
 
-    /** Підтверджує extraction — видаляє pending запис в API. */
+    /** Підтверджує extraction — видаляє pending запис в API і кредитує продавця. */
     private static void confirmExtraction(int pendingId) {
         if (currentIslandUuid == null) return;
         try {
@@ -411,6 +455,31 @@ public class MarketSyncManager {
                     });
         } catch (Exception e) {
             System.err.println("[RealMarket] confirmExtraction error: " + e.getMessage());
+        }
+    }
+
+    /** Повідомляє API що extraction не вдався (борг продавця) — pending залишається. */
+    private static void failExtraction(int pendingId) {
+        if (currentIslandUuid == null) return;
+        try {
+            String url = apiBase() + "/api/v1/market/islands/" + currentIslandUuid + "/extraction/" + pendingId + "/fail";
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(res -> {
+                        if (res.statusCode() == 200)
+                            System.out.println("[RealMarket] Extraction fail reported: pending_id=" + pendingId);
+                        else
+                            System.err.println("[RealMarket] Fail report error: " + res.statusCode());
+                    }).exceptionally(ex -> {
+                        System.err.println("[RealMarket] failExtraction error: " + ex.getMessage());
+                        return null;
+                    });
+        } catch (Exception e) {
+            System.err.println("[RealMarket] failExtraction error: " + e.getMessage());
         }
     }
 
