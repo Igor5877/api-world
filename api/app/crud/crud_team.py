@@ -37,8 +37,6 @@ async def get_team_by_owner_with_relations(db: AsyncSession, *, owner_uuid: str)
     Returns:
         The team, or None if not found.
     """
-    # This function is functionally identical to get_team_by_owner but named for clarity
-    # on its behavior of loading relationships, as used in island_service.
     result = await db.execute(
         select(Team)
         .where(Team.owner_uuid == owner_uuid)
@@ -63,23 +61,6 @@ async def get_team_by_player(db: AsyncSession, *, player_uuid: str) -> Team | No
         .join(TeamMember)
         .filter(TeamMember.player_uuid == player_uuid)
         .options(selectinload(Team.island), selectinload(Team.members)) # Eager load island and members
-    )
-    return result.scalars().first()
-
-async def get_team_by_owner(db: AsyncSession, *, owner_uuid: str) -> Team | None:
-    """Fetches a team by its owner's UUID.
-
-    Args:
-        db: The database session.
-        owner_uuid: The UUID of the team owner.
-
-    Returns:
-        The team, or None if not found.
-    """
-    result = await db.execute(
-        select(Team)
-        .where(Team.owner_uuid == owner_uuid)
-        .options(selectinload(Team.members), selectinload(Team.island))
     )
     return result.scalars().first()
 
