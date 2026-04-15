@@ -1,5 +1,6 @@
 from typing import List, Optional
 from decimal import Decimal
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 class MarketItemCreate(BaseModel):
@@ -45,6 +46,7 @@ class MarketTransactionInDB(BaseModel):
     total_price: Decimal
     buyer_azuriom_id: Optional[int]
     seller_azuriom_id: Optional[int]
-    created_at: Optional[str]
+    seller_paid: bool
+    created_at: Optional[datetime]
 
     model_config = {"from_attributes": True}
