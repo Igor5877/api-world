@@ -278,8 +278,15 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         island_uuid = client_id[len("island_"):]
         try:
             from app.crud.crud_market import crud_market
+            from app.crud.crud_team import get_team_by_player
             async with AsyncSessionLocal() as db:
-                pending = await crud_market.get_pending_extractions(db, island_uuid)
+                team = await get_team_by_player(db, player_uuid=island_uuid)
+                if not team:
+                    logger.warning(f"WebSocket: no team for player {island_uuid}, skipping pending extractions")
+                    team_id = None
+                else:
+                    team_id = team.id
+                pending = await crud_market.get_pending_extractions(db, team_id) if team_id else []
                 for p in pending:
                     await websocket_manager.send_personal_message(
                         {

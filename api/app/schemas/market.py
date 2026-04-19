@@ -1,28 +1,33 @@
 from typing import List, Optional
+from decimal import Decimal
+from datetime import datetime
 from pydantic import BaseModel, Field
 
-class MarketItemBase(BaseModel):
-    """Shared properties for Market Item."""
-    island_uuid: str = Field(..., description="UUID of the island or team.")
+class MarketItemCreate(BaseModel):
+    """Payload for a single item sent by the Forge mod during sync."""
     item_id: str = Field(..., description="Minecraft registry ID (e.g. 'minecraft:diamond').")
-    item_nbt: Optional[str] = Field(None, description="NBT tags as JSON string.")
+    item_nbt: str = Field('', description="NBT tags as JSON string. Empty string = no NBT.")
     quantity: int = Field(..., description="Total quantity available in the ME network.")
-    price: float = Field(10.0, description="Price per unit.")
+    price: Decimal = Field(Decimal('10.00'), description="Price per unit.")
     is_for_sale: bool = Field(True, description="Whether the item is for sale.")
     version: int = Field(1, description="Data schema version.")
-    seller_azuriom_id: Optional[int] = Field(None, description="Azuriom user ID of the island owner (seller).")
-
-class MarketItemCreate(MarketItemBase):
-    """Properties to receive via API on creation."""
-    pass
+    seller_azuriom_id: Optional[int] = Field(None, description="Azuriom user ID of the seller.")
 
 class MarketItemSync(BaseModel):
-    """Payload representing a full inventory sync from RealMarket."""
+    """Payload for a full inventory sync from RealMarket mod."""
     items: List[MarketItemCreate]
 
-class MarketItemInDB(MarketItemBase):
-    """Properties stored in DB."""
+class MarketItemInDB(BaseModel):
+    """Market item as stored in DB."""
     id: int
+    team_id: int
+    item_id: str
+    item_nbt: str
+    quantity: int
+    price: Decimal
+    is_for_sale: bool
+    version: int
+    seller_azuriom_id: Optional[int]
 
     model_config = {"from_attributes": True}
 
@@ -34,13 +39,14 @@ class PurchaseRequest(BaseModel):
 
 class MarketTransactionInDB(BaseModel):
     id: int
-    island_uuid: str
+    team_id: int
     item_id: str
     quantity: int
-    unit_price: float
-    total_price: float
+    unit_price: Decimal
+    total_price: Decimal
     buyer_azuriom_id: Optional[int]
     seller_azuriom_id: Optional[int]
-    created_at: Optional[str]
+    seller_paid: bool
+    created_at: Optional[datetime]
 
     model_config = {"from_attributes": True}

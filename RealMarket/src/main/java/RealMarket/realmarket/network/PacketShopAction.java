@@ -85,6 +85,7 @@ public class PacketShopAction {
 
         double totalCost = entry.price() * amt;
 
+        // Крок 1: перевіряємо баланс перед бронюванням
         AzuriomClient.getBalAsync(apiId).thenAccept(currentBalance -> {
             p.server.tell(new TickTask(0, () -> {
                 if (currentBalance < totalCost) {
@@ -92,32 +93,37 @@ public class PacketShopAction {
                     return;
                 }
 
-                int sellerId = entry.sellerAzuriomId();
-                AzuriomClient.updateAsync(apiId, -totalCost).thenAccept(success -> {
-                    if (success) {
-                        p.server.tell(new TickTask(0, () -> {
-                            ItemStack reward = new ItemStack(item, amt);
-                            if (!p.getInventory().add(reward)) {
-                                p.drop(reward, false);
-                            }
-                            p.sendSystemMessage(Component.literal("§a[Shop] Ви придбали §f" + amt + "x " + itemId + " §aза §6" + totalCost + " Coins"));
-                            MarketSyncManager.purchaseItem(islandUuid, itemId, amt, apiId);
-                        }));
-                        // Кредитуємо продавця
-                        if (sellerId != -1) {
-                            AzuriomClient.updateAsync(sellerId, totalCost).thenAccept(credited -> {
-                                if (credited) {
-                                    System.out.println("[RealMarket] Seller (id=" + sellerId + ") credited " + totalCost + " for " + amt + "x " + itemId);
-                                } else {
-                                    System.err.println("[RealMarket] Failed to credit seller (id=" + sellerId + ") for purchase of " + itemId);
-                                }
-                            });
-                        } else {
-                            System.err.println("[RealMarket] Seller Azuriom ID unknown — seller not credited for " + itemId);
-                        }
-                    } else {
-                        p.sendSystemMessage(Component.literal("§c[API] Помилка під час транзакції. Гроші не знято."));
+                // Крок 2: бронюємо через API (записує транзакцію + pending extraction)
+                // Продавець отримає гроші тільки після підтвердження extraction
+                MarketSyncManager.reservePurchaseAsync(islandUuid, itemId, amt, apiId, pendingId -> {
+                    if (pendingId == null) {
+                        p.server.tell(new TickTask(0, () ->
+                            p.sendSystemMessage(Component.literal("§c[Shop] Предмет вже продано або недоступний!"))
+                        ));
+                        return;
                     }
+
+                    // Крок 3: знімаємо гроші з покупця
+                    AzuriomClient.updateAsync(apiId, -totalCost).thenAccept(success -> {
+                        if (success) {
+                            // Крок 4: видаємо предмет покупцю
+                            p.server.tell(new TickTask(0, () -> {
+                                ItemStack reward = new ItemStack(item, amt);
+                                if (!p.getInventory().add(reward)) {
+                                    p.drop(reward, false);
+                                }
+                                p.sendSystemMessage(Component.literal("§a[Shop] Ви придбали §f" + amt + "x " + itemId + " §aза §6" + totalCost + " Coins"));
+                                MarketSyncManager.invalidateCache(islandUuid);
+                            }));
+                            // Продавець отримає гроші коли острів підтвердить extraction через WS
+                        } else {
+                            // Оплата провалилась — скасовуємо бронювання
+                            MarketSyncManager.cancelPurchaseAsync(islandUuid, pendingId);
+                            p.server.tell(new TickTask(0, () ->
+                                p.sendSystemMessage(Component.literal("§c[API] Помилка під час транзакції. Гроші не знято."))
+                            ));
+                        }
+                    });
                 });
             }));
         });
