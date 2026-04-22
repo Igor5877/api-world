@@ -6,6 +6,21 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.redis import get_redis_client
+
+_SYNC_RATE_LIMIT = 6        # максимум запитів
+_SYNC_RATE_WINDOW = 60      # за N секунд
+
+async def _check_sync_rate_limit(island_uuid: str) -> bool:
+    """Повертає False якщо острів перевищив ліміт sync запитів."""
+    try:
+        redis = get_redis_client()
+        key = f"ratelimit:sync:{island_uuid}"
+        count = await redis.incr(key)
+        if count == 1:
+            await redis.expire(key, _SYNC_RATE_WINDOW)
+        return count <= _SYNC_RATE_LIMIT
+    except Exception:
+        return True  # якщо Redis недоступний — пропускаємо
 from app.core.azuriom_client import credit_seller, refund_buyer, get_balance, deduct_buyer
 from app.db.session import get_db_session as get_db
 from app.crud.crud_market import crud_market
@@ -294,6 +309,9 @@ async def sync_island_inventory(
 ) -> Any:
     """Syncs the AE2 inventory of an island. Called by RealMarket Forge mod every 30s or on demand."""
     team_id = await _resolve_team_id(island_uuid, db)
+
+    if not await _check_sync_rate_limit(island_uuid):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Sync rate limit exceeded.")
 
     # Пропустити якщо інвентар не змінився (кеш в Redis — спільний між workers)
     incoming_hash = _compute_inventory_hash(payload.items)
