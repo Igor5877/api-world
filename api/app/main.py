@@ -198,6 +198,7 @@ async def reconcile_island_states():
 from app.core.redis import init_redis_pool, close_redis_pool, get_redis_client
 from app.services.creation_worker import start_creation_worker
 from app.services.start_worker import start_start_worker
+from app.services.workers.analytics_worker import start_analytics_worker
 
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
@@ -236,6 +237,7 @@ async def lifespan(app: FastAPI):
         # Start background workers
         await start_creation_worker()
         await start_start_worker()
+        await start_analytics_worker()
         logger.info("Startup leader has finished initial tasks.")
     else:
         logger.info("This worker is not the startup leader. Skipping initial tasks.")
@@ -333,6 +335,7 @@ async def read_root():
 from app.api.v1.endpoints import teams as teams_router_module
 from app.api.v1.endpoints import market as market_router_module
 from app.api.v1.endpoints import warps as warps_router_module
+from app.api.v1.endpoints import analytics as analytics_router_module
 
 app.include_router(
     islands_router_module.router,
@@ -356,6 +359,12 @@ app.include_router(
     warps_router_module.router,
     prefix=f"{settings.API_V1_STR}/warps",
     tags=["Warps"]
+)
+
+app.include_router(
+    analytics_router_module.router,
+    prefix=f"{settings.API_V1_STR}/analytics",
+    tags=["Analytics"]
 )
 
 # For development, you might run this with: uvicorn app.main:app --reload
