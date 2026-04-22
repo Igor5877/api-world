@@ -6,11 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.redis import get_redis_client
-from app.core.azuriom_client import credit_seller, refund_buyer
+from app.core.azuriom_client import credit_seller, refund_buyer, get_balance, deduct_buyer
 from app.db.session import get_db_session as get_db
 from app.crud.crud_market import crud_market
 from app.crud.crud_team import get_team_by_player
-from app.schemas.market import MarketItemSync, MarketItemInDB, PurchaseRequest, MarketTransactionInDB
+from app.schemas.market import (
+    MarketItemSync, MarketItemInDB, PurchaseRequest, MarketTransactionInDB,
+    ExecutePurchaseRequest, SellRequest,
+)
 from app.services.websocket_manager import manager as websocket_manager
 
 router = APIRouter()
@@ -118,6 +121,90 @@ async def purchase_item(
     except Exception as e:
         logger.error(f"Failed to process purchase for {island_uuid}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Purchase failed.")
+
+
+@router.post("/islands/{island_uuid}/purchase/execute", status_code=status.HTTP_200_OK)
+async def execute_purchase(
+    island_uuid: str,
+    payload: ExecutePurchaseRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """
+    Повний флоу покупки в одному запиті: перевірка балансу → резервування → зняття грошей.
+    Мод більше не звертається до Azuriom напряму.
+    """
+    team_id = await _resolve_team_id(island_uuid, db)
+
+    # 1. Перевіряємо ціну та наявність товару (без блокування)
+    item = await crud_market.get_item(db, team_id, payload.item_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found or not for sale.")
+    if item.quantity < payload.quantity:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Insufficient stock: {item.quantity} available.")
+    total_cost = float(item.price) * payload.quantity
+
+    # 2. Перевірка балансу покупця
+    balance = await get_balance(payload.buyer_azuriom_id)
+    if balance is None:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not verify balance.")
+    if balance < total_cost:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                            detail=f"Insufficient funds: need {total_cost:.2f}, have {balance:.2f}.")
+
+    # 3. Резервуємо товар (row-level lock) + створюємо транзакцію
+    try:
+        result = await crud_market.purchase_item(
+            db_session=db, team_id=team_id,
+            item_id=payload.item_id, quantity=payload.quantity,
+            buyer_azuriom_id=payload.buyer_azuriom_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+    pending = await crud_market.create_pending_extraction(
+        db_session=db, team_id=team_id,
+        item_id=payload.item_id, quantity=payload.quantity,
+    )
+
+    # 4. Знімаємо гроші з покупця
+    deducted = await deduct_buyer(payload.buyer_azuriom_id, total_cost)
+    if not deducted:
+        await crud_market.cancel_purchase(db_session=db, pending_id=pending.id, team_id=team_id)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment failed, reservation cancelled.")
+
+    # 5. Повідомляємо острів
+    await _invalidate_cached_hash(team_id)
+    await websocket_manager.send_personal_message(
+        {"type": "market_purchase", "pending_id": pending.id,
+         "item_id": payload.item_id, "quantity": payload.quantity, "request_sync": True},
+        f"island_{island_uuid}",
+    )
+    return {**result, "pending_id": pending.id, "total_cost": total_cost}
+
+
+@router.post("/islands/{island_uuid}/sell", status_code=status.HTTP_200_OK)
+async def sell_item(
+    island_uuid: str,
+    payload: SellRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """
+    Гравець продає предмети з інвентаря на маркет острова.
+    API кредитує продавця і записує транзакцію в БД.
+    """
+    team_id = await _resolve_team_id(island_uuid, db)
+    total = round(payload.unit_price * payload.quantity, 2)
+
+    credited = await credit_seller(payload.seller_azuriom_id, total)
+    if not credited:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to credit seller.")
+
+    await crud_market.record_sell_transaction(
+        db_session=db, team_id=team_id, item_id=payload.item_id,
+        quantity=payload.quantity, unit_price=payload.unit_price,
+        seller_azuriom_id=payload.seller_azuriom_id,
+    )
+    return {"sold": payload.quantity, "credited": total}
 
 
 @router.post("/islands/{island_uuid}/extraction/{pending_id}/confirm", status_code=status.HTTP_200_OK)

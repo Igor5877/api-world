@@ -37,6 +37,19 @@ class PurchaseRequest(BaseModel):
     quantity: int = Field(..., gt=0, description="Amount to purchase.")
     buyer_azuriom_id: Optional[int] = Field(None, description="Azuriom user ID of the buyer.")
 
+class ExecutePurchaseRequest(BaseModel):
+    """Повна покупка через API: перевірка балансу + зняття грошей + резервування."""
+    item_id: str
+    quantity: int = Field(..., gt=0)
+    buyer_azuriom_id: int
+
+class SellRequest(BaseModel):
+    """Продаж предметів з інвентаря гравця на маркет острова."""
+    item_id: str
+    quantity: int = Field(..., gt=0)
+    seller_azuriom_id: int
+    unit_price: float = Field(..., gt=0)
+
 class MarketTransactionInDB(BaseModel):
     id: int
     team_id: int

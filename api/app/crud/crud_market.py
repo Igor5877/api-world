@@ -157,7 +157,42 @@ class CRUDMarketItem:
         )
         db_session.add(tx)
         await db_session.commit()
-        return {"item_id": item_id, "purchased": quantity, "remaining": max(0, item.quantity)}
+        return {
+            "item_id": item_id,
+            "purchased": quantity,
+            "remaining": max(0, item.quantity),
+            "unit_price": float(unit_price),
+            "total_price": float(unit_price * quantity),
+        }
+
+    async def get_item(self, db_session: AsyncSession, team_id: int, item_id: str) -> MarketItem | None:
+        """Повертає предмет з вітрини без блокування — для перевірки ціни перед покупкою."""
+        result = await db_session.execute(
+            select(MarketItem).where(
+                MarketItem.team_id == team_id,
+                MarketItem.item_id == item_id,
+                MarketItem.is_for_sale == True,
+            )
+        )
+        return result.scalars().first()
+
+    async def record_sell_transaction(
+        self, db_session: AsyncSession, team_id: int, item_id: str,
+        quantity: int, unit_price: float, seller_azuriom_id: int,
+    ) -> None:
+        """Записує продаж предметів гравцем на маркет (без pending extraction)."""
+        tx = MarketTransaction(
+            team_id=team_id,
+            item_id=item_id,
+            quantity=quantity,
+            unit_price=unit_price,
+            total_price=round(unit_price * quantity, 2),
+            buyer_azuriom_id=None,
+            seller_azuriom_id=seller_azuriom_id,
+            seller_paid=True,
+        )
+        db_session.add(tx)
+        await db_session.commit()
 
     # ── Transactions ──────────────────────────────────────────────────────
 
