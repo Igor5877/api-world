@@ -483,6 +483,86 @@ public class MarketSyncManager {
         }
     }
 
+    public record PurchaseResult(int pendingId, double totalCost) {}
+
+    /**
+     * Повна покупка в одному API-запиті: перевірка балансу + зняття грошей + резервування.
+     * Замінює окремі виклики getBalAsync + updateAsync + reservePurchaseAsync.
+     */
+    public static void executePurchaseAsync(UUID islandUuid, String itemId, int quantity,
+                                             int buyerAzuriomId, java.util.function.Consumer<PurchaseResult> callback) {
+        try {
+            String url = apiBase() + "/api/v1/market/islands/" + islandUuid + "/purchase/execute";
+            com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+            body.addProperty("item_id", itemId);
+            body.addProperty("quantity", quantity);
+            body.addProperty("buyer_azuriom_id", buyerAzuriomId);
+
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
+                    .build();
+
+            HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(res -> {
+                        if (res.statusCode() == 200) {
+                            try {
+                                com.google.gson.JsonObject resp = com.google.gson.JsonParser
+                                        .parseString(res.body()).getAsJsonObject();
+                                int pendingId = resp.has("pending_id") ? resp.get("pending_id").getAsInt() : -1;
+                                double totalCost = resp.has("total_cost") ? resp.get("total_cost").getAsDouble() : 0.0;
+                                callback.accept(new PurchaseResult(pendingId, totalCost));
+                            } catch (Exception e) {
+                                System.err.println("[RealMarket] executePurchase parse error: " + e.getMessage());
+                                callback.accept(null);
+                            }
+                        } else {
+                            System.err.println("[RealMarket] executePurchase failed: " + res.statusCode() + " " + res.body());
+                            callback.accept(null);
+                        }
+                    }).exceptionally(ex -> {
+                        System.err.println("[RealMarket] executePurchase error: " + ex.getMessage());
+                        callback.accept(null);
+                        return null;
+                    });
+        } catch (Exception e) {
+            System.err.println("[RealMarket] executePurchaseAsync error: " + e.getMessage());
+            callback.accept(null);
+        }
+    }
+
+    /** Продаж предметів з інвентаря гравця: API кредитує продавця і записує транзакцію. */
+    public static void sellItemAsync(UUID islandUuid, String itemId, int quantity,
+                                      int sellerAzuriomId, double unitPrice,
+                                      java.util.function.Consumer<Boolean> callback) {
+        try {
+            String url = apiBase() + "/api/v1/market/islands/" + islandUuid + "/sell";
+            com.google.gson.JsonObject body = new com.google.gson.JsonObject();
+            body.addProperty("item_id", itemId);
+            body.addProperty("quantity", quantity);
+            body.addProperty("seller_azuriom_id", sellerAzuriomId);
+            body.addProperty("unit_price", unitPrice);
+
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
+                    .build();
+
+            HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                    .thenAccept(res -> callback.accept(res.statusCode() == 200))
+                    .exceptionally(ex -> {
+                        System.err.println("[RealMarket] sellItem error: " + ex.getMessage());
+                        callback.accept(false);
+                        return null;
+                    });
+        } catch (Exception e) {
+            System.err.println("[RealMarket] sellItemAsync error: " + e.getMessage());
+            callback.accept(false);
+        }
+    }
+
     /** Примусово оновити кеш для конкретного острова (наприклад після купівлі). */
     public static void invalidateCache(UUID islandUuid) {
         sinkCache.remove(islandUuid);

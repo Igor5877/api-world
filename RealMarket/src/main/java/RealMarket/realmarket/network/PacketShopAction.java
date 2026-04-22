@@ -1,6 +1,5 @@
 package RealMarket.realmarket.network;
 
-import RealMarket.realmarket.api.AzuriomClient;
 import RealMarket.realmarket.api.MarketSyncManager;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.FriendlyByteBuf;
@@ -61,7 +60,6 @@ public class PacketShopAction {
     }
 
     private static void handleBuy(ServerPlayer p, int apiId, int amt, String itemId, UUID islandUuid) {
-        // Знаходимо ціну з SINK кешу
         List<MarketSyncManager.CachedItem> cached = MarketSyncManager.getCachedInventory(islandUuid);
         MarketSyncManager.CachedItem entry = cached.stream()
                 .filter(i -> i.itemId().equals(itemId) && i.isForSale())
@@ -83,48 +81,23 @@ public class PacketShopAction {
             return;
         }
 
-        double totalCost = entry.price() * amt;
-
-        // Крок 1: перевіряємо баланс перед бронюванням
-        AzuriomClient.getBalAsync(apiId).thenAccept(currentBalance -> {
+        // Один виклик API: перевірка балансу + зняття грошей + резервування
+        MarketSyncManager.executePurchaseAsync(islandUuid, itemId, amt, apiId, result -> {
+            if (result == null) {
+                p.server.tell(new TickTask(0, () ->
+                    p.sendSystemMessage(Component.literal("§c[Shop] Не вдалося завершити покупку. Недостатньо коштів або товар вже продано."))
+                ));
+                return;
+            }
             p.server.tell(new TickTask(0, () -> {
-                if (currentBalance < totalCost) {
-                    p.sendSystemMessage(Component.literal("§c[Shop] Недостатньо коштів! Треба: §6" + totalCost + " §c(Ваш: " + currentBalance + ")"));
-                    return;
+                ItemStack reward = new ItemStack(item, amt);
+                if (!p.getInventory().add(reward)) {
+                    p.drop(reward, false);
                 }
-
-                // Крок 2: бронюємо через API (записує транзакцію + pending extraction)
-                // Продавець отримає гроші тільки після підтвердження extraction
-                MarketSyncManager.reservePurchaseAsync(islandUuid, itemId, amt, apiId, pendingId -> {
-                    if (pendingId == null) {
-                        p.server.tell(new TickTask(0, () ->
-                            p.sendSystemMessage(Component.literal("§c[Shop] Предмет вже продано або недоступний!"))
-                        ));
-                        return;
-                    }
-
-                    // Крок 3: знімаємо гроші з покупця
-                    AzuriomClient.updateAsync(apiId, -totalCost).thenAccept(success -> {
-                        if (success) {
-                            // Крок 4: видаємо предмет покупцю
-                            p.server.tell(new TickTask(0, () -> {
-                                ItemStack reward = new ItemStack(item, amt);
-                                if (!p.getInventory().add(reward)) {
-                                    p.drop(reward, false);
-                                }
-                                p.sendSystemMessage(Component.literal("§a[Shop] Ви придбали §f" + amt + "x " + itemId + " §aза §6" + totalCost + " Coins"));
-                                MarketSyncManager.invalidateCache(islandUuid);
-                            }));
-                            // Продавець отримає гроші коли острів підтвердить extraction через WS
-                        } else {
-                            // Оплата провалилась — скасовуємо бронювання
-                            MarketSyncManager.cancelPurchaseAsync(islandUuid, pendingId);
-                            p.server.tell(new TickTask(0, () ->
-                                p.sendSystemMessage(Component.literal("§c[API] Помилка під час транзакції. Гроші не знято."))
-                            ));
-                        }
-                    });
-                });
+                p.sendSystemMessage(Component.literal(
+                    "§a[Shop] Ви придбали §f" + amt + "x " + itemId + " §aза §6" + result.totalCost() + " Coins"
+                ));
+                MarketSyncManager.invalidateCache(islandUuid);
             }));
         });
     }
@@ -145,16 +118,19 @@ public class PacketShopAction {
                 .map(i -> i.price() * 0.5)
                 .orElse(5.0);
 
-        double reward = unitPrice * amt;
-
-        AzuriomClient.updateAsync(apiId, reward).thenAccept(success -> {
+        // API кредитує продавця і записує транзакцію в БД
+        MarketSyncManager.sellItemAsync(islandUuid, itemId, amt, apiId, unitPrice, success -> {
             if (success) {
                 p.server.tell(new TickTask(0, () -> {
                     handStack.shrink(amt);
-                    p.sendSystemMessage(Component.literal("§6[Shop] Продано §f" + amt + "x " + itemId + " §6за §e" + reward + " Coins"));
+                    p.sendSystemMessage(Component.literal(
+                        "§6[Shop] Продано §f" + amt + "x " + itemId + " §6за §e" + (unitPrice * amt) + " Coins"
+                    ));
                 }));
             } else {
-                p.sendSystemMessage(Component.literal("§c[API] Сайт відхилив транзакцію. Спробуйте пізніше."));
+                p.server.tell(new TickTask(0, () ->
+                    p.sendSystemMessage(Component.literal("§c[API] Сайт відхилив транзакцію. Спробуйте пізніше."))
+                ));
             }
         });
     }
