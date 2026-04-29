@@ -5,20 +5,45 @@
 @section('content')
 <div class="container-fluid">
 
-    {{-- Фільтр --}}
-    <div class="mb-3 d-flex align-items-center gap-2">
-        <span class="text-muted">{{ trans('nestworld-analytics::messages.period') }}:</span>
-        @foreach([6, 24, 48, 168] as $h)
-            <a href="?hours={{ $h }}"
-               class="btn btn-sm {{ $hours === $h ? 'btn-primary' : 'btn-outline-secondary' }}">
-                {{ $h }}{{ trans('nestworld-analytics::messages.hours') }}
-            </a>
-        @endforeach
+    {{-- Заголовок + кнопка синхронізації --}}
+    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+            <span class="text-muted">{{ trans('nestworld-analytics::messages.period') }}:</span>
+            @foreach([6, 24, 48, 168] as $h)
+                <a href="?hours={{ $h }}"
+                   class="btn btn-sm {{ $hours === $h ? 'btn-primary' : 'btn-outline-secondary' }}">
+                    {{ $h }}{{ trans('nestworld-analytics::messages.hours') }}
+                </a>
+            @endforeach
+        </div>
+
+        <div class="d-flex align-items-center gap-3">
+            @if($lastSync)
+                <span class="text-muted small">
+                    {{ trans('nestworld-analytics::messages.last_sync') }}:
+                    {{ $lastSync->format('d.m.Y H:i:s') }}
+                </span>
+            @endif
+            <form method="POST" action="{{ route('nestworld-analytics.admin.sync', ['hours' => $hours]) }}">
+                @csrf
+                <button type="submit" class="btn btn-success btn-sm">
+                    <i class="bi bi-arrow-clockwise"></i>
+                    {{ trans('nestworld-analytics::messages.sync_button') }}
+                </button>
+            </form>
+        </div>
     </div>
 
     @if(session('success'))
         <div class="alert alert-success">{{ session('success') }}</div>
     @endif
+    @if(session('error'))
+        <div class="alert alert-danger">{{ session('error') }}</div>
+    @endif
+
+    @if(is_null($totalVolume))
+        <div class="alert alert-warning">{{ trans('nestworld-analytics::messages.no_data') }}</div>
+    @else
 
     {{-- Картки --}}
     <div class="row g-3 mb-4">
@@ -180,6 +205,9 @@
             </div>
         </div>
     </div>
+
+</div>
+    @endif {{-- is_null($totalVolume) --}}
 
 </div>
 @endsection
