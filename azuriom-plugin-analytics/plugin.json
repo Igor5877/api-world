@@ -9,7 +9,6 @@
     ],
     "azuriom_api": "1.2.0",
     "providers": [
-        "\\Azuriom\\Plugin\\NestworldAnalytics\\Providers\\AnalyticsServiceProvider",
-        "\\Azuriom\\Plugin\\NestworldAnalytics\\Providers\\RouteServiceProvider"
+        "\\Azuriom\\Plugin\\NestworldAnalytics\\Providers\\AnalyticsServiceProvider"
     ]
 }
