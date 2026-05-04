@@ -1,0 +1,82 @@
+name: "[Reusable] Build Java / Gradle Module"
+# Called by pr-checks, ci-dev, and prod deploy workflows.
+# Builds any Gradle module, uploads the resulting JAR as a named artifact.
+
+on:
+  workflow_call:
+    inputs:
+      module_path:
+        description: "Path to module directory relative to repo root (e.g. mods-server)"
+        required: true
+        type: string
+      java_version:
+        description: "JDK version"
+        required: false
+        type: string
+        default: "21"
+      artifact_name:
+        description: "Unique name for the uploaded artifact (reused by deploy job to download)"
+        required: true
+        type: string
+      jar_pattern:
+        description: "Glob to select the output JAR (e.g. nestworld-mods-server-*.jar)"
+        required: false
+        type: string
+        default: "*.jar"
+      gradle_tasks:
+        description: "Gradle tasks to run"
+        required: false
+        type: string
+        default: "clean build"
+    outputs:
+      jar_name:
+        description: "Filename of the produced JAR (used by deploy job)"
+        value: ${{ jobs.build.outputs.jar_name }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      jar_name: ${{ steps.jar.outputs.jar_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ inputs.java_version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java_version }}
+          distribution: temurin
+          cache: gradle
+
+      - name: Grant gradlew permission
+        run: chmod +x "${{ inputs.module_path }}/gradlew"
+
+      - name: Build
+        run: ./gradlew -p "${{ inputs.module_path }}" ${{ inputs.gradle_tasks }}
+
+      - name: Locate JAR
+        id: jar
+        run: |
+          JAR=$(find "${{ inputs.module_path }}/build/libs" \
+            -name "${{ inputs.jar_pattern }}" \
+            ! -name "*-sources.jar" \
+            ! -name "*-javadoc.jar" \
+            ! -name "*-dev.jar" \
+            | sort | tail -n 1)
+          if [ -z "$JAR" ]; then
+            echo "::error::No JAR found matching '${{ inputs.jar_pattern }}' in ${{ inputs.module_path }}/build/libs/"
+            ls -la "${{ inputs.module_path }}/build/libs/" || true
+            exit 1
+          fi
+          echo "Found: $JAR"
+          echo "jar_name=$(basename "$JAR")" >> $GITHUB_OUTPUT
+          echo "jar_path=$JAR"              >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ steps.jar.outputs.jar_path }}
+          retention-days: 1
+          if-no-files-found: error
