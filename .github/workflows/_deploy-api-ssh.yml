@@ -1,0 +1,152 @@
+name: "[Reusable] Deploy Python API via SSH"
+# SSHes to the host, checks out the exact commit, reinstalls dependencies,
+# restarts the systemd service, runs an HTTP health check, and rolls back
+# to the previous commit on failure.
+
+on:
+  workflow_call:
+    inputs:
+      deploy_sha:
+        description: "Git commit SHA to deploy (pass github.sha from caller)"
+        required: true
+        type: string
+      api_path:
+        description: "Absolute path to the API directory on the host (trailing slash optional)"
+        required: false
+        type: string
+        default: "/srv/skyblock/api"
+      service_name:
+        description: "systemd service name to restart"
+        required: false
+        type: string
+        default: "skyblock_api.service"
+      health_url:
+        description: "URL to curl for the health check"
+        required: false
+        type: string
+        default: "http://localhost:8000/"
+      health_timeout_seconds:
+        description: "Seconds to wait for health check"
+        required: false
+        type: number
+        default: 60
+      requirements_file:
+        description: "Path to requirements.txt relative to api_path"
+        required: false
+        type: string
+        default: "requirements.txt"
+      venv_path:
+        description: "Path to Python venv relative to api_path"
+        required: false
+        type: string
+        default: "venv"
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: true
+      SERVER_HOST:
+        required: true
+      SERVER_USER:
+        required: true
+      SERVER_PORT:
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          cat >> ~/.ssh/config << EOF
+          Host deploy_host
+            HostName ${{ secrets.SERVER_HOST }}
+            User ${{ secrets.SERVER_USER }}
+            Port ${{ secrets.SERVER_PORT }}
+            IdentityFile ~/.ssh/deploy_key
+            StrictHostKeyChecking no
+            ServerAliveInterval 30
+          EOF
+
+      - name: Deploy (checkout → install deps → restart)
+        run: |
+          ssh deploy_host bash << 'DEPLOY'
+          set -euo pipefail
+          API_PATH="${{ inputs.api_path }}"
+          SERVICE="${{ inputs.service_name }}"
+          SHA="${{ inputs.deploy_sha }}"
+          VENV="$API_PATH/${{ inputs.venv_path }}"
+          REQ="$API_PATH/${{ inputs.requirements_file }}"
+          RUN_ID="${{ github.run_id }}"
+
+          cd "$API_PATH"
+
+          # Save current commit for potential rollback
+          PREV=$(git log -1 --format=%H 2>/dev/null || echo "")
+          echo "$PREV" > "/tmp/api_prev_${RUN_ID}"
+          echo "Previous commit: $PREV"
+          echo "Deploying: $SHA"
+
+          git fetch --quiet origin
+          git reset --hard "$SHA"
+
+          source "$VENV/bin/activate"
+          pip install --quiet -r "$REQ"
+
+          sudo systemctl restart "$SERVICE"
+          echo "Service restarted."
+          DEPLOY
+
+      - name: Health check
+        run: |
+          ssh deploy_host bash << 'HCHECK'
+          set -euo pipefail
+          URL="${{ inputs.health_url }}"
+          TIMEOUT=${{ inputs.health_timeout_seconds }}
+          ELAPSED=0
+          echo "Waiting for $URL (timeout: ${TIMEOUT}s) …"
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            if curl -fsL "$URL" > /dev/null 2>&1; then
+              echo "Health check passed (${ELAPSED}s)."
+              exit 0
+            fi
+            sleep 5; ELAPSED=$((ELAPSED + 5))
+          done
+          echo "::error::Health check timed out after ${TIMEOUT}s"
+          exit 1
+          HCHECK
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "::warning::Deployment failed — rolling back API"
+          ssh deploy_host bash << 'ROLLBACK' || true
+          set -euo pipefail
+          API_PATH="${{ inputs.api_path }}"
+          SERVICE="${{ inputs.service_name }}"
+          VENV="$API_PATH/${{ inputs.venv_path }}"
+          REQ="$API_PATH/${{ inputs.requirements_file }}"
+          RUN_ID="${{ github.run_id }}"
+
+          PREV=$(cat "/tmp/api_prev_${RUN_ID}" 2>/dev/null || echo "")
+          if [ -z "$PREV" ]; then
+            echo "No previous commit recorded — cannot roll back automatically"
+            exit 1
+          fi
+
+          echo "Rolling back to $PREV"
+          cd "$API_PATH"
+          git reset --hard "$PREV"
+          source "$VENV/bin/activate"
+          pip install --quiet -r "$REQ"
+          sudo systemctl restart "$SERVICE"
+          echo "Rollback complete."
+          ROLLBACK
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
+          ssh deploy_host "rm -f /tmp/api_prev_${{ github.run_id }}" || true

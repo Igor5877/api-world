@@ -1,0 +1,210 @@
+name: CI — Deploy to DEV
+# Triggered on every push to main.
+# Detects which modules changed, builds only those, deploys to the DEV
+# server, and verifies health on the dev server.
+# This is the safety gate: only code that passes tests AND is healthy on
+# DEV should ever be tagged for production.
+#
+# Required secrets (DEV_ prefix = dev-specific):
+#   DEV_SSH_PRIVATE_KEY, DEV_SERVER_HOST, DEV_SERVER_USER, DEV_SERVER_PORT
+#   DEV_API_PATH, DEV_API_SERVICE, DEV_API_HEALTH_URL
+#   DEV_LXD_PROJECT_NAME
+#   DEV_MOD_CONTAINER_NAME, DEV_MOD_DEST_PATH, DEV_MOD_RESTART_CMD, DEV_MOD_HEALTH_TARGET
+#   DEV_VELOCITY_CONTAINER_NAME, DEV_VELOCITY_DEST_PATH, DEV_VELOCITY_RESTART_CMD, DEV_VELOCITY_HEALTH_TARGET
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # ── 1. Detect changed modules ───────────────────────────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api:        ${{ steps.filter.outputs.api }}
+      mod:        ${{ steps.filter.outputs.mod }}
+      plugin:     ${{ steps.filter.outputs.plugin }}
+      realmarket: ${{ steps.filter.outputs.realmarket }}
+      sales:      ${{ steps.filter.outputs.sales }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'api/**'
+              - 'requirements.txt'
+            mod:
+              - 'mods-server/**'
+            plugin:
+              - 'Nestworldvelocity/**'
+            realmarket:
+              - 'RealMarket/**'
+            sales:
+              - 'sales-addon/**'
+
+  # ── 2. Test / Build changed modules ────────────────────────────────────────
+  test-api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    uses: ./.github/workflows/_test-python.yml
+    with:
+      test_path: "api/app/tests"
+      pytest_args: "-v"
+
+  build-mod:
+    needs: changes
+    if: needs.changes.outputs.mod == 'true'
+    uses: ./.github/workflows/_build-java.yml
+    with:
+      module_path: mods-server
+      artifact_name: dev-mod-jar
+      jar_pattern: "nestworld-mods-server-*.jar"
+
+  build-plugin:
+    needs: changes
+    if: needs.changes.outputs.plugin == 'true'
+    uses: ./.github/workflows/_build-java.yml
+    with:
+      module_path: Nestworldvelocity
+      artifact_name: dev-plugin-jar
+
+  build-realmarket:
+    needs: changes
+    if: needs.changes.outputs.realmarket == 'true'
+    uses: ./.github/workflows/_build-java.yml
+    with:
+      module_path: RealMarket
+      artifact_name: dev-realmarket-jar
+
+  build-sales:
+    needs: changes
+    if: needs.changes.outputs.sales == 'true'
+    uses: ./.github/workflows/_build-java.yml
+    with:
+      module_path: sales-addon
+      artifact_name: dev-sales-jar
+
+  # ── 3. Deploy changed modules to DEV ───────────────────────────────────────
+  deploy-api-dev:
+    needs: test-api
+    if: needs.test-api.result == 'success'
+    uses: ./.github/workflows/_deploy-api-ssh.yml
+    with:
+      deploy_sha: ${{ github.sha }}
+      api_path: ${{ vars.DEV_API_PATH || '/srv/skyblock-dev/api' }}
+      service_name: ${{ vars.DEV_API_SERVICE || 'skyblock_api_dev.service' }}
+      health_url: ${{ vars.DEV_API_HEALTH_URL || 'http://localhost:8001/' }}
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.DEV_SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
+
+  deploy-mod-dev:
+    needs: build-mod
+    if: needs.build-mod.result == 'success'
+    uses: ./.github/workflows/_deploy-lxc-jar.yml
+    with:
+      artifact_name:          dev-mod-jar
+      jar_name:               ${{ needs.build-mod.outputs.jar_name }}
+      lxc_container:          ${{ vars.DEV_MOD_CONTAINER_NAME }}
+      lxc_project:            ${{ vars.DEV_LXD_PROJECT_NAME }}
+      dest_path:              ${{ vars.DEV_MOD_DEST_PATH }}
+      restart_command:        ${{ vars.DEV_MOD_RESTART_CMD }}
+      health_type:            minecraft
+      health_target:          ${{ vars.DEV_MOD_HEALTH_TARGET }}
+      health_timeout_minutes: 10
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.DEV_SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
+
+  deploy-plugin-dev:
+    needs: build-plugin
+    if: needs.build-plugin.result == 'success'
+    uses: ./.github/workflows/_deploy-lxc-jar.yml
+    with:
+      artifact_name:          dev-plugin-jar
+      jar_name:               ${{ needs.build-plugin.outputs.jar_name }}
+      lxc_container:          ${{ vars.DEV_VELOCITY_CONTAINER_NAME }}
+      lxc_project:            ${{ vars.DEV_LXD_PROJECT_NAME }}
+      dest_path:              ${{ vars.DEV_VELOCITY_DEST_PATH }}
+      restart_command:        ${{ vars.DEV_VELOCITY_RESTART_CMD }}
+      health_type:            minecraft
+      health_target:          ${{ vars.DEV_VELOCITY_HEALTH_TARGET }}
+      health_timeout_minutes: 5
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.DEV_SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
+
+  deploy-realmarket-dev:
+    needs: build-realmarket
+    if: needs.build-realmarket.result == 'success'
+    uses: ./.github/workflows/_deploy-lxc-jar.yml
+    with:
+      artifact_name:          dev-realmarket-jar
+      jar_name:               ${{ needs.build-realmarket.outputs.jar_name }}
+      lxc_container:          ${{ vars.DEV_MOD_CONTAINER_NAME }}
+      lxc_project:            ${{ vars.DEV_LXD_PROJECT_NAME }}
+      dest_path:              ${{ vars.DEV_MOD_DEST_PATH }}
+      restart_command:        ${{ vars.DEV_MOD_RESTART_CMD }}
+      health_type:            minecraft
+      health_target:          ${{ vars.DEV_MOD_HEALTH_TARGET }}
+      health_timeout_minutes: 10
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.DEV_SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
+
+  deploy-sales-dev:
+    needs: build-sales
+    if: needs.build-sales.result == 'success'
+    uses: ./.github/workflows/_deploy-lxc-jar.yml
+    with:
+      artifact_name:          dev-sales-jar
+      jar_name:               ${{ needs.build-sales.outputs.jar_name }}
+      lxc_container:          ${{ vars.DEV_MOD_CONTAINER_NAME }}
+      lxc_project:            ${{ vars.DEV_LXD_PROJECT_NAME }}
+      dest_path:              ${{ vars.DEV_MOD_DEST_PATH }}
+      restart_command:        ${{ vars.DEV_MOD_RESTART_CMD }}
+      health_type:            minecraft
+      health_target:          ${{ vars.DEV_MOD_HEALTH_TARGET }}
+      health_timeout_minutes: 10
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.DEV_SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
+
+  # ── 4. Summary ──────────────────────────────────────────────────────────────
+  dev-summary:
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - deploy-api-dev
+      - deploy-mod-dev
+      - deploy-plugin-dev
+      - deploy-realmarket-dev
+      - deploy-sales-dev
+    steps:
+      - name: Report
+        run: |
+          echo "=== DEV deploy summary for ${{ github.sha }} ==="
+          echo "api:        ${{ needs.deploy-api-dev.result }}"
+          echo "mod:        ${{ needs.deploy-mod-dev.result }}"
+          echo "plugin:     ${{ needs.deploy-plugin-dev.result }}"
+          echo "realmarket: ${{ needs.deploy-realmarket-dev.result }}"
+          echo "sales:      ${{ needs.deploy-sales-dev.result }}"
+
+          if echo '${{ toJSON(needs) }}' | grep -q '"result": "failure"'; then
+            echo "::error::One or more DEV deployments failed. Do NOT tag for production."
+            exit 1
+          fi
+          echo "All deployed modules are healthy on DEV. Safe to tag for production."
