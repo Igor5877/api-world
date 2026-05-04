@@ -1,4 +1,11 @@
-name: Build and Deploy Plugin
+name: Deploy Velocity Plugin to Production
+# Triggered by tags matching plugin-v* (e.g. plugin-v1.1.0).
+# workflow_dispatch lets you override the target container for emergency hotfixes.
+# Only tag a commit that has already been verified healthy on DEV via ci-dev.yml.
+#
+# Required secrets: SSH_PRIVATE_KEY, SERVER_HOST, SERVER_USER, SERVER_PORT
+# Required vars:    VELOCITY_CONTAINER_NAME, LXD_PROJECT_NAME, VELOCITY_DEST_PATH
+# Optional vars:    VELOCITY_RESTART_CMD, VELOCITY_HEALTH_TARGET
 
 on:
   push:
@@ -7,147 +14,34 @@ on:
   workflow_dispatch:
     inputs:
       container_name:
-        description: 'Target LXC container name (optional, uses default if empty)'
+        description: 'Override target LXC container (leave empty to use VELOCITY_CONTAINER_NAME var)'
         required: false
         default: ''
 
 jobs:
-  build-and-deploy-plugin:
-    runs-on: ubuntu-latest
+  # ── 1. Build ──────────────────────────────────────────────────────────────
+  build:
+    uses: ./.github/workflows/_build-java.yml
+    with:
+      module_path:   Nestworldvelocity
+      artifact_name: prod-plugin-jar
 
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-
-    - name: Set up JDK 21
-      uses: actions/setup-java@v3
-      with:
-        java-version: '21'
-        distribution: 'temurin'
-
-    - name: Grant execute permission for gradlew
-      run: chmod +x ./Nestworldvelocity/gradlew
-
-    - name: Build with Gradle
-      run: ./Nestworldvelocity/gradlew -p Nestworldvelocity build
-
-    - name: Prepare variables
-      id: prep
-      run: |
-        JAR_PATH=$(find Nestworldvelocity/build/libs -name "*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar" | head -n 1)
-        JAR_NAME=$(basename "$JAR_PATH")
-        echo "JAR_PATH=$JAR_PATH" >> $GITHUB_ENV
-        echo "JAR_NAME=$JAR_NAME" >> $GITHUB_ENV
-
-        if [ -n "${{ github.event.inputs.container_name }}" ]; then
-          echo "CONTAINER=${{ github.event.inputs.container_name }}" >> $GITHUB_ENV
-        else
-          echo "CONTAINER=${{ secrets.VELOCITY_CONTAINER_NAME }}" >> $GITHUB_ENV
-        fi
-
-    - name: Copy JAR to Host via SCP with Retries
-      run: |
-        echo "${{ secrets.SSH_PRIVATE_KEY }}" > private_key.pem
-        chmod 600 private_key.pem
-        
-        for i in {1..3}; do
-          scp -i ./private_key.pem -P ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no "${{ env.JAR_PATH }}" ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/
-          if [ $? -eq 0 ]; then
-            echo "SCP successful on attempt $i"
-            rm private_key.pem
-            exit 0
-          fi
-          echo "SCP failed on attempt $i. Retrying in 10 seconds..."
-          sleep 10
-        done
-        
-        echo "SCP failed after 3 attempts."
-        rm private_key.pem
-        exit 1
-
-    - name: Deploy, Restart, Check, and Rollback with Retries
-      run: |
-        echo "${{ secrets.SSH_PRIVATE_KEY }}" > private_key.pem
-        chmod 600 private_key.pem
-
-        run_ssh_command() {
-          ssh -i ./private_key.pem -p ${{ secrets.SERVER_PORT }} -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "$@"
-        }
-
-        DEPLOY_SCRIPT=$(cat <<'EOF'
-        set -e
-        LXC_CONTAINER="${{ env.CONTAINER }}"
-        LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
-        PLUGIN_DIR="${{ secrets.VELOCITY_DEST_PATH }}"
-        NEW_JAR_HOST_PATH="/tmp/${{ env.JAR_NAME }}"
-        DEPLOYED_JAR_PATH="${PLUGIN_DIR}/${{ env.JAR_NAME }}"
-
-        if lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- test -f "$DEPLOYED_JAR_PATH"; then
-          echo "--- Backing up existing JAR: ${DEPLOYED_JAR_PATH} ---"
-          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- mv "$DEPLOYED_JAR_PATH" "${DEPLOYED_JAR_PATH}.bak"
-        fi
-
-        lxc file push --project "$LXC_PROJECT" "$NEW_JAR_HOST_PATH" "$LXC_CONTAINER/${PLUGIN_DIR}/"
-
-        if [ -n "${{ secrets.VELOCITY_RESTART_COMMAND }}" ]; then
-          echo "--- Restarting Velocity ---"
-          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- ${{ secrets.VELOCITY_RESTART_COMMAND }}
-        else
-          echo "--- WARNING: VELOCITY_RESTART_COMMAND not set ---"
-        fi
-
-        echo "--- Installing mcstatus ---"
-        pip install -U mcstatus --break-system-packages
-        export PATH="$HOME/.local/bin:$PATH"
-
-        CONTAINER_IP=$(lxc list "$LXC_CONTAINER" --project "$LXC_PROJECT" -c 4 --format csv | awk 'NR==1{print $1}')
-        MC_PORT="${{ secrets.VELOCITY_PORT }}"
-        [ -z "$MC_PORT" ] && MC_PORT=25565
-
-        echo "--- Checking Velocity health ---"
-        for i in {1..6}; do
-          if mcstatus "$CONTAINER_IP:$MC_PORT" ping; then
-            echo "Velocity is healthy"
-            lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -f "${DEPLOYED_JAR_PATH}.bak"
-            exit 0
-          fi
-          sleep 10
-        done
-        echo "!!! Velocity health check failed, triggering rollback !!!"
-        exit 1
-        EOF
-        )
-
-        ROLLBACK_SCRIPT=$(cat <<'EOF'
-        set -e
-        LXC_CONTAINER="${{ env.CONTAINER }}"
-        LXC_PROJECT="${{ secrets.LXD_PROJECT_NAME }}"
-        PLUGIN_DIR="${{ secrets.VELOCITY_DEST_PATH }}"
-        DEPLOYED_JAR_PATH="${PLUGIN_DIR}/${{ env.JAR_NAME }}"
-        BACKUP_JAR_PATH="${DEPLOYED_JAR_PATH}.bak"
-
-        lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- rm -f "$DEPLOYED_JAR_PATH"
-        if lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- test -f "$BACKUP_JAR_PATH"; then
-          echo "--- Restoring backup ---"
-          lxc exec --project "$LXC_PROJECT" "$LXC_CONTAINER" -- mv "$BACKUP_JAR_PATH" "$DEPLOYED_JAR_PATH"
-        else
-          echo "--- No backup found ---"
-        fi
-        EOF
-        )
-
-        for i in {1..3}; do
-          if run_ssh_command "$DEPLOY_SCRIPT"; then
-            echo "Deployment successful on attempt $i"
-            rm private_key.pem
-            exit 0
-          fi
-          echo "Deployment failed on attempt $i. Retrying in 10 seconds..."
-          sleep 10
-        done
-
-        echo "Deployment failed after 3 attempts. Running rollback..."
-        run_ssh_command "$ROLLBACK_SCRIPT"
-        rm private_key.pem
-        exit 1
-
+  # ── 2. Deploy to production with rollback ─────────────────────────────────
+  deploy:
+    needs: build
+    uses: ./.github/workflows/_deploy-lxc-jar.yml
+    with:
+      artifact_name:          prod-plugin-jar
+      jar_name:               ${{ needs.build.outputs.jar_name }}
+      lxc_container:          ${{ github.event.inputs.container_name || vars.VELOCITY_CONTAINER_NAME }}
+      lxc_project:            ${{ vars.LXD_PROJECT_NAME }}
+      dest_path:              ${{ vars.VELOCITY_DEST_PATH }}
+      restart_command:        ${{ vars.VELOCITY_RESTART_CMD }}
+      health_type:            minecraft
+      health_target:          ${{ vars.VELOCITY_HEALTH_TARGET }}
+      health_timeout_minutes: 5
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.SERVER_PORT }}
