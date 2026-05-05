@@ -1,10 +1,14 @@
-name: Pull Request Checks
-# Runs per-module checks only for files that actually changed in the PR.
+name: Branch & PR Checks
+# Runs on every push to any feature branch AND on pull requests to main.
+# Only checks modules that actually changed — skips everything else.
 # The final `all-checks-passed` job is the single required status check to
 # configure in branch protection — it succeeds even when some modules were
 # skipped (nothing changed in them).
 
 on:
+  push:
+    branches-ignore:
+      - main        # main is handled by ci-dev.yml after merge
   pull_request:
     branches:
       - main

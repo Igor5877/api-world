@@ -1,14 +1,10 @@
-name: Deploy API to Production
-# Triggered by tags matching api-v* (e.g. api-v1.3.0).
-# Only tag a commit that has already been verified healthy on DEV via ci-dev.yml.
-#
-# Required secrets: SSH_PRIVATE_KEY, SERVER_HOST, SERVER_USER, SERVER_PORT
-# Optional vars:    API_PATH, API_SERVICE, API_HEALTH_URL  (defaults shown below)
+name: "[Hotfix] Deploy API to Production"
+# Manual-only hotfix deploy for the API.
+# Normal releases go through deploy-release.yml (tag V*).
+# Use this only to deploy a single module without a full release.
 
 on:
-  push:
-    tags:
-      - 'api-v*'
+  workflow_dispatch:
 
 jobs:
   # ── 1. Tests must pass on the tagged commit ─────────────────────────────────
