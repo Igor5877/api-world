@@ -1,16 +1,13 @@
-name: Deploy Velocity Plugin to Production
-# Triggered by tags matching plugin-v* (e.g. plugin-v1.1.0).
-# workflow_dispatch lets you override the target container for emergency hotfixes.
-# Only tag a commit that has already been verified healthy on DEV via ci-dev.yml.
+name: "[Hotfix] Deploy Velocity Plugin to Production"
+# Manual-only hotfix deploy for the Velocity plugin.
+# Normal releases go through deploy-release.yml (tag V*).
+# Use this only to deploy a single module without a full release.
 #
 # Required secrets: SSH_PRIVATE_KEY, SERVER_HOST, SERVER_USER, SERVER_PORT
 # Required vars:    VELOCITY_CONTAINER_NAME, LXD_PROJECT_NAME, VELOCITY_DEST_PATH
 # Optional vars:    VELOCITY_RESTART_CMD, VELOCITY_HEALTH_TARGET
 
 on:
-  push:
-    tags:
-      - 'plugin-v*'
   workflow_dispatch:
     inputs:
       container_name:

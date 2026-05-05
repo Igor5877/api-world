@@ -1,0 +1,167 @@
+name: Deploy Release to Production
+# Triggered when you create a GitHub Release with a tag like V1.0.0.
+# Builds ALL modules, deploys them all to production, health-checks each one,
+# and rolls back any module that fails.
+#
+# Workflow:
+#   1. Merge feature branches → main  (ci-dev.yml verifies on DEV)
+#   2. Create GitHub Release → tag V1.0.0  ← this file triggers
+#
+# Required secrets: SSH_PRIVATE_KEY, SERVER_HOST, SERVER_USER, SERVER_PORT
+# Required vars:    see ci-dev.yml for the full list (same names without DEV_ prefix)
+
+on:
+  push:
+    tags:
+      - 'V*'       # e.g. V1.0.0, V1.2.3-hotfix
+
+jobs:
+  # ── 1. Build all modules ────────────────────────────────────────────────────
+  build-mod:
+    uses: ./.github/workflows/_build-java.yml
+    with:
+      module_path:   mods-server
+      artifact_name: release-mod-jar
+      jar_pattern:   "nestworld-mods-server-*.jar"
+
+  build-plugin:
+    uses: ./.github/workflows/_build-java.yml
+    with:
+      module_path:   Nestworldvelocity
+      artifact_name: release-plugin-jar
+
+  build-realmarket:
+    uses: ./.github/workflows/_build-java.yml
+    with:
+      module_path:   RealMarket
+      artifact_name: release-realmarket-jar
+
+  build-sales:
+    uses: ./.github/workflows/_build-java.yml
+    with:
+      module_path:   sales-addon
+      artifact_name: release-sales-jar
+
+  test-api:
+    uses: ./.github/workflows/_test-python.yml
+    with:
+      test_path:   "api/app/tests"
+      pytest_args: "-v"
+
+  # ── 2. Deploy all modules to production ────────────────────────────────────
+  deploy-mod:
+    needs: build-mod
+    uses: ./.github/workflows/_deploy-lxc-jar.yml
+    with:
+      artifact_name:          release-mod-jar
+      jar_name:               ${{ needs.build-mod.outputs.jar_name }}
+      lxc_container:          ${{ vars.MOD_CONTAINER_NAME }}
+      lxc_project:            ${{ vars.LXD_PROJECT_NAME }}
+      dest_path:              ${{ vars.MOD_DEST_PATH }}
+      restart_command:        ${{ vars.MOD_RESTART_CMD }}
+      health_type:            minecraft
+      health_target:          ${{ vars.MOD_HEALTH_TARGET }}
+      health_timeout_minutes: 15
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.SERVER_PORT }}
+
+  deploy-plugin:
+    needs: build-plugin
+    uses: ./.github/workflows/_deploy-lxc-jar.yml
+    with:
+      artifact_name:          release-plugin-jar
+      jar_name:               ${{ needs.build-plugin.outputs.jar_name }}
+      lxc_container:          ${{ vars.VELOCITY_CONTAINER_NAME }}
+      lxc_project:            ${{ vars.LXD_PROJECT_NAME }}
+      dest_path:              ${{ vars.VELOCITY_DEST_PATH }}
+      restart_command:        ${{ vars.VELOCITY_RESTART_CMD }}
+      health_type:            minecraft
+      health_target:          ${{ vars.VELOCITY_HEALTH_TARGET }}
+      health_timeout_minutes: 5
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.SERVER_PORT }}
+
+  deploy-realmarket:
+    needs: build-realmarket
+    uses: ./.github/workflows/_deploy-lxc-jar.yml
+    with:
+      artifact_name:          release-realmarket-jar
+      jar_name:               ${{ needs.build-realmarket.outputs.jar_name }}
+      lxc_container:          ${{ vars.MOD_CONTAINER_NAME }}
+      lxc_project:            ${{ vars.LXD_PROJECT_NAME }}
+      dest_path:              ${{ vars.MOD_DEST_PATH }}
+      restart_command:        ${{ vars.MOD_RESTART_CMD }}
+      health_type:            minecraft
+      health_target:          ${{ vars.MOD_HEALTH_TARGET }}
+      health_timeout_minutes: 10
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.SERVER_PORT }}
+
+  deploy-sales:
+    needs: build-sales
+    uses: ./.github/workflows/_deploy-lxc-jar.yml
+    with:
+      artifact_name:          release-sales-jar
+      jar_name:               ${{ needs.build-sales.outputs.jar_name }}
+      lxc_container:          ${{ vars.MOD_CONTAINER_NAME }}
+      lxc_project:            ${{ vars.LXD_PROJECT_NAME }}
+      dest_path:              ${{ vars.MOD_DEST_PATH }}
+      restart_command:        ${{ vars.MOD_RESTART_CMD }}
+      health_type:            minecraft
+      health_target:          ${{ vars.MOD_HEALTH_TARGET }}
+      health_timeout_minutes: 10
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.SERVER_PORT }}
+
+  deploy-api:
+    needs: test-api
+    uses: ./.github/workflows/_deploy-api-ssh.yml
+    with:
+      deploy_sha:   ${{ github.sha }}
+      api_path:     ${{ vars.API_PATH     || '/srv/skyblock/api' }}
+      service_name: ${{ vars.API_SERVICE  || 'skyblock_api.service' }}
+      health_url:   ${{ vars.API_HEALTH_URL || 'http://localhost:8000/' }}
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.SERVER_PORT }}
+
+  # ── 3. Release summary ──────────────────────────────────────────────────────
+  release-summary:
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - deploy-mod
+      - deploy-plugin
+      - deploy-realmarket
+      - deploy-sales
+      - deploy-api
+    steps:
+      - name: Report
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "=== Release $TAG deploy summary ==="
+          echo "mod:        ${{ needs.deploy-mod.result }}"
+          echo "plugin:     ${{ needs.deploy-plugin.result }}"
+          echo "realmarket: ${{ needs.deploy-realmarket.result }}"
+          echo "sales:      ${{ needs.deploy-sales.result }}"
+          echo "api:        ${{ needs.deploy-api.result }}"
+
+          if echo '${{ toJSON(needs) }}' | grep -q '"result": "failure"'; then
+            echo "::error::Release $TAG partially failed — check logs above for which modules rolled back"
+            exit 1
+          fi
+          echo "Release $TAG deployed successfully to production."

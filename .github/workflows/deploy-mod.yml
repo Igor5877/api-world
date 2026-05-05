@@ -1,16 +1,13 @@
-name: Deploy Server Mod to Production
-# Triggered by tags matching mod-v* (e.g. mod-v1.2.3).
-# workflow_dispatch lets you override the target container for emergency hotfixes.
-# Only tag a commit that has already been verified healthy on DEV via ci-dev.yml.
+name: "[Hotfix] Deploy Server Mod to Production"
+# Manual-only hotfix deploy for the server mod.
+# Normal releases go through deploy-release.yml (tag V*).
+# Use this only to deploy a single module without a full release.
 #
 # Required secrets: SSH_PRIVATE_KEY, SERVER_HOST, SERVER_USER, SERVER_PORT
 # Required vars:    MOD_CONTAINER_NAME, LXD_PROJECT_NAME, MOD_DEST_PATH
 # Optional vars:    MOD_RESTART_CMD, MOD_HEALTH_TARGET
 
 on:
-  push:
-    tags:
-      - 'mod-v*'
   workflow_dispatch:
     inputs:
       container_name:
