@@ -14,6 +14,7 @@ import java.nio.file.Path;
 public class PluginConfig {
 
     private final String apiUrl;
+    private final String apiKey;
     private final String fallbackServerName;
     private final int apiRequestTimeoutSeconds;
     private final int pollingIntervalMillis;
@@ -32,8 +33,9 @@ public class PluginConfig {
      * @param autoRedirectToIslandEnabled Whether to automatically redirect players to their island on login.
      * @param tpaTimeoutSeconds           The timeout for TPA requests in seconds.
      */
-    private PluginConfig(String apiUrl, String fallbackServerName, int apiRequestTimeoutSeconds, int pollingIntervalMillis, int maxPollingAttempts, boolean autoRedirectToIslandEnabled, int tpaTimeoutSeconds) {
+    private PluginConfig(String apiUrl, String apiKey, String fallbackServerName, int apiRequestTimeoutSeconds, int pollingIntervalMillis, int maxPollingAttempts, boolean autoRedirectToIslandEnabled, int tpaTimeoutSeconds) {
         this.apiUrl = apiUrl;
+        this.apiKey = apiKey;
         this.fallbackServerName = fallbackServerName;
         this.apiRequestTimeoutSeconds = apiRequestTimeoutSeconds;
         this.pollingIntervalMillis = pollingIntervalMillis;
@@ -48,6 +50,8 @@ public class PluginConfig {
      * @return The API URL.
      */
     public String getApiUrl() { return apiUrl; }
+
+    public String getApiKey() { return apiKey; }
 
     /**
      * Gets the name of the fallback server.
@@ -119,6 +123,7 @@ public class PluginConfig {
             Toml toml = new Toml().read(configPath.toFile());
 
             String apiUrl = toml.getString("api.base_url", "http://127.0.0.1:8000/api/v1");
+            String apiKey = toml.getString("api.api_key", "");
             String fallbackServer = toml.getString("general.fallback_server", "hub");
             boolean autoRedirect = toml.getBoolean("general.auto_redirect_to_island_on_login", false);
 
@@ -135,7 +140,7 @@ public class PluginConfig {
             logger.info("Polling Interval: {}ms, Max Attempts: {}", interval, attempts);
             logger.info("TPA Timeout: {}s", tpaTimeout);
 
-            return new PluginConfig(apiUrl, fallbackServer, (int)timeout, (int)interval, (int)attempts, autoRedirect, (int)tpaTimeout);
+            return new PluginConfig(apiUrl, apiKey, fallbackServer, (int)timeout, (int)interval, (int)attempts, autoRedirect, (int)tpaTimeout);
 
         } catch (Exception e) {
             logger.error("Error loading NestworldVelocityPlugin configuration: ", e);
@@ -153,6 +158,7 @@ public class PluginConfig {
      */
     private static PluginConfig createAndSaveMinimalConfig(Path configPath, Logger logger) {
         String defaultApiUrl = "http://127.0.0.1:8000/api/v1";
+        String defaultApiKey = "";
         String defaultFallback = "hub";
         boolean defaultAutoRedirect = false;
         int defaultTimeout = 10;
@@ -167,6 +173,7 @@ public class PluginConfig {
                 "auto_redirect_to_island_on_login = %b\n\n" +
                 "[api]\n" +
                 "base_url = \"%s\"\n" +
+                "api_key = \"\"\n" +
                 "request_timeout_seconds = %d\n" +
                 "polling_interval_millis = %d\n" +
                 "max_polling_attempts = %d\n" +
@@ -178,7 +185,7 @@ public class PluginConfig {
         } catch (IOException ex) {
             logger.error("Failed to write minimal configuration file: ", ex);
         }
-        return new PluginConfig(defaultApiUrl, defaultFallback, defaultTimeout, defaultInterval, defaultAttempts, defaultAutoRedirect, defaultTpaTimeout);
+        return new PluginConfig(defaultApiUrl, defaultApiKey, defaultFallback, defaultTimeout, defaultInterval, defaultAttempts, defaultAutoRedirect, defaultTpaTimeout);
     }
 
     /**
@@ -189,6 +196,6 @@ public class PluginConfig {
      */
     private static PluginConfig createMinimalHardcodedConfig(Logger logger) {
         logger.warn("Creating a minimal hardcoded config due to previous errors.");
-        return new PluginConfig("http://127.0.0.1:8000/api/v1", "hub", 10, 2000, 15, false, 60);
+        return new PluginConfig("http://127.0.0.1:8000/api/v1", "", "hub", 10, 2000, 15, false, 60);
     }
 }

@@ -69,10 +69,8 @@ public class TradeBlock extends Block {
                 return InteractionResult.SUCCESS;
             }
 
-            final UUID finalUuid = linkedIslandUuid;
-            AzuriomClient.getBalAsync(id).thenAccept(bal ->
-                    ModMessages.sendToPlayer(new PacketOpenTradeUI(bal, finalUuid, entries), serverPlayer)
-            );
+            // Баланс 0.0 — реальна перевірка відбувається в FastAPI під час purchase/execute
+            ModMessages.sendToPlayer(new PacketOpenTradeUI(0.0, linkedIslandUuid, entries), serverPlayer);
         }
         return InteractionResult.SUCCESS;
     }

@@ -65,6 +65,13 @@ class Settings(BaseSettings):
     AZURIOM_API_URL: str = os.getenv("AZURIOM_API_URL", "")       # e.g. https://yoursite.com/api/
     AZURIOM_LINK_TOKEN: str = os.getenv("AZURIOM_LINK_TOKEN", "") # Azuriom Link Token
 
+    # Static API keys for machine-to-machine auth
+    PROXY_API_KEY: str = os.getenv("PROXY_API_KEY", "")   # Velocity proxy plugin
+    SPAWN_API_KEY: str = os.getenv("SPAWN_API_KEY", "")   # mods-server on spawn/hub
+
+    # CORS — конкретні домени через кому; "*" лише для розробки
+    CORS_ORIGINS: list[str] = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+
 
     class Config:
         """Represents the configuration for the settings.
@@ -80,6 +87,13 @@ class Settings(BaseSettings):
         case_sensitive = True
 
 settings = Settings()
+
+_DEFAULT_DB = "mysql+aiomysql://skyblock_user:skyblock_pass@localhost:3306/skyblock_db"
+if settings.DATABASE_URL == _DEFAULT_DB:
+    raise ValueError(
+        "DATABASE_URL is using the insecure default value. "
+        "Set DATABASE_URL in your .env file or as an environment variable."
+    )
 
 # Example usage:
 # from app.core.config import settings

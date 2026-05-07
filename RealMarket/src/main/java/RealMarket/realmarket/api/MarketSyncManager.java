@@ -49,8 +49,6 @@ public class MarketSyncManager {
     private static MarketWebSocketClient wsClient;
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     private static UUID currentIslandUuid;
-    /** Azuriom ID власника острова (продавця). -1 якщо ще не відомий. */
-    private static volatile int sellerAzuriomId = -1;
 
     /** Черга pending extractions що прийшли до того як AE2 була готова. */
     public record PendingExtraction(String itemId, int quantity, int pendingId) {}
@@ -60,6 +58,13 @@ public class MarketSyncManager {
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
             .build();
+
+    private static HttpRequest.Builder httpReq(String url) {
+        return HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(10))
+                .header("Content-Type", "application/json");
+    }
 
     private static boolean initialized = false;
 
@@ -115,30 +120,37 @@ public class MarketSyncManager {
      * Порівнює island UUID кожного гравця через MarketIslandApi.
      * Зберігає результат — повторний виклик повертає кешоване значення.
      */
+    /**
+     * Наповнює islandToAzuriomId для всіх island UUID з sourceLinks що ще невідомі.
+     * Виправляє H-6: замість одного static sellerAzuriomId — Map<UUID, Integer>.
+     */
     private static void tryResolveSellerAzuriomId(List<MarketLinkBlockEntity> sourceLinks) {
-        if (sellerAzuriomId != -1 || currentIslandUuid == null) return;
-        // O(1) lookup з кешу наповненого в notifyPlayerLogin()
-        int cached = islandToAzuriomId.getOrDefault(currentIslandUuid, -1);
-        if (cached != -1) {
-            sellerAzuriomId = cached;
-            System.out.println("[RealMarket] Seller Azuriom ID from cache: " + cached + " for island " + currentIslandUuid);
-            return;
+        // Збираємо UUID що потребують розпізнавання
+        Set<UUID> needsResolution = new java.util.HashSet<>();
+        for (MarketLinkBlockEntity link : sourceLinks) {
+            UUID uuid = link.getSourceIslandUuid() != null ? link.getSourceIslandUuid() : currentIslandUuid;
+            if (uuid != null && !islandToAzuriomId.containsKey(uuid)) {
+                needsResolution.add(uuid);
+            }
         }
-        // Fallback: O(N) перебір онлайн-гравців (тільки якщо кеш ще не наповнений)
+        if (needsResolution.isEmpty()) return;
+
+        // O(N) fallback — перебір онлайн-гравців лише якщо кеш не наповнений
         for (MarketLinkBlockEntity link : sourceLinks) {
             if (!(link.getLevel() instanceof net.minecraft.server.level.ServerLevel sl)) continue;
             for (net.minecraft.server.level.ServerPlayer player : sl.getServer().getPlayerList().getPlayers()) {
                 UUID pIsland = MarketIslandApi.getIslandUuid(player.getUUID());
-                if (currentIslandUuid.equals(pIsland)) {
+                if (pIsland != null && needsResolution.contains(pIsland)) {
                     int id = AzuriomClient.getPlayerId(player.getUUID());
                     if (id != -1) {
-                        sellerAzuriomId = id;
-                        islandToAzuriomId.put(currentIslandUuid, id);
-                        System.out.println("[RealMarket] Seller Azuriom ID resolved: " + id + " for island " + currentIslandUuid);
+                        islandToAzuriomId.put(pIsland, id);
+                        needsResolution.remove(pIsland);
+                        System.out.println("[RealMarket] Seller ID resolved: " + id + " for island " + pIsland);
+                        if (needsResolution.isEmpty()) return;
                     }
-                    return;
                 }
             }
+            break; // один сервер — достатньо одного посилання
         }
     }
 
@@ -222,7 +234,8 @@ public class MarketSyncManager {
                     obj.addProperty("price", defaultPrice);
                     obj.addProperty("is_for_sale", true);
                     obj.addProperty("version", 1);
-                    if (sellerAzuriomId != -1) obj.addProperty("seller_azuriom_id", sellerAzuriomId);
+                    int sellerId = islandToAzuriomId.getOrDefault(islandUuid, -1);
+                    if (sellerId != -1) obj.addProperty("seller_azuriom_id", sellerId);
                     aggregatedItems.put(uniqueId, obj);
                 }
             }
@@ -241,11 +254,7 @@ public class MarketSyncManager {
 
         try {
             String url = apiBase() + "/api/v1/market/islands/" + islandUuid + "/inventory/sync";
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(root.toString()))
-                    .build();
+            HttpRequest req = httpReq(url).POST(HttpRequest.BodyPublishers.ofString(root.toString())).build();
 
             HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(res -> {
@@ -278,10 +287,7 @@ public class MarketSyncManager {
     private static void fetchInventoryFromApi(UUID islandUuid) {
         try {
             String url = apiBase() + "/api/v1/market/islands/" + islandUuid + "/inventory";
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .GET()
-                    .build();
+            HttpRequest req = httpReq(url).GET().build();
 
             HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(res -> {
@@ -339,11 +345,7 @@ public class MarketSyncManager {
             body.addProperty("quantity", quantity);
             if (buyerAzuriomId != -1) body.addProperty("buyer_azuriom_id", buyerAzuriomId);
 
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
-                    .build();
+            HttpRequest req = httpReq(url).POST(HttpRequest.BodyPublishers.ofString(body.toString())).build();
 
             HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(res -> {
@@ -351,9 +353,6 @@ public class MarketSyncManager {
                             try {
                                 com.google.gson.JsonObject resp = com.google.gson.JsonParser
                                         .parseString(res.body()).getAsJsonObject();
-                                // API повертає pending_id з WS-повідомлення; але сам purchase
-                                // не повертає pending_id напряму — читаємо його якщо є,
-                                // інакше шукаємо у стандартному полі
                                 int pendingId = resp.has("pending_id") ? resp.get("pending_id").getAsInt() : -1;
                                 System.out.println("[RealMarket] Purchase reserved: " + quantity + "x " + itemId
                                         + " pending_id=" + pendingId);
@@ -381,11 +380,7 @@ public class MarketSyncManager {
     public static void cancelPurchaseAsync(UUID islandUuid, int pendingId) {
         try {
             String url = apiBase() + "/api/v1/market/islands/" + islandUuid + "/purchase/" + pendingId + "/cancel";
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.noBody())
-                    .build();
+            HttpRequest req = httpReq(url).POST(HttpRequest.BodyPublishers.noBody()).build();
             HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(res -> {
                         if (res.statusCode() == 200)
@@ -461,11 +456,7 @@ public class MarketSyncManager {
         if (currentIslandUuid == null) return;
         try {
             String url = apiBase() + "/api/v1/market/islands/" + currentIslandUuid + "/extraction/" + pendingId + "/confirm";
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.noBody())
-                    .build();
+            HttpRequest req = httpReq(url).POST(HttpRequest.BodyPublishers.noBody()).build();
             HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(res -> {
                         if (res.statusCode() == 200)
@@ -486,11 +477,7 @@ public class MarketSyncManager {
         if (currentIslandUuid == null) return;
         try {
             String url = apiBase() + "/api/v1/market/islands/" + currentIslandUuid + "/extraction/" + pendingId + "/fail";
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.noBody())
-                    .build();
+            HttpRequest req = httpReq(url).POST(HttpRequest.BodyPublishers.noBody()).build();
             HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(res -> {
                         if (res.statusCode() == 200)
@@ -521,11 +508,7 @@ public class MarketSyncManager {
             body.addProperty("quantity", quantity);
             body.addProperty("buyer_azuriom_id", buyerAzuriomId);
 
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
-                    .build();
+            HttpRequest req = httpReq(url).POST(HttpRequest.BodyPublishers.ofString(body.toString())).build();
 
             HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(res -> {
@@ -567,11 +550,7 @@ public class MarketSyncManager {
             body.addProperty("seller_azuriom_id", sellerAzuriomId);
             body.addProperty("unit_price", unitPrice);
 
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
-                    .build();
+            HttpRequest req = httpReq(url).POST(HttpRequest.BodyPublishers.ofString(body.toString())).build();
 
             HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(res -> callback.accept(res.statusCode() == 200))

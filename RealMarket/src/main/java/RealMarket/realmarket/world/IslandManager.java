@@ -19,6 +19,7 @@ import net.minecraft.world.level.block.state.properties.Property;
 import java.io.*;
 import java.lang.reflect.Type;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 public class IslandManager {
 
@@ -39,11 +40,12 @@ public class IslandManager {
     }
 
     public static void savePrices() {
-        try (FileWriter w = new FileWriter(PRICES_FILE)) {
-            Map<String, Double> raw = new HashMap<>();
-            PRICES.forEach((k, v) -> raw.put(k.toString(), v));
-            GSON.toJson(raw, w);
-        } catch (IOException e) { e.printStackTrace(); }
+        Map<String, Double> snapshot = new HashMap<>();
+        PRICES.forEach((k, v) -> snapshot.put(k.toString(), v));
+        CompletableFuture.runAsync(() -> {
+            try (FileWriter w = new FileWriter(PRICES_FILE)) { GSON.toJson(snapshot, w); }
+            catch (IOException e) { e.printStackTrace(); }
+        });
     }
 
     private static final int GRID_DISTANCE = 1000;
@@ -86,13 +88,12 @@ public class IslandManager {
     }
 
     private static void saveSlots() {
-        try (FileWriter w = new FileWriter(SLOTS_FILE)) {
-            Map<String, Integer> raw = new HashMap<>();
-            SLOTS.forEach((k, v) -> raw.put(k.toString(), v));
-            GSON.toJson(raw, w);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        Map<String, Integer> snapshot = new HashMap<>();
+        SLOTS.forEach((k, v) -> snapshot.put(k.toString(), v));
+        CompletableFuture.runAsync(() -> {
+            try (FileWriter w = new FileWriter(SLOTS_FILE)) { GSON.toJson(snapshot, w); }
+            catch (IOException e) { e.printStackTrace(); }
+        });
     }
 
     /** Повертає стабільні координати центру платформи для гравця. */
@@ -181,12 +182,15 @@ public class IslandManager {
         data.add("blocks", blocks);
 
         File file = new File(WARPS_DIR, playerUuid + ".json");
-        try (FileWriter w = new FileWriter(file)) {
-            GSON.toJson(data, w);
-            System.out.println("[IslandManager] Платформу збережено: " + blocks.size() + " блоків → " + file.getName());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        int blockCount = blocks.size();
+        CompletableFuture.runAsync(() -> {
+            try (FileWriter w = new FileWriter(file)) {
+                GSON.toJson(data, w);
+                System.out.println("[IslandManager] Платформу збережено: " + blockCount + " блоків → " + file.getName());
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        });
     }
 
     /**

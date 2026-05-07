@@ -10,6 +10,9 @@ auto_redirect_to_island_on_login = false
 # Ensure this matches your API server's address and port.
 base_url = "http://127.0.0.1:8000/api/v1"
 
+# Static API key sent as X-Api-Key header. Must match PROXY_API_KEY in the FastAPI .env.
+api_key = ""
+
 # Timeout in seconds for API requests.
 request_timeout_seconds = 10
 

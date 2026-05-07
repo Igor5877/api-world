@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 import com.mojang.logging.LogUtils;
+import com.skyblock.dynamic.Config;
 import com.skyblock.dynamic.nestworld.mods.NestworldModsServer;
 import org.slf4j.Logger;
 
@@ -28,8 +29,10 @@ public class IslandWebSocketClient {
     }
 
     public void connect() {
-        httpClient.newWebSocketBuilder()
-            .buildAsync(serverUri, new WebSocket.Listener() {
+        var builder = httpClient.newWebSocketBuilder();
+        String key = Config.getApiKey();
+        if (!key.isBlank()) builder.header("X-Api-Key", key);
+        builder.buildAsync(serverUri, new WebSocket.Listener() {
                 @Override
                 public void onOpen(WebSocket ws) {
                     LOGGER.info("WebSocket connection opened for owner: {}", ownerUuid);

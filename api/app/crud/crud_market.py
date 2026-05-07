@@ -239,7 +239,7 @@ class CRUDMarketItem:
             select(MarketPendingExtraction).where(
                 MarketPendingExtraction.id == pending_id,
                 MarketPendingExtraction.team_id == team_id,
-            )
+            ).with_for_update()
         )
         record = result.scalars().first()
         if record is None:
@@ -254,6 +254,7 @@ class CRUDMarketItem:
             )
             .order_by(MarketTransaction.created_at.asc())
             .limit(1)
+            .with_for_update()
         )
         tx = tx_result.scalars().first()
 
@@ -281,7 +282,7 @@ class CRUDMarketItem:
             select(MarketPendingExtraction).where(
                 MarketPendingExtraction.id == pending_id,
                 MarketPendingExtraction.team_id == team_id,
-            )
+            ).with_for_update()
         )
         record = result.scalars().first()
         if record is None:
@@ -296,6 +297,7 @@ class CRUDMarketItem:
             )
             .order_by(MarketTransaction.created_at.desc())
             .limit(1)
+            .with_for_update()
         )
         tx = tx_result.scalars().first()
 
