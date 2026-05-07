@@ -47,6 +47,16 @@ public class NestworldModsServer {
                 .build();
         private final Gson gson = new Gson();
 
+        private HttpRequest.Builder apiRequest(String url) {
+            HttpRequest.Builder b = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(Config.getApiRequestTimeoutSeconds()))
+                    .header("Content-Type", "application/json");
+            String key = Config.getApiKey();
+            if (!key.isBlank()) b.header("X-Api-Key", key);
+            return b;
+        }
+
         /**
          * Gets the cached team ID for a player.
          *
@@ -70,10 +80,7 @@ public class NestworldModsServer {
          */
         public CompletableFuture<Void> sendReady(UUID ownerUuid) {
             String apiUrl = Config.getApiBaseUrl() + "islands/" + ownerUuid.toString() + "/ready";
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(apiUrl))
-                    .POST(HttpRequest.BodyPublishers.noBody())
-                    .build();
+            HttpRequest request = apiRequest(apiUrl).POST(HttpRequest.BodyPublishers.noBody()).build();
 
             return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(response -> {
@@ -91,10 +98,7 @@ public class NestworldModsServer {
          */
         public CompletableFuture<Void> sendFreeze(UUID ownerUuid) {
             String apiUrl = Config.getApiBaseUrl() + "islands/" + ownerUuid.toString() + "/freeze";
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(apiUrl))
-                    .POST(HttpRequest.BodyPublishers.noBody())
-                    .build();
+            HttpRequest request = apiRequest(apiUrl).POST(HttpRequest.BodyPublishers.noBody()).build();
 
             return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                     .thenAccept(response -> {
@@ -127,12 +131,7 @@ public class NestworldModsServer {
 
             try {
                 String apiUrl = Config.getApiBaseUrl() + "teams/my_team/";
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(apiUrl + playerUuid.toString()))
-                        .timeout(Duration.ofSeconds(Config.getApiRequestTimeoutSeconds()))
-                        .header("Content-Type", "application/json")
-                        .GET()
-                        .build();
+                HttpRequest request = apiRequest(apiUrl + playerUuid.toString()).GET().build();
                 
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 

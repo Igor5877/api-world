@@ -5,7 +5,7 @@ from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.redis import get_redis_client
+from app.core.redis import get_redis_client, purchase_lock
 
 _SYNC_RATE_LIMIT = 6        # максимум запитів
 _SYNC_RATE_WINDOW = 60      # за N секунд
@@ -20,7 +20,7 @@ async def _check_sync_rate_limit(island_uuid: str) -> bool:
             await redis.expire(key, _SYNC_RATE_WINDOW)
         return count <= _SYNC_RATE_LIMIT
     except Exception:
-        return True  # якщо Redis недоступний — пропускаємо
+        return False  # Redis недоступний — відхиляємо щоб захистити БД
 from app.core.azuriom_client import credit_seller, refund_buyer, get_balance, deduct_buyer
 from app.db.session import get_db_session as get_db
 from app.crud.crud_market import crud_market
@@ -162,42 +162,50 @@ async def execute_purchase(
     """
     team_id = await _resolve_team_id(island_uuid, db)
 
-    # 1. Перевіряємо ціну та наявність товару (без блокування)
-    item = await crud_market.get_item(db, team_id, payload.item_id)
-    if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found or not for sale.")
-    if item.quantity < payload.quantity:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Insufficient stock: {item.quantity} available.")
-    total_cost = float(item.price) * payload.quantity
-
-    # 2. Перевірка балансу покупця
-    balance = await get_balance(payload.buyer_azuriom_id)
-    if balance is None:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not verify balance.")
-    if balance < total_cost:
-        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                            detail=f"Insufficient funds: need {total_cost:.2f}, have {balance:.2f}.")
-
-    # 3. Резервуємо товар (row-level lock) + створюємо транзакцію
     try:
-        result = await crud_market.purchase_item(
-            db_session=db, team_id=team_id,
-            item_id=payload.item_id, quantity=payload.quantity,
-            buyer_azuriom_id=payload.buyer_azuriom_id,
-        )
+        async with purchase_lock(payload.buyer_azuriom_id):
+            # 1. Перевіряємо ціну та наявність товару (без блокування)
+            item = await crud_market.get_item(db, team_id, payload.item_id)
+            if item is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found or not for sale.")
+            if item.quantity < payload.quantity:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Insufficient stock: {item.quantity} available.")
+            total_cost = float(item.price) * payload.quantity
+
+            # 2. Перевірка балансу покупця
+            balance = await get_balance(payload.buyer_azuriom_id)
+            if balance is None:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not verify balance.")
+            if balance < total_cost:
+                raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                                    detail=f"Insufficient funds: need {total_cost:.2f}, have {balance:.2f}.")
+
+            # 3. Резервуємо товар (row-level lock) + створюємо транзакцію
+            try:
+                result = await crud_market.purchase_item(
+                    db_session=db, team_id=team_id,
+                    item_id=payload.item_id, quantity=payload.quantity,
+                    buyer_azuriom_id=payload.buyer_azuriom_id,
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+            pending = await crud_market.create_pending_extraction(
+                db_session=db, team_id=team_id,
+                item_id=payload.item_id, quantity=payload.quantity,
+            )
+
+            # 4. Знімаємо гроші з покупця (M-4: cancel_purchase в try/except)
+            deducted = await deduct_buyer(payload.buyer_azuriom_id, total_cost)
+            if not deducted:
+                try:
+                    await crud_market.cancel_purchase(db_session=db, pending_id=pending.id, team_id=team_id)
+                except Exception as cancel_err:
+                    logger.error(f"CRITICAL: cancel_purchase failed for pending_id={pending.id}: {cancel_err}")
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment failed, reservation cancelled.")
+
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-
-    pending = await crud_market.create_pending_extraction(
-        db_session=db, team_id=team_id,
-        item_id=payload.item_id, quantity=payload.quantity,
-    )
-
-    # 4. Знімаємо гроші з покупця
-    deducted = await deduct_buyer(payload.buyer_azuriom_id, total_cost)
-    if not deducted:
-        await crud_market.cancel_purchase(db_session=db, pending_id=pending.id, team_id=team_id)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Payment failed, reservation cancelled.")
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
 
     # 5. Повідомляємо острів
     await _invalidate_cached_hash(team_id)

@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uuid # Required for UUID conversion if player_uuid is handled as str in some parts
@@ -258,7 +258,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -273,6 +273,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         websocket: The WebSocket connection.
         client_id: The ID of the client.
     """
+    valid_keys = {k for k in [settings.PROXY_API_KEY, settings.SPAWN_API_KEY] if k}
+    if valid_keys:
+        api_key = websocket.headers.get("x-api-key", "")
+        if api_key not in valid_keys:
+            await websocket.close(code=4001)
+            return
+
     await websocket_manager.connect(websocket, client_id)
 
     # Якщо це острів — одразу надсилаємо всі pending extractions
@@ -336,35 +343,43 @@ from app.api.v1.endpoints import teams as teams_router_module
 from app.api.v1.endpoints import market as market_router_module
 from app.api.v1.endpoints import warps as warps_router_module
 from app.api.v1.endpoints import analytics as analytics_router_module
+from app.core.auth import require_api_key
+
+_auth = [Depends(require_api_key)]
 
 app.include_router(
     islands_router_module.router,
     prefix=f"{settings.API_V1_STR}/islands",
-    tags=["Islands"]
+    tags=["Islands"],
+    dependencies=_auth,
 )
 
 app.include_router(
     teams_router_module.router,
     prefix=f"{settings.API_V1_STR}/teams",
-    tags=["Teams"]
+    tags=["Teams"],
+    dependencies=_auth,
 )
 
 app.include_router(
     market_router_module.router,
     prefix=f"{settings.API_V1_STR}/market",
-    tags=["Market"]
+    tags=["Market"],
+    dependencies=_auth,
 )
 
 app.include_router(
     warps_router_module.router,
     prefix=f"{settings.API_V1_STR}/warps",
-    tags=["Warps"]
+    tags=["Warps"],
+    dependencies=_auth,
 )
 
 app.include_router(
     analytics_router_module.router,
     prefix=f"{settings.API_V1_STR}/analytics",
-    tags=["Analytics"]
+    tags=["Analytics"],
+    dependencies=_auth,
 )
 
 # For development, you might run this with: uvicorn app.main:app --reload

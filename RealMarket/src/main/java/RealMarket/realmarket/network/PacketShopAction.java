@@ -1,5 +1,6 @@
 package RealMarket.realmarket.network;
 
+import RealMarket.realmarket.api.AzuriomClient;
 import RealMarket.realmarket.api.MarketSyncManager;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.FriendlyByteBuf;
@@ -44,6 +45,10 @@ public class PacketShopAction {
         ctx.get().enqueueWork(() -> {
             ServerPlayer player = ctx.get().getSender();
             if (player == null) return;
+
+            if (msg.amount <= 0 || msg.amount > 9999) return;
+            if (msg.itemId == null || msg.itemId.isBlank() || msg.itemId.length() > 256) return;
+            if (msg.type != 0 && msg.type != 1) return;
 
             int apiId = AzuriomClient.getPlayerId(player.getUUID());
             if (apiId == -1) {
@@ -105,7 +110,11 @@ public class PacketShopAction {
     private static void handleSell(ServerPlayer p, int apiId, int amt, String itemId, UUID islandUuid) {
         ItemStack handStack = p.getMainHandItem();
 
-        if (handStack.isEmpty() || handStack.getCount() < amt) {
+        // Перевіряємо що предмет у руці відповідає тому що продаємо
+        Item expected = BuiltInRegistries.ITEM.get(ResourceLocation.tryParse(itemId));
+        if (expected == Items.AIR || handStack.isEmpty()
+                || !handStack.getItem().equals(expected)
+                || handStack.getCount() < amt) {
             p.sendSystemMessage(Component.literal("§c[Shop] У вас недостатньо предметів у руці!"));
             return;
         }
@@ -118,20 +127,23 @@ public class PacketShopAction {
                 .map(i -> i.price() * 0.5)
                 .orElse(5.0);
 
-        // API кредитує продавця і записує транзакцію в БД
+        // Знімаємо предмети ДО API виклику (H-5: запобігаємо duplicate sell)
+        handStack.shrink(amt);
+
         MarketSyncManager.sellItemAsync(islandUuid, itemId, amt, apiId, unitPrice, success -> {
-            if (success) {
-                p.server.tell(new TickTask(0, () -> {
-                    handStack.shrink(amt);
+            p.server.tell(new TickTask(0, () -> {
+                if (success) {
                     p.sendSystemMessage(Component.literal(
                         "§6[Shop] Продано §f" + amt + "x " + itemId + " §6за §e" + (unitPrice * amt) + " Coins"
                     ));
-                }));
-            } else {
-                p.server.tell(new TickTask(0, () ->
-                    p.sendSystemMessage(Component.literal("§c[API] Сайт відхилив транзакцію. Спробуйте пізніше."))
-                ));
-            }
+                } else {
+                    // Повертаємо предмети гравцю якщо API відхилив
+                    if (!p.getInventory().add(new ItemStack(expected, amt))) {
+                        p.drop(new ItemStack(expected, amt), false);
+                    }
+                    p.sendSystemMessage(Component.literal("§c[API] Сайт відхилив транзакцію. Предмети повернено."));
+                }
+            }));
         });
     }
 }
