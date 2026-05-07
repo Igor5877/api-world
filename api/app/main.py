@@ -289,18 +289,18 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 else:
                     team_id = team.id
                 pending = await crud_market.get_pending_extractions(db, team_id) if team_id else []
-                for p in pending:
+                if pending:
                     await websocket_manager.send_personal_message(
                         {
-                            "type": "market_purchase",
-                            "pending_id": p.id,
-                            "item_id": p.item_id,
-                            "quantity": p.quantity,
+                            "type": "market_pending_extractions",
+                            "items": [
+                                {"pending_id": p.id, "item_id": p.item_id, "quantity": p.quantity}
+                                for p in pending
+                            ],
                         },
                         client_id,
                     )
-                if pending:
-                    logger.info(f"Sent {len(pending)} pending extractions to {client_id}")
+                    logger.info(f"Sent {len(pending)} pending extractions (batch) to {client_id}")
         except Exception as e:
             logger.error(f"Failed to send pending extractions to {client_id}: {e}")
 

@@ -24,6 +24,7 @@ import net.kyori.adventure.text.serializer.plain.PlainComponentSerializer;
 import org.slf4j.Logger;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -186,9 +187,13 @@ public class PlayerConnectionListener {
      * @param nextAttempt The next attempt number.
      */
     private void scheduleNextPoll(Player player, int nextAttempt) {
+        long delay = Math.min(
+            config.getPollingIntervalMillis() * (long) Math.pow(1.5, nextAttempt),
+            30_000L
+        );
         proxyServer.getScheduler()
             .buildTask(plugin, () -> pollForRunningAndConnect(player, nextAttempt))
-            .delay(config.getPollingIntervalMillis(), TimeUnit.MILLISECONDS)
+            .delay(delay, TimeUnit.MILLISECONDS)
             .schedule();
     }
     
@@ -274,9 +279,14 @@ public class PlayerConnectionListener {
                         teamMemberUuids.add(UUID.fromString(memberElement.getAsJsonObject().get("player_uuid").getAsString()));
                     }
 
-                    boolean otherTeamMembersOnline = serverConnection.getServer().getPlayersConnected().stream()
-                            .filter(p -> !p.getUniqueId().equals(disconnectedPlayerUuid))
-                            .anyMatch(p -> teamMemberUuids.contains(p.getUniqueId()));
+                    // Один прохід — розбиваємо на teamMembers і guests одразу
+                    List<Player> teamMembers = new ArrayList<>();
+                    List<Player> guests = new ArrayList<>();
+                    for (Player p : serverConnection.getServer().getPlayersConnected()) {
+                        if (p.getUniqueId().equals(disconnectedPlayerUuid)) continue;
+                        (teamMemberUuids.contains(p.getUniqueId()) ? teamMembers : guests).add(p);
+                    }
+                    boolean otherTeamMembersOnline = !teamMembers.isEmpty();
 
                     if (!otherTeamMembersOnline) {
                         Optional<RegisteredServer> fallbackServerOpt = proxyServer.getServer(config.getFallbackServerName());
@@ -284,9 +294,6 @@ public class PlayerConnectionListener {
                             logger.error("Fallback server '{}' not found. Cannot move guest players.", config.getFallbackServerName());
                         } else {
                             RegisteredServer fallbackServer = fallbackServerOpt.get();
-                            List<Player> guests = serverConnection.getServer().getPlayersConnected().stream()
-                                    .filter(p -> !p.getUniqueId().equals(disconnectedPlayerUuid) && !teamMemberUuids.contains(p.getUniqueId()))
-                                    .collect(Collectors.toList());
 
                             if (!guests.isEmpty()) {
                                 logger.info("Moving {} guests from island {} to fallback server.", guests.size(), serverName);

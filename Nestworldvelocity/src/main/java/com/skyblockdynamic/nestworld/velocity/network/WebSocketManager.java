@@ -58,7 +58,7 @@ public class WebSocketManager implements WebSocket.Listener {
     public void onOpen(WebSocket webSocket) {
         this.webSocket = webSocket;
         webSocket.request(1);
-        logger.info("WebSocket connection opened for player " + player.getUsername());
+        logger.info("WebSocket connection opened for player {}", player.getUsername());
     }
 
     @Override
@@ -66,7 +66,7 @@ public class WebSocketManager implements WebSocket.Listener {
         webSocket.request(1);
         try {
             String message = data.toString();
-            logger.info("Received WebSocket message for player " + player.getUsername() + ": " + message);
+            logger.info("Received WebSocket message for player {}: {}", player.getUsername(), message);
             JsonObject jsonObject = JsonParser.parseString(message).getAsJsonObject();
             if (jsonObject.has("status") && "RUNNING".equalsIgnoreCase(jsonObject.get("status").getAsString()) &&
                 jsonObject.has("minecraft_ready") && jsonObject.get("minecraft_ready").getAsBoolean()) {
@@ -83,14 +83,14 @@ public class WebSocketManager implements WebSocket.Listener {
 
     @Override
     public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-        logger.info("WebSocket connection closed for player " + player.getUsername() + " with status code " + statusCode + " and reason: " + reason);
+        logger.info("WebSocket connection closed for player {} with status code {} and reason: {}", player.getUsername(), statusCode, reason);
         latch.countDown();
         return null;
     }
 
     @Override
     public void onError(WebSocket webSocket, Throwable error) {
-        logger.error("WebSocket error for player " + player.getUsername(), error);
+        logger.error("WebSocket error for player {}", player.getUsername(), error);
         latch.countDown();
     }
 
@@ -101,5 +101,6 @@ public class WebSocketManager implements WebSocket.Listener {
         if (webSocket != null) {
             webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "Client closing connection");
         }
+        latch.countDown();
     }
 }

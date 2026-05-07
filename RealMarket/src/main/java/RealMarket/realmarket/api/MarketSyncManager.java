@@ -39,9 +39,12 @@ import java.util.concurrent.*;
 
 public class MarketSyncManager {
 
-    // Кеш інвентарів для SINK блоків: island_uuid → список предметів
+    // Кеш інвентарів для SINK блоків: island_uuid → тільки isForSale=true предмети
     public record CachedItem(String itemId, String itemNbt, long quantity, double price, boolean isForSale, int sellerAzuriomId) {}
     private static final Map<UUID, List<CachedItem>> sinkCache = new ConcurrentHashMap<>();
+
+    // Кеш island_uuid → azuriom_id: наповнюється при вході гравця через notifyPlayerLogin()
+    private static final Map<UUID, Integer> islandToAzuriomId = new ConcurrentHashMap<>();
 
     private static MarketWebSocketClient wsClient;
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
@@ -84,6 +87,19 @@ public class MarketSyncManager {
         }
     }
 
+    /**
+     * Викликати з PlayerLoggedInEvent: кешує island_uuid → azuriom_id для швидкого O(1) lookup.
+     * Викликати при вході гравця щоб уникнути O(N) перебору при кожному sync.
+     */
+    public static void notifyPlayerLogin(UUID playerUuid) {
+        UUID islandUuid = MarketIslandApi.getIslandUuid(playerUuid);
+        if (islandUuid == null) return;
+        int azuriomId = AzuriomClient.getPlayerId(playerUuid);
+        if (azuriomId != -1) {
+            islandToAzuriomId.put(islandUuid, azuriomId);
+        }
+    }
+
     /** Примусова негайна синхронізація (для дев-команд). */
     public static void triggerSync() {
         scheduler.submit(() -> {
@@ -99,10 +115,17 @@ public class MarketSyncManager {
      * Порівнює island UUID кожного гравця через MarketIslandApi.
      * Зберігає результат — повторний виклик повертає кешоване значення.
      */
-    private static void tryResolveSellerAzuriomId() {
+    private static void tryResolveSellerAzuriomId(List<MarketLinkBlockEntity> sourceLinks) {
         if (sellerAzuriomId != -1 || currentIslandUuid == null) return;
-        for (MarketLinkBlockEntity link : RealMarket.getActiveMarketLinks()) {
-            if (link.getMode() != BlockMode.SOURCE) continue;
+        // O(1) lookup з кешу наповненого в notifyPlayerLogin()
+        int cached = islandToAzuriomId.getOrDefault(currentIslandUuid, -1);
+        if (cached != -1) {
+            sellerAzuriomId = cached;
+            System.out.println("[RealMarket] Seller Azuriom ID from cache: " + cached + " for island " + currentIslandUuid);
+            return;
+        }
+        // Fallback: O(N) перебір онлайн-гравців (тільки якщо кеш ще не наповнений)
+        for (MarketLinkBlockEntity link : sourceLinks) {
             if (!(link.getLevel() instanceof net.minecraft.server.level.ServerLevel sl)) continue;
             for (net.minecraft.server.level.ServerPlayer player : sl.getServer().getPlayerList().getPlayers()) {
                 UUID pIsland = MarketIslandApi.getIslandUuid(player.getUUID());
@@ -110,6 +133,7 @@ public class MarketSyncManager {
                     int id = AzuriomClient.getPlayerId(player.getUUID());
                     if (id != -1) {
                         sellerAzuriomId = id;
+                        islandToAzuriomId.put(currentIslandUuid, id);
                         System.out.println("[RealMarket] Seller Azuriom ID resolved: " + id + " for island " + currentIslandUuid);
                     }
                     return;
@@ -119,19 +143,27 @@ public class MarketSyncManager {
     }
 
     private static void syncSourceBlocks() {
+        // Один прохід: розбиваємо links на SOURCE/SINK одразу — уникаємо 4 ітерацій getActiveMarketLinks()
+        List<MarketLinkBlockEntity> sourceLinks = new ArrayList<>();
+        UUID syncUuid = currentIslandUuid;
+
+        for (MarketLinkBlockEntity link : RealMarket.getActiveMarketLinks()) {
+            if (link.getMode() == BlockMode.SOURCE) {
+                sourceLinks.add(link);
+                if (link.getSourceIslandUuid() != null) syncUuid = link.getSourceIslandUuid();
+            }
+        }
+
         // Якщо AE2 ще не готова — перевіримо чи є активний grid і drain черги ДО читання інвентаря
         if (!ae2Ready) {
             boolean hasActiveGrid = false;
-            for (MarketLinkBlockEntity link : RealMarket.getActiveMarketLinks()) {
-                if (link.getMode() == BlockMode.SOURCE && link.getGrid() != null) {
-                    hasActiveGrid = true;
-                    break;
-                }
+            for (MarketLinkBlockEntity link : sourceLinks) {
+                if (link.getGrid() != null) { hasActiveGrid = true; break; }
             }
             if (hasActiveGrid) {
                 ae2Ready = true;
                 List<PendingExtraction> queued = new ArrayList<>(extractionQueue);
-                extractionQueue.clear();
+                extractionQueue.removeAll(queued);  // removeAll замість clear() — не видаляємо нові записи
                 if (!queued.isEmpty()) {
                     System.out.println("[RealMarket] AE2 ready — draining " + queued.size() + " queued extractions before sync");
                     for (PendingExtraction p : queued) {
@@ -141,19 +173,17 @@ public class MarketSyncManager {
                     System.out.println("[RealMarket] AE2 ready — no queued extractions");
                 }
             } else {
-                System.out.println("[RealMarket] Syncing SOURCE blocks...");
-                return; // Нема active grid — ще рано синхронізувати
+                System.out.println("[RealMarket] Waiting for active AE2 grid...");
+                return;
             }
         }
 
-        tryResolveSellerAzuriomId();
+        tryResolveSellerAzuriomId(sourceLinks);
         System.out.println("[RealMarket] Syncing SOURCE blocks...");
         Map<String, JsonObject> aggregatedItems = new HashMap<>();
         double defaultPrice = 10.0;
 
-        for (MarketLinkBlockEntity link : RealMarket.getActiveMarketLinks()) {
-            if (link.getMode() != BlockMode.SOURCE) continue;
-
+        for (MarketLinkBlockEntity link : sourceLinks) {
             IGrid grid = link.getGrid();
             if (grid == null) continue;
 
@@ -163,8 +193,7 @@ public class MarketSyncManager {
             MEStorage storage = storageService.getInventory();
             if (storage == null) continue;
 
-            UUID islandUuid = link.getSourceIslandUuid();
-            if (islandUuid == null) islandUuid = currentIslandUuid;
+            UUID islandUuid = link.getSourceIslandUuid() != null ? link.getSourceIslandUuid() : currentIslandUuid;
 
             for (var keyEntry : storage.getAvailableStacks()) {
                 AEKey key = keyEntry.getKey();
@@ -199,17 +228,9 @@ public class MarketSyncManager {
             }
         }
 
-        if (!aggregatedItems.isEmpty()) {
-            sendSyncRequest(aggregatedItems, islandUuidForSync());
+        if (!aggregatedItems.isEmpty() && syncUuid != null) {
+            sendSyncRequest(aggregatedItems, syncUuid);
         }
-    }
-
-    private static UUID islandUuidForSync() {
-        for (MarketLinkBlockEntity link : RealMarket.getActiveMarketLinks()) {
-            if (link.getMode() == BlockMode.SOURCE && link.getSourceIslandUuid() != null)
-                return link.getSourceIslandUuid();
-        }
-        return currentIslandUuid;
     }
 
     private static void sendSyncRequest(Map<String, JsonObject> aggregatedItems, UUID islandUuid) {
@@ -273,19 +294,21 @@ public class MarketSyncManager {
                             JsonArray arr = JsonParser.parseString(res.body()).getAsJsonArray();
                             for (JsonElement el : arr) {
                                 JsonObject obj = el.getAsJsonObject();
+                                boolean forSale = obj.get("is_for_sale").getAsBoolean();
+                                if (!forSale) continue;  // кешуємо тільки isForSale=true — TradeBlock не потребує filter()
                                 items.add(new CachedItem(
                                         obj.get("item_id").getAsString(),
                                         obj.has("item_nbt") && !obj.get("item_nbt").isJsonNull()
                                                 ? obj.get("item_nbt").getAsString() : null,
                                         obj.get("quantity").getAsLong(),
                                         obj.get("price").getAsDouble(),
-                                        obj.get("is_for_sale").getAsBoolean(),
+                                        true,
                                         obj.has("seller_azuriom_id") && !obj.get("seller_azuriom_id").isJsonNull()
                                                 ? obj.get("seller_azuriom_id").getAsInt() : -1
                                 ));
                             }
                             sinkCache.put(islandUuid, items);
-                            System.out.println("[RealMarket] Fetched " + items.size() + " items for island " + islandUuid);
+                            System.out.println("[RealMarket] Fetched " + items.size() + " for-sale items for island " + islandUuid);
                         } catch (Exception e) {
                             System.err.println("[RealMarket] Failed to parse inventory: " + e.getMessage());
                         }

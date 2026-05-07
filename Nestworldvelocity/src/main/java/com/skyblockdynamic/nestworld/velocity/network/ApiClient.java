@@ -66,9 +66,10 @@ public class ApiClient {
 
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenApply(httpResponse -> {
+                    String body = httpResponse.body() != null ? httpResponse.body() : "";
                     logger.debug("API Response for getIslandDetails for {}: Status Code {}, Body: {}",
-                            playerUuid, httpResponse.statusCode(), httpResponse.body().substring(0, Math.min(httpResponse.body().length(), 500)));
-                    return new ApiResponse(httpResponse.statusCode(), httpResponse.body());
+                            playerUuid, httpResponse.statusCode(), body.substring(0, Math.min(body.length(), 500)));
+                    return new ApiResponse(httpResponse.statusCode(), body);
                 })
                 .exceptionally(ex -> {
                     logger.error("API request failed for getIslandDetails for {}: {}", playerUuid, ex.getMessage(), ex);

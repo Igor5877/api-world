@@ -26,6 +26,7 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> Any:
         select(EconomySnapshot)
         .where(EconomySnapshot.hour >= since)
         .order_by(EconomySnapshot.hour.asc())
+        .limit(24)
     )
     snapshots = snapshots_result.scalars().all()
 
@@ -61,6 +62,7 @@ async def get_overview(db: AsyncSession = Depends(get_db)) -> Any:
 @router.get("/anomalies")
 async def get_anomalies(
     resolved: bool = False,
+    limit: int = 50,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Список аномалій. resolved=false — тільки активні, resolved=true — всі."""
@@ -68,7 +70,7 @@ async def get_anomalies(
         select(MarketAnomaly)
         .where(MarketAnomaly.resolved == resolved)
         .order_by(desc(MarketAnomaly.detected_at))
-        .limit(50)
+        .limit(limit)
     )
     anomalies = result.scalars().all()
 
@@ -107,6 +109,7 @@ async def resolve_anomaly(anomaly_id: int, db: AsyncSession = Depends(get_db)) -
 @router.get("/top-sellers")
 async def get_top_sellers(
     hours: int = 24,
+    limit: int = 20,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Топ продавців за останні N годин по сумі транзакцій."""
@@ -126,7 +129,7 @@ async def get_top_sellers(
         )
         .group_by(MarketTransaction.seller_azuriom_id)
         .order_by(desc("total_earned"))
-        .limit(20)
+        .limit(limit)
     )
 
     return [
@@ -143,6 +146,7 @@ async def get_top_sellers(
 @router.get("/items")
 async def get_item_stats(
     hours: int = 24,
+    limit: int = 50,
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """Статистика по предметах за останні N годин — читає pre-aggregated таблицю."""
@@ -158,7 +162,7 @@ async def get_item_stats(
         .where(MarketStatsHourly.hour >= since)
         .group_by(MarketStatsHourly.item_id)
         .order_by(desc("total_volume"))
-        .limit(50)
+        .limit(limit)
     )
 
     return [
