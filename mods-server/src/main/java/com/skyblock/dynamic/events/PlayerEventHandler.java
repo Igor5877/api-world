@@ -8,6 +8,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
 
+import java.lang.reflect.Method;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -22,6 +23,14 @@ public class PlayerEventHandler {
     private static final Logger LOGGER = LogUtils.getLogger();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> freezeTask;
+
+    private static final Method CACHED_GET_PLAYER_COUNT;
+    static {
+        Method m = null;
+        try { m = MinecraftServer.class.getMethod("getPlayerCount"); }
+        catch (Exception ignored) { }
+        CACHED_GET_PLAYER_COUNT = m;
+    }
 
     /**
      * Handles the player login event.
@@ -56,10 +65,13 @@ public class PlayerEventHandler {
                 playerCount = server.getPlayerCount();
             } catch (NoSuchMethodError e) {
                 try {
-                    java.lang.reflect.Method getPlayerCountMethod = server.getClass().getMethod("getPlayerCount");
-                    playerCount = (int) getPlayerCountMethod.invoke(server);
+                    if (CACHED_GET_PLAYER_COUNT != null) {
+                        playerCount = (int) CACHED_GET_PLAYER_COUNT.invoke(server);
+                    } else {
+                        playerCount = server.getPlayerList().getPlayerCount();
+                    }
                 } catch (Exception ex) {
-                    playerCount = server.getPlayerList().getPlayerCount(); // Another potential fallback
+                    playerCount = server.getPlayerList().getPlayerCount();
                 }
             }
         }
@@ -89,9 +101,10 @@ public class PlayerEventHandler {
             try {
                 UUID ownerUuid = UUID.fromString(ownerUuidStr);
                 NestworldModsServer.ISLAND_PROVIDER.sendFreeze(ownerUuid)
-                    .thenRun(() -> LOGGER.info("Successfully sent island freeze request for owner: {}", ownerUuidStr))
+                    .orTimeout(10, TimeUnit.SECONDS)
+                    .thenRun(() -> LOGGER.info("Island frozen successfully for owner: {}", ownerUuidStr))
                     .exceptionally(ex -> {
-                        LOGGER.error("Failed to send island freeze request for owner: {}", ownerUuidStr, ex);
+                        LOGGER.error("Freeze failed or timed out for owner {}: {}", ownerUuidStr, ex.getMessage());
                         return null;
                     });
             } catch (IllegalArgumentException e) {

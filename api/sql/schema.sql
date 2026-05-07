@@ -208,6 +208,10 @@ CREATE TABLE IF NOT EXISTS market_pending_extractions (
 -- ALTER TABLE market_transactions DROP COLUMN island_uuid;
 -- ALTER TABLE market_pending_extractions DROP COLUMN island_uuid;
 
+-- Migration: performance indexes (after team_id migration)
+-- ALTER TABLE market_items ADD INDEX idx_team_id (team_id);
+-- ALTER TABLE market_pending_extractions ADD INDEX idx_created_at (created_at);
+
 -- Example of how to get the next player from the queue:
 -- SELECT player_uuid FROM island_queue ORDER BY requested_at ASC LIMIT 1;
 

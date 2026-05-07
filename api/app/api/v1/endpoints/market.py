@@ -38,13 +38,25 @@ _HASH_TTL = 3600  # секунд — інвалідація кешу якщо о
 
 
 async def _resolve_team_id(island_uuid: str, db: AsyncSession) -> int:
-    """Resolves player UUID to team_id. Raises 404 if player has no team."""
+    """Resolves player UUID to team_id with Redis cache. Raises 404 if player has no team."""
+    try:
+        redis = get_redis_client()
+        cached = await redis.get(f"team_id:{island_uuid}")
+        if cached:
+            return int(cached)
+    except Exception:
+        pass
     team = await get_team_by_player(db, player_uuid=island_uuid)
     if not team:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No team found for player {island_uuid}."
         )
+    try:
+        redis = get_redis_client()
+        await redis.set(f"team_id:{island_uuid}", team.id, ex=3600)
+    except Exception:
+        pass
     return team.id
 
 

@@ -18,8 +18,10 @@ class CRUDWarps:
         await db.refresh(obj)
         return obj
 
-    async def get_all_pending(self, db: AsyncSession) -> list[WarpPendingCommand]:
-        result = await db.execute(select(WarpPendingCommand).order_by(WarpPendingCommand.id))
+    async def get_all_pending(self, db: AsyncSession, limit: int = 100) -> list[WarpPendingCommand]:
+        result = await db.execute(
+            select(WarpPendingCommand).order_by(WarpPendingCommand.id).limit(limit)
+        )
         return list(result.scalars().all())
 
     async def confirm(self, db: AsyncSession, pending_id: int) -> bool:

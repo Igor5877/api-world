@@ -39,19 +39,18 @@ class CRUDMarketItem:
                 ae2_by_item: dict[str, int] = {item.item_id: item.quantity for item in items}
 
                 # Знайти pending які тепер можна виконати (AE2 нарешті має предмети)
-                for row in pending_rows:
+                # O(N) з накопичувальним словником замість O(N²) вкладеного sum()
+                cumulative: dict[str, int] = {}
+                for row in pending_rows:  # вже відсортовано по created_at.asc()
+                    already_reserved = cumulative.get(row.item_id, 0)
                     ae2_qty = ae2_by_item.get(row.item_id, 0)
-                    already_reserved = sum(
-                        r.quantity for r in pending_rows
-                        if r.item_id == row.item_id and r.created_at < row.created_at
-                    )
                     if ae2_qty > already_reserved:
-                        # Для цього pending є достатньо в AE2 → тригерити extraction
                         triggered_extractions.append({
                             "pending_id": row.id,
                             "item_id": row.item_id,
                             "quantity": row.quantity,
                         })
+                    cumulative[row.item_id] = already_reserved + row.quantity
 
                 # Розрахувати ефективну кількість для вітрини (AE2 - весь борг)
                 adjusted_items = []
@@ -197,13 +196,14 @@ class CRUDMarketItem:
     # ── Transactions ──────────────────────────────────────────────────────
 
     async def get_island_transactions(
-        self, db_session: AsyncSession, team_id: int
+        self, db_session: AsyncSession, team_id: int, skip: int = 0, limit: int = 100
     ) -> List[MarketTransaction]:
         result = await db_session.execute(
             select(MarketTransaction)
             .where(MarketTransaction.team_id == team_id)
             .order_by(MarketTransaction.created_at.desc())
-            .limit(100)
+            .offset(skip)
+            .limit(limit)
         )
         return result.scalars().all()
 
@@ -219,10 +219,12 @@ class CRUDMarketItem:
         return record
 
     async def get_pending_extractions(
-        self, db_session: AsyncSession, team_id: int
+        self, db_session: AsyncSession, team_id: int, limit: int = 100
     ) -> List[MarketPendingExtraction]:
         result = await db_session.execute(
-            select(MarketPendingExtraction).where(MarketPendingExtraction.team_id == team_id)
+            select(MarketPendingExtraction)
+            .where(MarketPendingExtraction.team_id == team_id)
+            .limit(limit)
         )
         return result.scalars().all()
 

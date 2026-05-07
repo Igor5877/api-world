@@ -64,4 +64,4 @@ class MarketPendingExtraction(Base):
     team_id     = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
     item_id     = Column(String(255), nullable=False)
     quantity    = Column(Integer, nullable=False)
-    created_at  = Column(DateTime, server_default=func.now())
+    created_at  = Column(DateTime, server_default=func.now(), index=True)

@@ -50,26 +50,25 @@ class ConnectionManager:
             del self.active_connections[client_id]
             logger.info(f"WebSocket Manager: Disconnected client_id: {client_id} on this worker.")
 
-    async def _send_direct_personal_message(self, data: Any, websocket: WebSocket):
-        """Sends a message directly to a WebSocket connection.
+    async def _send_direct_personal_message(self, data: Any, client_id: str):
+        """Sends a message directly to a locally connected WebSocket client.
 
         This method is used by the redis_listener to send messages to locally
         connected clients.
 
         Args:
             data: The data to send.
-            websocket: The WebSocket connection.
+            client_id: The ID of the client.
         """
+        websocket = self.active_connections.get(client_id)
+        if websocket is None:
+            return
         try:
             message_text = json.dumps(data) if isinstance(data, (dict, list)) else str(data)
             await websocket.send_text(message_text)
         except (WebSocketDisconnect, RuntimeError) as e:
-            # Find client_id to disconnect if the connection is dead
-            for cid, ws in self.active_connections.items():
-                if ws == websocket:
-                    logger.warning(f"WebSocket Manager: Connection to {cid} closed while sending: {e}")
-                    self.disconnect(cid)
-                    break
+            logger.warning(f"WebSocket Manager: Connection to {client_id} closed while sending: {e}")
+            self.disconnect(client_id)
         except Exception as e:
             logger.error(f"WebSocket Manager: Unexpected error sending direct message: {e}", exc_info=True)
 
@@ -130,9 +129,8 @@ class ConnectionManager:
                     # Send to locally connected clients
                     for client_id in client_ids:
                         if client_id in self.active_connections:
-                            websocket = self.active_connections[client_id]
                             logger.debug(f"Redis Listener: Sending message from channel to local client: {client_id}")
-                            await self._send_direct_personal_message(data, websocket)
+                            await self._send_direct_personal_message(data, client_id)
                 await asyncio.sleep(0.01)  # Prevent high CPU usage
             except Exception as e:
                 logger.error(f"Redis listener error: {e}", exc_info=True)

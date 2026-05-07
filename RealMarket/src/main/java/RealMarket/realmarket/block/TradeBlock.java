@@ -58,10 +58,9 @@ public class TradeBlock extends Block {
                 return InteractionResult.SUCCESS;
             }
 
-            // Будуємо список предметів з кешу
+            // Кеш вже містить тільки isForSale=true — filter зайвий
             List<PacketOpenTradeUI.ItemEntry> entries = MarketSyncManager.getCachedInventory(linkedIslandUuid)
                     .stream()
-                    .filter(MarketSyncManager.CachedItem::isForSale)
                     .map(i -> new PacketOpenTradeUI.ItemEntry(i.itemId(), i.price(), i.quantity()))
                     .collect(Collectors.toList());
 

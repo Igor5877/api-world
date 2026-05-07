@@ -148,9 +148,8 @@ public class MyIslandCommand implements SimpleCommand {
     private void connectToWebSocket(Player player) {
         UUID playerUuid = player.getUniqueId();
         
-        if (plugin.getWebSocketManagers().containsKey(playerUuid)) {
-            plugin.getWebSocketManagers().remove(playerUuid).close();
-        }
+        WebSocketManager old = plugin.getWebSocketManagers().remove(playerUuid);
+        if (old != null) old.close();
 
         String httpUrl = config.getApiUrl();
         String wsUrl = httpUrl.replace("/api/v1", "/ws/" + playerUuid.toString()).replaceFirst("http", "ws");

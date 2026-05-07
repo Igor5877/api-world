@@ -1,5 +1,7 @@
 package RealMarket.realmarket.api;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -52,6 +54,7 @@ public class MarketWebSocketClient {
     }
 
     private void handleMessage(String raw) {
+        if (raw == null || !raw.startsWith("{")) return;  // відхиляємо не-JSON одразу
         try {
             JsonObject msg = JsonParser.parseString(raw).getAsJsonObject();
             String type = msg.has("type") ? msg.get("type").getAsString() : "";
@@ -64,8 +67,21 @@ public class MarketWebSocketClient {
                     String itemId   = msg.get("item_id").getAsString();
                     int    qty      = msg.get("quantity").getAsInt();
                     int    pendingId = msg.has("pending_id") ? msg.get("pending_id").getAsInt() : -1;
-                    System.out.println("[RealMarket] Purchase received: " + qty + "x " + itemId + " (pending_id=" + pendingId + ") — extracting from AE2");
+                    System.out.println("[RealMarket] Purchase: " + qty + "x " + itemId + " (pending_id=" + pendingId + ")");
                     MarketSyncManager.extractFromAE2(itemId, qty, pendingId);
+                }
+                case "market_pending_extractions" -> {
+                    // Batch: масив pending extractions при підключенні острова
+                    JsonArray items = msg.getAsJsonArray("items");
+                    if (items == null) break;
+                    System.out.println("[RealMarket] Received batch of " + items.size() + " pending extractions");
+                    for (JsonElement el : items) {
+                        JsonObject item = el.getAsJsonObject();
+                        String itemId   = item.get("item_id").getAsString();
+                        int    qty      = item.get("quantity").getAsInt();
+                        int    pendingId = item.has("pending_id") ? item.get("pending_id").getAsInt() : -1;
+                        MarketSyncManager.extractFromAE2(itemId, qty, pendingId);
+                    }
                 }
                 default -> { /* ігноруємо невідомі повідомлення */ }
             }

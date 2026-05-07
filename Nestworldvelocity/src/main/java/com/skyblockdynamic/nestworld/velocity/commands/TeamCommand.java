@@ -6,6 +6,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.skyblockdynamic.nestworld.velocity.NestworldVelocityPlugin;
 import com.skyblockdynamic.nestworld.velocity.network.ApiClient;
+import com.skyblockdynamic.nestworld.velocity.network.ApiResponse;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
@@ -13,8 +14,11 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.slf4j.Logger;
 
-import java.util.Arrays;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+
 
 /**
  * The /team command.
@@ -25,6 +29,7 @@ public class TeamCommand implements SimpleCommand {
     private final Logger logger;
     private final Gson gson = new Gson();
     private final com.skyblockdynamic.nestworld.velocity.locale.LocaleManager localeManager;
+    private final Map<UUID, String> nameCache = new ConcurrentHashMap<>();
 
     /**
      * Constructs a new TeamCommand.
@@ -136,22 +141,24 @@ public class TeamCommand implements SimpleCommand {
      */
     private void handleLeave(Player player) {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
-        apiClient.getTeam(player.getUniqueId()).thenAccept(response -> {
-            if (response.isSuccess()) {
-                JsonObject teamJson = gson.fromJson(response.body(), JsonObject.class);
-                int teamId = teamJson.get("id").getAsInt();
-                apiClient.leaveTeam(teamId, player.getUniqueId())
-                        .thenAccept(leaveResponse -> {
-                            if (leaveResponse.isSuccess()) {
-                                player.sendMessage(localeManager.getComponent(lang, "team.leave.success", NamedTextColor.GREEN));
-                            } else {
-                                player.sendMessage(Component.text(localeManager.getMessage(lang, "team.leave.error").replace("{error}", leaveResponse.body()), NamedTextColor.RED));
-                            }
-                        });
-            } else {
-                player.sendMessage(localeManager.getComponent(lang, "team.not_in_team", NamedTextColor.RED));
-            }
-        });
+        apiClient.getTeam(player.getUniqueId())
+                .thenCompose(response -> {
+                    if (!response.isSuccess()) {
+                        player.sendMessage(localeManager.getComponent(lang, "team.not_in_team", NamedTextColor.RED));
+                        return CompletableFuture.completedFuture(new ApiResponse(0, ""));
+                    }
+                    JsonObject teamJson = gson.fromJson(response.body(), JsonObject.class);
+                    int teamId = teamJson.get("id").getAsInt();
+                    return apiClient.leaveTeam(teamId, player.getUniqueId());
+                })
+                .thenAccept(leaveResponse -> {
+                    if (leaveResponse.statusCode() == 0) return;
+                    if (leaveResponse.isSuccess()) {
+                        player.sendMessage(localeManager.getComponent(lang, "team.leave.success", NamedTextColor.GREEN));
+                    } else {
+                        player.sendMessage(Component.text(localeManager.getMessage(lang, "team.leave.error").replace("{error}", leaveResponse.body()), NamedTextColor.RED));
+                    }
+                });
     }
     
     /**
@@ -167,22 +174,24 @@ public class TeamCommand implements SimpleCommand {
             return;
         }
         String newName = args[1];
-        apiClient.getTeam(player.getUniqueId()).thenAccept(response -> {
-            if (response.isSuccess()) {
-                JsonObject teamJson = gson.fromJson(response.body(), JsonObject.class);
-                int teamId = teamJson.get("id").getAsInt();
-                apiClient.renameTeam(teamId, newName, player.getUniqueId())
-                        .thenAccept(renameResponse -> {
-                            if (renameResponse.isSuccess()) {
-                                player.sendMessage(Component.text(localeManager.getMessage(lang, "team.rename.success").replace("{new_name}", newName), NamedTextColor.GREEN));
-                            } else {
-                                player.sendMessage(Component.text(localeManager.getMessage(lang, "team.rename.error").replace("{error}", renameResponse.body()), NamedTextColor.RED));
-                            }
-                        });
-            } else {
-                player.sendMessage(localeManager.getComponent(lang, "team.not_in_team", NamedTextColor.RED));
-            }
-        });
+        apiClient.getTeam(player.getUniqueId())
+                .thenCompose(response -> {
+                    if (!response.isSuccess()) {
+                        player.sendMessage(localeManager.getComponent(lang, "team.not_in_team", NamedTextColor.RED));
+                        return CompletableFuture.completedFuture(new ApiResponse(0, ""));
+                    }
+                    JsonObject teamJson = gson.fromJson(response.body(), JsonObject.class);
+                    int teamId = teamJson.get("id").getAsInt();
+                    return apiClient.renameTeam(teamId, newName, player.getUniqueId());
+                })
+                .thenAccept(renameResponse -> {
+                    if (renameResponse.statusCode() == 0) return;
+                    if (renameResponse.isSuccess()) {
+                        player.sendMessage(Component.text(localeManager.getMessage(lang, "team.rename.success").replace("{new_name}", newName), NamedTextColor.GREEN));
+                    } else {
+                        player.sendMessage(Component.text(localeManager.getMessage(lang, "team.rename.error").replace("{error}", renameResponse.body()), NamedTextColor.RED));
+                    }
+                });
     }
 
     /**
@@ -210,7 +219,18 @@ public class TeamCommand implements SimpleCommand {
                     JsonObject memberObject = memberElement.getAsJsonObject();
                     String memberUuid = memberObject.get("player_uuid").getAsString();
                     String role = memberObject.get("role").getAsString();
-                    player.sendMessage(Component.text(localeManager.getMessage(lang, "team.info.member_format").replace("{member_uuid}", memberUuid).replace("{role}", role), NamedTextColor.GRAY));
+                    // Кешуємо ім'я якщо API повернув player_name
+                    if (memberObject.has("player_name") && !memberObject.get("player_name").isJsonNull()) {
+                        String memberName = memberObject.get("player_name").getAsString();
+                        try {
+                            nameCache.put(UUID.fromString(memberUuid), memberName);
+                        } catch (IllegalArgumentException ignored) {}
+                    }
+                    String displayName = nameCache.getOrDefault(
+                        tryParseUuid(memberUuid), null
+                    );
+                    String display = displayName != null ? displayName : memberUuid;
+                    player.sendMessage(Component.text(localeManager.getMessage(lang, "team.info.member_format").replace("{member_uuid}", display).replace("{role}", role), NamedTextColor.GRAY));
                 }
 
             } else {
@@ -232,6 +252,11 @@ public class TeamCommand implements SimpleCommand {
         player.sendMessage(localeManager.getComponent(lang, "team.help.leave", NamedTextColor.AQUA));
         player.sendMessage(localeManager.getComponent(lang, "team.help.rename", NamedTextColor.AQUA));
         player.sendMessage(localeManager.getComponent(lang, "team.help.info", NamedTextColor.AQUA));
+    }
+
+    private UUID tryParseUuid(String s) {
+        try { return UUID.fromString(s); }
+        catch (IllegalArgumentException e) { return null; }
     }
 
     /**
