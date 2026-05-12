@@ -238,3 +238,42 @@ CREATE TABLE IF NOT EXISTS warp_pending_commands (
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_player_uuid (player_uuid)
 );
+
+-- Analytics tables
+CREATE TABLE IF NOT EXISTS market_stats_hourly (
+    id                INT            NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    hour              DATETIME       NOT NULL,
+    item_id           VARCHAR(255)   NOT NULL,
+    team_id           INT            NOT NULL,
+    total_sold        INT            NOT NULL DEFAULT 0,
+    total_volume      NUMERIC(14,2)  NOT NULL DEFAULT 0,
+    transaction_count INT            NOT NULL DEFAULT 0,
+    INDEX idx_stats_hour (hour),
+    CONSTRAINT fk_stats_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_stats_hour_item_team (hour, item_id, team_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS economy_snapshots (
+    id                  INT            NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    hour                DATETIME       NOT NULL UNIQUE,
+    total_volume        NUMERIC(14,2)  NOT NULL DEFAULT 0,
+    total_commission    NUMERIC(14,2)  NOT NULL DEFAULT 0,
+    total_transactions  INT            NOT NULL DEFAULT 0,
+    active_sellers      INT            NOT NULL DEFAULT 0,
+    INDEX idx_snapshot_hour (hour)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS market_anomalies (
+    id              INT            NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    detected_at     DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    hour            DATETIME       NOT NULL,
+    item_id         VARCHAR(255)   NOT NULL,
+    team_id         INT            NULL,
+    actual_volume   NUMERIC(14,2)  NOT NULL,
+    expected_volume NUMERIC(14,2)  NOT NULL,
+    multiplier      NUMERIC(6,2)   NOT NULL,
+    resolved        TINYINT(1)     NOT NULL DEFAULT 0,
+    resolved_at     DATETIME       NULL,
+    INDEX idx_anomaly_detected (detected_at),
+    INDEX idx_anomaly_hour (hour)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
