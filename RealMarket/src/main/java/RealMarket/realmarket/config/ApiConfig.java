@@ -33,8 +33,9 @@ public class ApiConfig {
 
     public static String getApiWorldUrl() {
         if (cachedApiWorldUrl == null) loadConfig();
-        return (cachedApiWorldUrl != null && !cachedApiWorldUrl.isEmpty())
+        String url = (cachedApiWorldUrl != null && !cachedApiWorldUrl.isEmpty())
                 ? cachedApiWorldUrl : "https://nestworld.site";
+        return url.replaceAll("/+$", "");
     }
 
     public static String getIslandUuid() {
