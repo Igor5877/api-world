@@ -321,6 +321,15 @@ async def get_island_transactions(
     return await crud_market.get_island_transactions(db_session=db, team_id=team_id)
 
 
+@router.get("/players/{azuriom_id}/balance", status_code=status.HTTP_200_OK)
+async def get_player_balance(azuriom_id: int) -> Any:
+    """Returns the Azuriom balance for a player. Called by Hub mod before opening Trade UI."""
+    balance = await get_balance(azuriom_id)
+    if balance is None:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not fetch balance from Azuriom.")
+    return {"balance": balance}
+
+
 @router.post("/islands/{island_uuid}/inventory/sync", status_code=status.HTTP_200_OK)
 async def sync_island_inventory(
     island_uuid: str,

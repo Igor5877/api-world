@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 public class AzuriomClient {
     private static final Map<UUID, Integer> IDS = new ConcurrentHashMap<>();
@@ -27,6 +28,42 @@ public class AzuriomClient {
 
     public static int getPlayerId(UUID uuid) {
         return IDS.getOrDefault(uuid, -1);
+    }
+
+    /**
+     * Асинхронно отримує баланс гравця через FastAPI.
+     * callback отримує значення балансу, або -1.0 якщо запит не вдався.
+     */
+    public static void getBalanceAsync(int azuriomId, Consumer<Double> callback) {
+        if (azuriomId == -1) {
+            callback.accept(-1.0);
+            return;
+        }
+        String url = ApiConfig.getApiWorldUrl() + "/api/v1/market/players/" + azuriomId + "/balance";
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(5))
+                .GET()
+                .build();
+        HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+                .thenAccept(res -> {
+                    if (res.statusCode() == 200) {
+                        try {
+                            JsonObject obj = JsonParser.parseString(res.body()).getAsJsonObject();
+                            callback.accept(obj.get("balance").getAsDouble());
+                        } catch (Exception e) {
+                            System.err.println("[RealMarket] Failed to parse balance response: " + e.getMessage());
+                            callback.accept(-1.0);
+                        }
+                    } else {
+                        System.err.println("[RealMarket] Balance fetch failed: HTTP " + res.statusCode());
+                        callback.accept(-1.0);
+                    }
+                }).exceptionally(ex -> {
+                    System.err.println("[RealMarket] Balance request error: " + ex.getMessage());
+                    callback.accept(-1.0);
+                    return null;
+                });
     }
 
     // Асинхронна синхронізація без циклу for

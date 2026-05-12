@@ -69,8 +69,15 @@ public class TradeBlock extends Block {
                 return InteractionResult.SUCCESS;
             }
 
-            // Баланс 0.0 — реальна перевірка відбувається в FastAPI під час purchase/execute
-            ModMessages.sendToPlayer(new PacketOpenTradeUI(0.0, linkedIslandUuid, entries), serverPlayer);
+            // Асинхронно отримуємо баланс і відкриваємо UI після відповіді
+            final int finalId = id;
+            final List<PacketOpenTradeUI.ItemEntry> finalEntries = entries;
+            final UUID finalIslandUuid = linkedIslandUuid;
+            AzuriomClient.getBalanceAsync(finalId, balance ->
+                serverPlayer.getServer().execute(() ->
+                    ModMessages.sendToPlayer(new PacketOpenTradeUI(balance, finalIslandUuid, finalEntries), serverPlayer)
+                )
+            );
         }
         return InteractionResult.SUCCESS;
     }
