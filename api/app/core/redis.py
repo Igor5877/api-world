@@ -92,4 +92,7 @@ async def purchase_lock(buyer_azuriom_id: int, timeout_sec: int = 30):
     try:
         yield
     finally:
-        await redis.eval(_RELEASE_LOCK_SCRIPT, 1, key, token)
+        try:
+            await redis.eval(_RELEASE_LOCK_SCRIPT, 1, key, token)
+        except Exception:
+            logger.warning(f"Failed to release purchase_lock for buyer {buyer_azuriom_id} — will expire in {timeout_sec}s")

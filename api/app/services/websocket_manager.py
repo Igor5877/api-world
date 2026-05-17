@@ -125,15 +125,15 @@ class ConnectionManager:
                     payload = json.loads(message["data"])
                     data = payload["data"]
                     client_ids = payload["client_ids"]
-                    
-                    # Send to locally connected clients
                     for client_id in client_ids:
                         if client_id in self.active_connections:
                             logger.debug(f"Redis Listener: Sending message from channel to local client: {client_id}")
                             await self._send_direct_personal_message(data, client_id)
-                await asyncio.sleep(0.01)  # Prevent high CPU usage
+                # get_message already yields for up to timeout seconds — no extra sleep needed
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 logger.error(f"Redis listener error: {e}", exc_info=True)
-                await asyncio.sleep(5)  # Wait before retrying on major error
+                await asyncio.sleep(5)
 
 manager = ConnectionManager()
