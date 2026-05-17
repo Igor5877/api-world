@@ -101,3 +101,7 @@ api/app/models/__pycache__/team.cpython-312.pyc
 RealMarket/.idea/modules/RealMarket.main.iml
 RealMarket/.idea/modules/RealMarket.test.iml
 /.claude
+/.claude
+.claude/settings.local.json
+/Nestworldvelocity/bin
+/.claude
