@@ -3,7 +3,15 @@
     "allow": [
       "WebFetch(domain:api-dev.nestworld.site)",
       "Bash(./gradlew build:*)",
-      "Bash(./gradlew compileJava)"
+      "Bash(./gradlew compileJava)",
+      "Bash(cat)",
+      "Bash(python3 /tmp/benchmark_ws_lookup.py)",
+      "Bash(python -m pytest api/app/tests -v)",
+      "Bash(python3 -m pytest api/app/tests -v)",
+      "Bash(python3 -m pytest app/tests -v)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:spark.lucko.me)",
+      "Bash(xargs cat)"
     ]
   }
 }
