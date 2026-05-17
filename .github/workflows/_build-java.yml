@@ -53,7 +53,7 @@ jobs:
         run: chmod +x "${{ inputs.module_path }}/gradlew"
 
       - name: Build
-        run: ./gradlew -p "${{ inputs.module_path }}" ${{ inputs.gradle_tasks }}
+        run: "${{ inputs.module_path }}/gradlew" -p "${{ inputs.module_path }}" ${{ inputs.gradle_tasks }}
 
       - name: Locate JAR
         id: jar
