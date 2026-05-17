@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     REDIS_CHANNEL: str = os.getenv("REDIS_CHANNEL", "skyblock_island_notifications")
 
     # Azuriom Link API
-    AZURIOM_API_URL: str = os.getenv("AZURIOM_API_URL", "")       # e.g. https://yoursite.com/api/
+    AZURIOM_API_URL: str = os.getenv("AZURIOM_API_URL", "")       # e.g. https://yoursite.com/api  (без /azlink — додається в azuriom_client.py)
     AZURIOM_LINK_TOKEN: str = os.getenv("AZURIOM_LINK_TOKEN", "") # Azuriom Link Token
 
     # Static API keys for machine-to-machine auth

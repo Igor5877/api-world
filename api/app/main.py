@@ -196,6 +196,7 @@ async def reconcile_island_states():
             logger.info("Reconciliation: Database session closed.")
 
 from app.core.redis import init_redis_pool, close_redis_pool, get_redis_client
+from app.core.azuriom_client import close_client as close_azuriom_client
 from app.services.creation_worker import start_creation_worker
 from app.services.start_worker import start_start_worker
 from app.services.workers.analytics_worker import start_analytics_worker
@@ -247,6 +248,7 @@ async def lifespan(app: FastAPI):
     # Code to run on shutdown
     logger.info("Shutting down SkyBlock LXD Manager API worker...")
     redis_listener_task.cancel()
+    await close_azuriom_client()
     await close_redis_pool()
 
 app = FastAPI(
