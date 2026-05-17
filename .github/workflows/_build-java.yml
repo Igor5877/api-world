@@ -49,11 +49,15 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      - name: Grant gradlew permission
-        run: chmod +x "${{ inputs.module_path }}/gradlew"
-
       - name: Build
-        run: "${{ inputs.module_path }}/gradlew" -p "${{ inputs.module_path }}" ${{ inputs.gradle_tasks }}
+        run: |
+          if [ -f "${{ inputs.module_path }}/gradlew" ]; then
+            chmod +x "${{ inputs.module_path }}/gradlew"
+            "${{ inputs.module_path }}/gradlew" -p "${{ inputs.module_path }}" ${{ inputs.gradle_tasks }}
+          else
+            echo "No gradlew found in ${{ inputs.module_path }}, falling back to global gradle."
+            gradle -p "${{ inputs.module_path }}" ${{ inputs.gradle_tasks }}
+          fi
 
       - name: Locate JAR
         id: jar
