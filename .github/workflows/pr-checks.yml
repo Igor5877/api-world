@@ -22,7 +22,6 @@ jobs:
       mod:        ${{ steps.filter.outputs.mod }}
       plugin:     ${{ steps.filter.outputs.plugin }}
       realmarket: ${{ steps.filter.outputs.realmarket }}
-      sales:      ${{ steps.filter.outputs.sales }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -38,8 +37,6 @@ jobs:
               - 'Nestworldvelocity/**'
             realmarket:
               - 'RealMarket/**'
-            sales:
-              - 'sales-addon/**'
 
   # ── 2. Module checks (conditional) ─────────────────────────────────────────
   check-api:
@@ -75,14 +72,6 @@ jobs:
       module_path: RealMarket
       artifact_name: pr-realmarket-jar
 
-  build-sales:
-    needs: changes
-    if: needs.changes.outputs.sales == 'true'
-    uses: ./.github/workflows/_build-java.yml
-    with:
-      module_path: sales-addon
-      artifact_name: pr-sales-jar
-
   # ── 3. Required gate (always runs) ─────────────────────────────────────────
   # Set THIS job as the required status check in branch protection settings.
   # It fails if any module check failed; it succeeds if all passed or were skipped.
@@ -95,7 +84,6 @@ jobs:
       - build-mod
       - build-plugin
       - build-realmarket
-      - build-sales
     steps:
       - name: Evaluate results
         run: |

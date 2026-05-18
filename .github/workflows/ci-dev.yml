@@ -26,7 +26,6 @@ jobs:
       mod:        ${{ steps.filter.outputs.mod }}
       plugin:     ${{ steps.filter.outputs.plugin }}
       realmarket: ${{ steps.filter.outputs.realmarket }}
-      sales:      ${{ steps.filter.outputs.sales }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -42,8 +41,6 @@ jobs:
               - 'Nestworldvelocity/**'
             realmarket:
               - 'RealMarket/**'
-            sales:
-              - 'sales-addon/**'
 
   # ── 2. Test / Build changed modules ────────────────────────────────────────
   test-api:
@@ -78,14 +75,6 @@ jobs:
     with:
       module_path: RealMarket
       artifact_name: dev-realmarket-jar
-
-  build-sales:
-    needs: changes
-    if: needs.changes.outputs.sales == 'true'
-    uses: ./.github/workflows/_build-java.yml
-    with:
-      module_path: sales-addon
-      artifact_name: dev-sales-jar
 
   # ── 3. Deploy changed modules to DEV ───────────────────────────────────────
   deploy-api-dev:
@@ -163,26 +152,6 @@ jobs:
       SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
       SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
 
-  deploy-sales-dev:
-    needs: build-sales
-    if: needs.build-sales.result == 'success'
-    uses: ./.github/workflows/_deploy-lxc-jar.yml
-    with:
-      artifact_name:          dev-sales-jar
-      jar_name:               ${{ needs.build-sales.outputs.jar_name }}
-      lxc_container:          ${{ vars.DEV_MOD_CONTAINER_NAME }}
-      lxc_project:            ${{ vars.DEV_LXD_PROJECT_NAME }}
-      dest_path:              ${{ vars.DEV_MOD_DEST_PATH }}
-      restart_command:        ${{ vars.DEV_MOD_RESTART_CMD }}
-      health_type:            minecraft
-      health_target:          ${{ vars.DEV_MOD_HEALTH_TARGET }}
-      health_timeout_minutes: 10
-    secrets:
-      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
-      SERVER_HOST:     ${{ secrets.DEV_SERVER_HOST }}
-      SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
-      SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
-
   # ── 4. Summary ──────────────────────────────────────────────────────────────
   dev-summary:
     runs-on: ubuntu-latest
@@ -192,7 +161,6 @@ jobs:
       - deploy-mod-dev
       - deploy-plugin-dev
       - deploy-realmarket-dev
-      - deploy-sales-dev
     steps:
       - name: Report
         run: |
@@ -201,7 +169,6 @@ jobs:
           echo "mod:        ${{ needs.deploy-mod-dev.result }}"
           echo "plugin:     ${{ needs.deploy-plugin-dev.result }}"
           echo "realmarket: ${{ needs.deploy-realmarket-dev.result }}"
-          echo "sales:      ${{ needs.deploy-sales-dev.result }}"
 
           if echo '${{ toJSON(needs) }}' | grep -q '"result": "failure"'; then
             echo "::error::One or more DEV deployments failed. Do NOT tag for production."
