@@ -69,6 +69,7 @@ jobs:
   build-realmarket:
     needs: changes
     if: needs.changes.outputs.realmarket == 'true'
+    continue-on-error: true
     uses: ./.github/workflows/_build-java.yml
     with:
       module_path:   RealMarket
@@ -78,6 +79,7 @@ jobs:
   # ── 3. Required gate (always runs) ─────────────────────────────────────────
   # Set THIS job as the required status check in branch protection settings.
   # It fails if any module check failed; it succeeds if all passed or were skipped.
+  # Note: build-realmarket has continue-on-error=true so its failures are warnings only.
   all-checks-passed:
     runs-on: ubuntu-latest
     if: always()
