@@ -24,10 +24,6 @@ on:
         description: 'Deploy RealMarket mod'
         type: boolean
         default: false
-      deploy_sales:
-        description: 'Deploy sales-addon'
-        type: boolean
-        default: false
 
 jobs:
   # ── Build (тільки вибрані модулі) ──────────────────────────────────────────
@@ -52,13 +48,6 @@ jobs:
     with:
       module_path:   RealMarket
       artifact_name: devbranch-realmarket-jar
-
-  build-sales:
-    if: ${{ inputs.deploy_sales }}
-    uses: ./.github/workflows/_build-java.yml
-    with:
-      module_path:   sales-addon
-      artifact_name: devbranch-sales-jar
 
   test-api:
     if: ${{ inputs.deploy_api }}
@@ -143,26 +132,6 @@ jobs:
       SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
       SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
 
-  deploy-sales-dev:
-    needs: build-sales
-    if: ${{ inputs.deploy_sales && needs.build-sales.result == 'success' }}
-    uses: ./.github/workflows/_deploy-lxc-jar.yml
-    with:
-      artifact_name:          devbranch-sales-jar
-      jar_name:               ${{ needs.build-sales.outputs.jar_name }}
-      lxc_container:          ${{ vars.DEV_MOD_CONTAINER_NAME }}
-      lxc_project:            ${{ vars.DEV_LXD_PROJECT_NAME }}
-      dest_path:              ${{ vars.DEV_MOD_DEST_PATH }}
-      restart_command:        ${{ vars.DEV_MOD_RESTART_CMD }}
-      health_type:            minecraft
-      health_target:          ${{ vars.DEV_MOD_HEALTH_TARGET }}
-      health_timeout_minutes: 10
-    secrets:
-      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
-      SERVER_HOST:     ${{ secrets.DEV_SERVER_HOST }}
-      SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
-      SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
-
   # ── Підсумок ────────────────────────────────────────────────────────────────
   summary:
     runs-on: ubuntu-latest
@@ -172,7 +141,6 @@ jobs:
       - deploy-mod-dev
       - deploy-plugin-dev
       - deploy-realmarket-dev
-      - deploy-sales-dev
     steps:
       - name: Report
         run: |
@@ -181,7 +149,6 @@ jobs:
           echo "mod:        ${{ needs.deploy-mod-dev.result }}"
           echo "plugin:     ${{ needs.deploy-plugin-dev.result }}"
           echo "realmarket: ${{ needs.deploy-realmarket-dev.result }}"
-          echo "sales:      ${{ needs.deploy-sales-dev.result }}"
 
           if echo '${{ toJSON(needs) }}' | grep -q '"result": "failure"'; then
             echo "::error::DEV deploy failed — не мержи в main поки не виправиш"
