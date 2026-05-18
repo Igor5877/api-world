@@ -34,6 +34,7 @@ jobs:
       module_path:   mods-server
       artifact_name: devbranch-mod-jar
       jar_pattern:   "nestworld-mods-server-*.jar"
+      java_version:  "17"
 
   build-plugin:
     if: ${{ inputs.deploy_plugin }}
@@ -41,6 +42,7 @@ jobs:
     with:
       module_path:   Nestworldvelocity
       artifact_name: devbranch-plugin-jar
+      java_version:  "21"
 
   build-realmarket:
     if: ${{ inputs.deploy_realmarket }}
@@ -48,6 +50,7 @@ jobs:
     with:
       module_path:   RealMarket
       artifact_name: devbranch-realmarket-jar
+      java_version:  "17"
 
   test-api:
     if: ${{ inputs.deploy_api }}
