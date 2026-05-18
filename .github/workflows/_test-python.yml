@@ -52,6 +52,8 @@ jobs:
           pip install ${{ inputs.extra_deps }}
 
       - name: Run tests
+        env:
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
         run: |
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/${{ inputs.pythonpath }}"
           python -m pytest ${{ inputs.test_path }} ${{ inputs.pytest_args }}
