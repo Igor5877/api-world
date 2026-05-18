@@ -36,12 +36,6 @@ jobs:
       module_path:   RealMarket
       artifact_name: release-realmarket-jar
 
-  build-sales:
-    uses: ./.github/workflows/_build-java.yml
-    with:
-      module_path:   sales-addon
-      artifact_name: release-sales-jar
-
   test-api:
     uses: ./.github/workflows/_test-python.yml
     with:
@@ -106,25 +100,6 @@ jobs:
       SERVER_USER:     ${{ secrets.SERVER_USER }}
       SERVER_PORT:     ${{ secrets.SERVER_PORT }}
 
-  deploy-sales:
-    needs: build-sales
-    uses: ./.github/workflows/_deploy-lxc-jar.yml
-    with:
-      artifact_name:          release-sales-jar
-      jar_name:               ${{ needs.build-sales.outputs.jar_name }}
-      lxc_container:          ${{ vars.MOD_CONTAINER_NAME }}
-      lxc_project:            ${{ vars.LXD_PROJECT_NAME }}
-      dest_path:              ${{ vars.MOD_DEST_PATH }}
-      restart_command:        ${{ vars.MOD_RESTART_CMD }}
-      health_type:            minecraft
-      health_target:          ${{ vars.MOD_HEALTH_TARGET }}
-      health_timeout_minutes: 10
-    secrets:
-      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-      SERVER_HOST:     ${{ secrets.SERVER_HOST }}
-      SERVER_USER:     ${{ secrets.SERVER_USER }}
-      SERVER_PORT:     ${{ secrets.SERVER_PORT }}
-
   deploy-api:
     needs: test-api
     uses: ./.github/workflows/_deploy-api-ssh.yml
@@ -147,7 +122,6 @@ jobs:
       - deploy-mod
       - deploy-plugin
       - deploy-realmarket
-      - deploy-sales
       - deploy-api
     steps:
       - name: Report
@@ -157,7 +131,6 @@ jobs:
           echo "mod:        ${{ needs.deploy-mod.result }}"
           echo "plugin:     ${{ needs.deploy-plugin.result }}"
           echo "realmarket: ${{ needs.deploy-realmarket.result }}"
-          echo "sales:      ${{ needs.deploy-sales.result }}"
           echo "api:        ${{ needs.deploy-api.result }}"
 
           if echo '${{ toJSON(needs) }}' | grep -q '"result": "failure"'; then
