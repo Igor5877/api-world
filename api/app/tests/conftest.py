@@ -1,9 +1,7 @@
-import asyncio
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
-import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -17,19 +15,11 @@ from app.db.session import get_db_session
 SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=False)
 TestingSessionLocal = async_sessionmaker(
-    autocommit=False, autoflush=False, bind=engine
+    autocommit=False, autoflush=False, bind=engine, expire_on_commit=False
 )
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for each test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest_asyncio.fixture(scope="function")
+@pytest_asyncio.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Fresh SQLite in-memory session for each test function."""
     async with engine.begin() as conn:
@@ -42,7 +32,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         await conn.run_sync(Base.metadata.drop_all)
 
 
-@pytest_asyncio.fixture(scope="function")
+@pytest_asyncio.fixture
 async def client(db_session: AsyncSession):
     """Async HTTP test client backed by SQLite and mocked Redis/workers."""
     from app.main import app
