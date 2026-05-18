@@ -23,6 +23,7 @@ jobs:
       module_path:   mods-server
       artifact_name: prod-mod-jar
       jar_pattern:   "nestworld-mods-server-*.jar"
+      java_version:  "17"
 
   # ── 2. Deploy to production with rollback ─────────────────────────────────
   deploy:

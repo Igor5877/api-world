@@ -52,25 +52,28 @@ jobs:
     if: needs.changes.outputs.mod == 'true'
     uses: ./.github/workflows/_build-java.yml
     with:
-      module_path: mods-server
+      module_path:  mods-server
       artifact_name: pr-mod-jar
-      jar_pattern: "nestworld-mods-server-*.jar"
+      jar_pattern:  "nestworld-mods-server-*.jar"
+      java_version: "17"
 
   build-plugin:
     needs: changes
     if: needs.changes.outputs.plugin == 'true'
     uses: ./.github/workflows/_build-java.yml
     with:
-      module_path: Nestworldvelocity
+      module_path:   Nestworldvelocity
       artifact_name: pr-plugin-jar
+      java_version:  "21"
 
   build-realmarket:
     needs: changes
     if: needs.changes.outputs.realmarket == 'true'
     uses: ./.github/workflows/_build-java.yml
     with:
-      module_path: RealMarket
+      module_path:   RealMarket
       artifact_name: pr-realmarket-jar
+      java_version:  "17"
 
   # ── 3. Required gate (always runs) ─────────────────────────────────────────
   # Set THIS job as the required status check in branch protection settings.

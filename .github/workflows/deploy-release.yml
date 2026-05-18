@@ -23,18 +23,21 @@ jobs:
       module_path:   mods-server
       artifact_name: release-mod-jar
       jar_pattern:   "nestworld-mods-server-*.jar"
+      java_version:  "17"
 
   build-plugin:
     uses: ./.github/workflows/_build-java.yml
     with:
       module_path:   Nestworldvelocity
       artifact_name: release-plugin-jar
+      java_version:  "21"
 
   build-realmarket:
     uses: ./.github/workflows/_build-java.yml
     with:
       module_path:   RealMarket
       artifact_name: release-realmarket-jar
+      java_version:  "17"
 
   test-api:
     uses: ./.github/workflows/_test-python.yml
