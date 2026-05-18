@@ -1,0 +1,14 @@
+{
+    "name": "nestworld/analytics",
+    "description": "NestWorld Analytics plugin for Azuriom",
+    "type": "azuriom-plugin",
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Azuriom\\Plugin\\NestworldAnalytics\\": "src/"
+        }
+    },
+    "extra": {
+        "plugin-id": "nestworld-analytics"
+    }
+}

@@ -1,0 +1,15 @@
+{
+    "id": "nestworld-analytics",
+    "name": "NestWorld Analytics",
+    "version": "1.0.0",
+    "description": "Статистика та аналітика маркету NestWorld — обіг, топ продавці, аномалії.",
+    "url": "https://github.com/Igor5877/api-world",
+    "authors": [
+        "Igor5877",
+        "tetst"
+    ],
+    "azuriom_api": "1.2.0",
+    "providers": [
+        "\\Azuriom\\Plugin\\NestworldAnalytics\\Providers\\AnalyticsServiceProvider"
+    ]
+}

@@ -33,14 +33,16 @@ CREATE TABLE IF NOT EXISTS islands (
     INDEX idx_last_seen_at (last_seen_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Table for managing the queue of players waiting for an island to start
+-- Table for managing the queue of players waiting for island CREATION
+-- NOTE: No FK to islands — island does not yet exist at queue time
 CREATE TABLE IF NOT EXISTS island_queue (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    player_uuid VARCHAR(36) NOT NULL UNIQUE, -- Minecraft player UUID of the player in queue
-    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- When the player was added to the queue
-    
-    FOREIGN KEY (player_uuid) REFERENCES islands(player_uuid) ON DELETE CASCADE,
-    INDEX idx_requested_at (requested_at)
+    id          INT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    player_uuid VARCHAR(36) NOT NULL UNIQUE,
+    player_name VARCHAR(16) NULL,
+    status      ENUM('PENDING','PROCESSING','FAILED') NOT NULL DEFAULT 'PENDING',
+    requested_at DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_island_queue_status (status),
+    INDEX idx_island_queue_requested_at (requested_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Optional: Table for island settings or metadata, if needed later
@@ -81,6 +83,131 @@ CREATE TABLE IF NOT EXISTS island_backups (
 -- `external_port` in `islands` table is UNIQUE (if used for direct host port mapping).
 -- `player_uuid` in `island_queue` table is UNIQUE.
 
+-- ─────────────────────────────────────────────────────────────────
+-- Teams
+-- ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS teams (
+    id         INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    name       VARCHAR(255) NOT NULL UNIQUE,
+    owner_uuid VARCHAR(36)  NOT NULL,
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_teams_owner_uuid (owner_uuid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS team_members (
+    id         INT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    team_id    INT         NOT NULL,
+    player_uuid VARCHAR(36) NOT NULL,
+    player_name VARCHAR(32) NULL,
+    role       ENUM('owner','moderator','member') NOT NULL DEFAULT 'member',
+    joined_at  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+    UNIQUE KEY uq_team_player (team_id, player_uuid),
+    INDEX idx_team_members_player_uuid (player_uuid),
+    INDEX idx_team_members_player_name (player_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ─────────────────────────────────────────────────────────────────
+-- Island start queue (запуск існуючих островів)
+-- ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS island_start_queue (
+    id          INT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    player_uuid VARCHAR(36) NOT NULL UNIQUE,
+    player_name VARCHAR(16) NULL,
+    status      ENUM('PENDING','PROCESSING','FAILED') NOT NULL DEFAULT 'PENDING',
+    requested_at DATETIME   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_island_start_queue_status (status),
+    INDEX idx_island_start_queue_requested_at (requested_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ─────────────────────────────────────────────────────────────────
+-- Market
+-- ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS market_items (
+    id                 INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    island_uuid        VARCHAR(36)  NOT NULL,
+    item_id            VARCHAR(255) NOT NULL,
+    item_nbt           TEXT         NOT NULL,  -- TEXT щоб уникнути row-size overflow; '' замість NULL для UNIQUE (default керується ORM)
+    quantity           BIGINT       NOT NULL DEFAULT 0,
+    price              DOUBLE       NOT NULL DEFAULT 10.0,
+    is_for_sale        TINYINT(1)   NOT NULL DEFAULT 1,
+    version            INT          NOT NULL DEFAULT 1,
+    seller_azuriom_id  INT          NULL,
+    updated_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    -- Prefix-length UNIQUE: item_id(191) + item_nbt(500) вкладається в ліміт InnoDB індексу
+    UNIQUE KEY uq_island_item (island_uuid, item_id(191), item_nbt(500)),
+    INDEX idx_market_items_island_uuid (island_uuid),
+    INDEX idx_market_items_item_id (item_id),
+    INDEX idx_market_items_updated_at (updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS market_transactions (
+    id                INT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    island_uuid       VARCHAR(36) NOT NULL,
+    item_id           VARCHAR(255) NOT NULL,
+    quantity          INT         NOT NULL,
+    unit_price        DOUBLE      NOT NULL,
+    total_price       DOUBLE      NOT NULL,
+    buyer_azuriom_id  INT         NULL,
+    seller_azuriom_id INT         NULL,
+    created_at        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_market_tx_island_uuid (island_uuid),
+    INDEX idx_market_tx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS market_pending_extractions (
+    id          INT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    island_uuid VARCHAR(36) NOT NULL,
+    item_id     VARCHAR(255) NOT NULL,
+    quantity    INT         NOT NULL,
+    created_at  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_pending_ext_island_uuid (island_uuid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ─────────────────────────────────────────────────────────────────
+-- Migrations (виконувати вручну на існуючій БД)
+-- ─────────────────────────────────────────────────────────────────
+
+-- Migration: add seller_azuriom_id to market_items
+-- ALTER TABLE market_items ADD COLUMN seller_azuriom_id INT NULL;
+
+-- Migration: fix item_nbt NULL → '' + VARCHAR→TEXT + розширення prefix індексу
+-- UPDATE market_items SET item_nbt = '' WHERE item_nbt IS NULL;
+-- ALTER TABLE market_items MODIFY COLUMN item_nbt TEXT NOT NULL;
+-- DROP INDEX uq_island_item ON market_items;
+-- ALTER TABLE market_items ADD UNIQUE KEY uq_island_item (island_uuid, item_id(191), item_nbt(500));
+
+-- Migration: island_uuid → team_id (INT FK) у всіх market таблицях
+-- Крок 1: додати нову колонку
+-- ALTER TABLE market_items ADD COLUMN team_id INT NULL;
+-- ALTER TABLE market_transactions ADD COLUMN team_id INT NULL;
+-- ALTER TABLE market_pending_extractions ADD COLUMN team_id INT NULL;
+-- Крок 2: заповнити team_id через player_uuid → team_members → teams
+-- UPDATE market_items mi
+--   JOIN team_members tm ON tm.player_uuid = mi.island_uuid
+--   SET mi.team_id = tm.team_id;
+-- UPDATE market_transactions mt
+--   JOIN team_members tm ON tm.player_uuid = mt.island_uuid
+--   SET mt.team_id = tm.team_id;
+-- UPDATE market_pending_extractions mp
+--   JOIN team_members tm ON tm.player_uuid = mp.island_uuid
+--   SET mp.team_id = tm.team_id;
+-- Крок 3: зробити NOT NULL і додати FK
+-- ALTER TABLE market_items MODIFY COLUMN team_id INT NOT NULL;
+-- ALTER TABLE market_items ADD CONSTRAINT fk_market_items_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE;
+-- ALTER TABLE market_transactions MODIFY COLUMN team_id INT NOT NULL;
+-- ALTER TABLE market_transactions ADD CONSTRAINT fk_market_transactions_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE;
+-- ALTER TABLE market_pending_extractions MODIFY COLUMN team_id INT NOT NULL;
+-- ALTER TABLE market_pending_extractions ADD CONSTRAINT fk_market_pending_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE;
+-- Крок 4: перебудувати UNIQUE індекс
+-- DROP INDEX uq_island_item ON market_items;
+-- ALTER TABLE market_items ADD UNIQUE KEY uq_team_item (team_id, item_id(191), item_nbt(500));
+-- Крок 5: видалити старі колонки
+-- ALTER TABLE market_items DROP COLUMN island_uuid;
+-- ALTER TABLE market_transactions DROP COLUMN island_uuid;
+-- ALTER TABLE market_pending_extractions DROP COLUMN island_uuid;
+
 -- Example of how to get the next player from the queue:
 -- SELECT player_uuid FROM island_queue ORDER BY requested_at ASC LIMIT 1;
 
@@ -94,3 +221,16 @@ CREATE TABLE IF NOT EXISTS island_backups (
 -- and last_seen_at is older than 5 minutes (candidate for freezing)
 -- This query would need external info, but the `last_seen_at` is key:
 -- SELECT * FROM islands WHERE status = 'RUNNING' AND last_seen_at < NOW() - INTERVAL 5 MINUTE;
+
+-- Migration: add player_name to team_members for UUID lookup by nickname
+-- ALTER TABLE team_members ADD COLUMN player_name VARCHAR(32) NULL AFTER player_uuid;
+-- ALTER TABLE team_members ADD INDEX idx_team_members_player_name (player_name);
+
+-- Migration: warp_pending_commands (команди для spawn_hub, що чекають виконання)
+CREATE TABLE IF NOT EXISTS warp_pending_commands (
+    id          INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    player_uuid VARCHAR(36)  NOT NULL,
+    command     VARCHAR(50)  NOT NULL,
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_player_uuid (player_uuid)
+);

@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "realmarket:block/market_link" }
+  }
+}

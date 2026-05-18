@@ -37,8 +37,6 @@ async def get_team_by_owner_with_relations(db: AsyncSession, *, owner_uuid: str)
     Returns:
         The team, or None if not found.
     """
-    # This function is functionally identical to get_team_by_owner but named for clarity
-    # on its behavior of loading relationships, as used in island_service.
     result = await db.execute(
         select(Team)
         .where(Team.owner_uuid == owner_uuid)
@@ -66,23 +64,6 @@ async def get_team_by_player(db: AsyncSession, *, player_uuid: str) -> Team | No
     )
     return result.scalars().first()
 
-async def get_team_by_owner(db: AsyncSession, *, owner_uuid: str) -> Team | None:
-    """Fetches a team by its owner's UUID.
-
-    Args:
-        db: The database session.
-        owner_uuid: The UUID of the team owner.
-
-    Returns:
-        The team, or None if not found.
-    """
-    result = await db.execute(
-        select(Team)
-        .where(Team.owner_uuid == owner_uuid)
-        .options(selectinload(Team.members), selectinload(Team.island))
-    )
-    return result.scalars().first()
-
 async def create_team(db: AsyncSession, *, team_in: TeamCreate) -> Team:
     """Creates a new team and adds the owner as the first member.
 
@@ -102,6 +83,7 @@ async def create_team(db: AsyncSession, *, team_in: TeamCreate) -> Team:
     # Create the owner's TeamMember object
     owner_member = TeamMember(
         player_uuid=team_in.owner_uuid,
+        player_name=team_in.owner_name,
         role=RoleEnum.owner,
         team=new_team
     )
@@ -113,7 +95,7 @@ async def create_team(db: AsyncSession, *, team_in: TeamCreate) -> Team:
     # to get the new_team.id for island creation.
     return new_team
 
-async def add_member(db: AsyncSession, *, team: Team, player_uuid: str, role: RoleEnum = RoleEnum.member) -> TeamMember:
+async def add_member(db: AsyncSession, *, team: Team, player_uuid: str, player_name: str = None, role: RoleEnum = RoleEnum.member) -> TeamMember:
     """Adds a new member to a team.
 
     Args:
@@ -128,6 +110,7 @@ async def add_member(db: AsyncSession, *, team: Team, player_uuid: str, role: Ro
     new_member = TeamMember(
         team_id=team.id,
         player_uuid=player_uuid,
+        player_name=player_name,
         role=role
     )
     db.add(new_member)

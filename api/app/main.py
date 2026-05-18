@@ -198,6 +198,7 @@ async def reconcile_island_states():
 from app.core.redis import init_redis_pool, close_redis_pool, get_redis_client
 from app.services.creation_worker import start_creation_worker
 from app.services.start_worker import start_start_worker
+from app.services.workers.analytics_worker import start_analytics_worker
 
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
@@ -236,6 +237,7 @@ async def lifespan(app: FastAPI):
         # Start background workers
         await start_creation_worker()
         await start_start_worker()
+        await start_analytics_worker()
         logger.info("Startup leader has finished initial tasks.")
     else:
         logger.info("This worker is not the startup leader. Skipping initial tasks.")
@@ -263,6 +265,7 @@ app.add_middleware(
 )
 
 @app.websocket("/ws/{client_id}")
+@app.websocket("/api/v1/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     """Handles WebSocket connections.
 
@@ -271,6 +274,52 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         client_id: The ID of the client.
     """
     await websocket_manager.connect(websocket, client_id)
+
+    # Якщо це острів — одразу надсилаємо всі pending extractions
+    if client_id.startswith("island_"):
+        island_uuid = client_id[len("island_"):]
+        try:
+            from app.crud.crud_market import crud_market
+            from app.crud.crud_team import get_team_by_player
+            async with AsyncSessionLocal() as db:
+                team = await get_team_by_player(db, player_uuid=island_uuid)
+                if not team:
+                    logger.warning(f"WebSocket: no team for player {island_uuid}, skipping pending extractions")
+                    team_id = None
+                else:
+                    team_id = team.id
+                pending = await crud_market.get_pending_extractions(db, team_id) if team_id else []
+                for p in pending:
+                    await websocket_manager.send_personal_message(
+                        {
+                            "type": "market_purchase",
+                            "pending_id": p.id,
+                            "item_id": p.item_id,
+                            "quantity": p.quantity,
+                        },
+                        client_id,
+                    )
+                if pending:
+                    logger.info(f"Sent {len(pending)} pending extractions to {client_id}")
+        except Exception as e:
+            logger.error(f"Failed to send pending extractions to {client_id}: {e}")
+
+    # Якщо це спавн-хаб — надсилаємо всі pending warp команди
+    if client_id == "spawn_hub":
+        try:
+            from app.crud.crud_warps import crud_warps
+            async with AsyncSessionLocal() as db:
+                pending = await crud_warps.get_all_pending(db)
+                for p in pending:
+                    await websocket_manager.send_personal_message(
+                        {"type": p.command, "uuid": p.player_uuid, "pending_id": p.id},
+                        client_id,
+                    )
+                if pending:
+                    logger.info(f"Sent {len(pending)} pending warp commands to spawn_hub")
+        except Exception as e:
+            logger.error(f"Failed to send pending warp commands to spawn_hub: {e}")
+
     try:
         while True:
             await websocket.receive_text()
@@ -284,10 +333,13 @@ async def read_root():
 
 # Include your API routers
 from app.api.v1.endpoints import teams as teams_router_module
+from app.api.v1.endpoints import market as market_router_module
+from app.api.v1.endpoints import warps as warps_router_module
+from app.api.v1.endpoints import analytics as analytics_router_module
 
 app.include_router(
     islands_router_module.router,
-    prefix=f"{settings.API_V1_STR}/islands", 
+    prefix=f"{settings.API_V1_STR}/islands",
     tags=["Islands"]
 )
 
@@ -295,6 +347,24 @@ app.include_router(
     teams_router_module.router,
     prefix=f"{settings.API_V1_STR}/teams",
     tags=["Teams"]
+)
+
+app.include_router(
+    market_router_module.router,
+    prefix=f"{settings.API_V1_STR}/market",
+    tags=["Market"]
+)
+
+app.include_router(
+    warps_router_module.router,
+    prefix=f"{settings.API_V1_STR}/warps",
+    tags=["Warps"]
+)
+
+app.include_router(
+    analytics_router_module.router,
+    prefix=f"{settings.API_V1_STR}/analytics",
+    tags=["Analytics"]
 )
 
 # For development, you might run this with: uvicorn app.main:app --reload

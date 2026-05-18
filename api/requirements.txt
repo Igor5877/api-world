@@ -5,6 +5,7 @@ pydantic-settings
 redis
 pylxd
 gunicorn
+httpx # HTTP client for Azuriom Link API calls
 
 # Database (choose one or more based on your DB)
 sqlalchemy[asyncio] # Core SQLAlchemy with asyncio support

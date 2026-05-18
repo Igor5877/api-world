@@ -1,23 +1,46 @@
-[13:28:15] [main/INFO] [com.velocitypowered.proxy.VelocityServer]: Booting up Velocity 3.4.0-SNAPSHOT (git-fe69214e-b514)...
-[13:28:15] [main/INFO] [com.velocitypowered.proxy.VelocityServer]: Loading localizations...
-[13:28:15] [main/INFO] [com.velocitypowered.proxy.network.ConnectionManager]: Connections will use epoll channels, libdeflate (Linux x86_64) compression, OpenSSL 3.x.x (Linux x86_64) ciphers
-[13:28:15] [main/WARN] [com.velocitypowered.proxy.config.VelocityConfiguration]: The proxy is running in offline mode! This is a security risk and you will NOT receive any support!
-[13:28:15] [main/WARN] [com.velocitypowered.proxy.config.VelocityConfiguration]: Player info forwarding is disabled! All players will appear to be connecting from the proxy and will have offline-mode UUIDs.
-[13:28:15] [main/INFO] [com.velocitypowered.proxy.VelocityServer]: Loading plugins...
-[13:28:15] [main/INFO] [nestworldvelocity]: NestworldVelocityPlugin is constructing...
-[13:28:15] [main/INFO] [com.velocitypowered.proxy.plugin.VelocityPluginManager]: Loaded plugin nestworldvelocity 1.0.0 by YourName/Team
-[13:28:15] [main/INFO] [com.velocitypowered.proxy.VelocityServer]: Loaded 2 plugins
-[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: NestworldVelocityPlugin onProxyInitialization started...
-[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: Configuration file not found, creating default: plugins/nestworldvelocity/nestworldvelocity.toml
-[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: Successfully loaded configuration from plugins/nestworldvelocity/nestworldvelocity.toml
-[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: API URL: http://127.0.0.1:8000/api/v1
-[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: Fallback Server: hub
-[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: API Request Timeout: 10s
-[13:28:15] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: Polling Interval: 2000ms, Max Attempts: 15
-[13:28:16] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: NestworldVelocityPlugin initialized successfully with listeners and config!
-[13:28:16] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: API URL configured to: http://127.0.0.1:8000/api/v1
-[13:28:16] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: Fallback server configured to: hub
-[13:28:16] [Netty epoll Boss #0/INFO] [com.velocitypowered.proxy.network.ConnectionManager]: Listening on /[0:0:0:0:0:0:0:0]:25565
-[13:28:16] [main/INFO] [com.velocitypowered.proxy.Velocity]: Done (1,56s)!
-[13:28:40] [Thread-2/INFO] [com.velocitypowered.proxy.VelocityServer]: Shutting down the proxy...
-[13:28:40] [Thread-2/INFO] [com.velocitypowered.proxy.network.ConnectionManager]: Closing endpoint /0.0.0.0:25565
+[14:29:20] [main/INFO] [com.velocitypowered.proxy.VelocityServer]: Booting up Velocity 3.4.0-SNAPSHOT (git-4bc3f004-b559)...
+[14:29:20] [main/INFO] [com.velocitypowered.proxy.VelocityServer]: Loading localizations...
+[14:29:20] [main/INFO] [com.velocitypowered.proxy.network.ConnectionManager]: Connections will use epoll channels, libdeflate (Linux x86_64) compression, OpenSSL 3.x.x (Linux x86_64) ciphers
+[14:29:20] [main/WARN] [com.velocitypowered.proxy.config.VelocityConfiguration]: The proxy is running in offline mode! This is a security risk and you will NOT receive any support!
+[14:29:20] [main/WARN] [com.velocitypowered.proxy.config.VelocityConfiguration]: Player info forwarding is disabled! All players will appear to be connecting from the proxy and will have offline-mode UUIDs.
+[14:29:20] [main/INFO] [com.velocitypowered.proxy.VelocityServer]: Loading plugins...
+[14:29:20] [main/INFO] [com.velocitypowered.proxy.plugin.VelocityPluginManager]: Loaded plugin azlink 1.3.11 by Azuriom Team
+[14:29:20] [main/INFO] [nestworldvelocity]: NestworldVelocityPlugin is constructing...
+[14:29:20] [main/INFO] [com.velocitypowered.proxy.plugin.VelocityPluginManager]: Loaded plugin nestworldvelocity 1.0.0 by YourName/Team
+[14:29:20] [main/INFO] [com.velocitypowered.proxy.VelocityServer]: Loaded 3 plugins
+[14:29:20] [AzLink - Task Executor #0/INFO] [azlink]: Starting HTTP server
+[14:29:20] [nioEventLoopGroup-2-1/INFO] [azlink]: HTTP server started on /[0:0:0:0:0:0:0:0]:25588
+[14:29:20] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: NestworldVelocityPlugin onProxyInitialization started...
+[14:29:20] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Successfully loaded configuration from plugins/nestworldvelocity/nestworldvelocity.toml
+[14:29:20] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: API URL: http://api-dev.nestworld.site/api/v1
+[14:29:20] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Fallback Server: hub
+[14:29:20] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Auto-redirect to island on login: false
+[14:29:20] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: API Request Timeout: 10s
+[14:29:20] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Polling Interval: 2000ms, Max Attempts: 15
+[14:29:20] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: TPA Timeout: 60s
+[14:29:20] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Loaded en translations from resources.
+[14:29:20] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Loaded uk translations from resources.
+[14:29:21] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Registered /myisland command.
+[14:29:21] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Registered /spawn command.
+[14:29:21] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Registered /team command.
+[14:29:21] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Registered /island command.
+[14:29:21] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Registered TPA commands.
+[14:29:21] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Registered /warp-admin command.
+[14:29:21] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: NestworldVelocityPlugin initialized successfully with listeners, config, and commands!
+[14:29:21] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: API URL configured to: http://api-dev.nestworld.site/api/v1
+[14:29:21] [AzLink - Task Executor #0/INFO] [nestworldvelocity]: Fallback server configured to: hub
+[14:29:21] [Netty epoll Boss #0/INFO] [com.velocitypowered.proxy.network.ConnectionManager]: Listening on /[0:0:0:0:0:0:0:0]:25565
+[14:29:21] [main/INFO] [com.velocitypowered.proxy.Velocity]: Done (0,87s)!
+[14:29:21] [AzLink - Task Executor #2/INFO] [azlink]: Successfully connected to https://nestworld.site
+[14:30:00] [NestworldVelocity - Task Executor #0/INFO] [nestworldvelocity]: [WarpAdmin] create for player name 'igor'
+[14:30:00] [ForkJoinPool.commonPool-worker-1/INFO] [nestworldvelocity]: [WarpAdmin] Resolved 'igor' → b5de213e-12bd-11ef-b5aa-22014d09235b
+[14:30:00] [ForkJoinPool.commonPool-worker-1/INFO] [nestworldvelocity]: [WarpAdmin] Resolved 'igor' → b5de213e-12bd-11ef-b5aa-22014d09235b
+[14:30:00] [ForkJoinPool.commonPool-worker-1/INFO] [nestworldvelocity]: [WarpAdmin] POST /warps/b5de213e-12bd-11ef-b5aa-22014d09235b/create for b5de213e-12bd-11ef-b5aa-22014d09235b
+[14:30:00] [ForkJoinPool.commonPool-worker-1/INFO] [nestworldvelocity]: [WarpAdmin] create → status 200
+[14:30:00] [ForkJoinPool.commonPool-worker-1/INFO] [com.velocitypowered.proxy.console.VelocityConsole]: [WarpAdmin] OK: warp create для igor (b5de213e-12bd-11ef-b5aa-22014d09235b)
+[14:30:00] [ForkJoinPool.commonPool-worker-1/INFO] [nestworldvelocity]: [WarpAdmin] Success: create for igor (b5de213e-12bd-11ef-b5aa-22014d09235b)
+[14:30:09] [Shutdown thread/INFO] [com.velocitypowered.proxy.VelocityServer]: Shutting down the proxy...
+[14:30:09] [Shutdown thread/INFO] [com.velocitypowered.proxy.network.ConnectionManager]: Closing endpoint /0.0.0.0:25565
+[14:30:09] [AzLink - Task Executor #1/INFO] [azlink]: Shutting down scheduler
+[14:30:09] [AzLink - Task Executor #1/INFO] [azlink]: Stopping HTTP server
+[14:30:09] [AzLink - Task Executor #1/INFO] [nestworldvelocity]: Shutting down NestworldVelocityPlugin's executor service.

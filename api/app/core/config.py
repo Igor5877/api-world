@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     REDIS_CHANNEL: str = os.getenv("REDIS_CHANNEL", "skyblock_island_notifications")
 
+    # Azuriom Link API
+    AZURIOM_API_URL: str = os.getenv("AZURIOM_API_URL", "")       # e.g. https://yoursite.com/api/
+    AZURIOM_LINK_TOKEN: str = os.getenv("AZURIOM_LINK_TOKEN", "") # Azuriom Link Token
+
 
     class Config:
         """Represents the configuration for the settings.
