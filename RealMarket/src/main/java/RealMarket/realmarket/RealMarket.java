@@ -1,12 +1,15 @@
 package RealMarket.realmarket;
 
 import RealMarket.realmarket.api.AzuriomClient;
+import RealMarket.realmarket.block.MarketCableBlock;
 import RealMarket.realmarket.block.MarketLinkBlock;
 import RealMarket.realmarket.block.TradeBlock;
+import RealMarket.realmarket.blockentity.MarketCableBlockEntity;
 import RealMarket.realmarket.blockentity.MarketLinkBlockEntity;
 import RealMarket.realmarket.commands.ModCommands;
 import RealMarket.realmarket.network.ModMessages;
 import RealMarket.realmarket.world.IslandManager;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
@@ -27,6 +30,7 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
+import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Mod(RealMarket.MODID)
@@ -57,17 +61,33 @@ public class RealMarket {
     public static final RegistryObject<Item> MARKET_LINK_ITEM = ITEMS.register("market_link",
             () -> new BlockItem(MARKET_LINK_BLOCK.get(), new Item.Properties()));
 
+    public static final RegistryObject<Block> MARKET_CABLE_BLOCK = BLOCKS.register("market_cable",
+            () -> new MarketCableBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_GRAY)
+                    .strength(0.5f, 0.5f)
+                    .noOcclusion()));
+
+    @SuppressWarnings("unused")
+    public static final RegistryObject<Item> MARKET_CABLE_ITEM = ITEMS.register("market_cable",
+            () -> new BlockItem(MARKET_CABLE_BLOCK.get(), new Item.Properties()));
+
+    @SuppressWarnings("ConstantConditions")
     public static final RegistryObject<BlockEntityType<MarketLinkBlockEntity>> MARKET_LINK_BE =
             BLOCK_ENTITIES.register("market_link",
                     () -> BlockEntityType.Builder
                             .of(MarketLinkBlockEntity::new, MARKET_LINK_BLOCK.get())
                             .build(null));
 
-    // Ключ — BlockPos, щоб один блок ніколи не дублювався
-    private static final ConcurrentHashMap<net.minecraft.core.BlockPos, MarketLinkBlockEntity> ACTIVE_LINKS =
-            new ConcurrentHashMap<>();
+    @SuppressWarnings("ConstantConditions")
+    public static final RegistryObject<BlockEntityType<MarketCableBlockEntity>> MARKET_CABLE_BE =
+            BLOCK_ENTITIES.register("market_cable",
+                    () -> BlockEntityType.Builder
+                            .of(MarketCableBlockEntity::new, MARKET_CABLE_BLOCK.get())
+                            .build(null));
 
-    public static java.util.Collection<MarketLinkBlockEntity> getActiveMarketLinks() {
+    private static final ConcurrentHashMap<BlockPos, MarketLinkBlockEntity> ACTIVE_LINKS = new ConcurrentHashMap<>();
+
+    public static Collection<MarketLinkBlockEntity> getActiveMarketLinks() {
         return ACTIVE_LINKS.values();
     }
 
@@ -93,8 +113,8 @@ public class RealMarket {
 
     @SubscribeEvent
     public void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player) {
-            AzuriomClient.sync(player.getUUID(), player.getName().getString());
+        if (event.getEntity() instanceof ServerPlayer p) {
+            AzuriomClient.sync(p.getUUID(), p.getName().getString());
         }
     }
 
@@ -103,30 +123,17 @@ public class RealMarket {
         ModCommands.register(event.getDispatcher());
     }
 
-    /**
-     * Забороняє гравцям ламати захищені MarketLink блоки.
-     * SOURCE блок на острові та SINK блок на спавні — недоступні гравцям.
-     * Адміни (permission level 2+) можуть ламати завжди.
-     */
     @SubscribeEvent
     public void onBlockBreak(BlockEvent.BreakEvent event) {
         if (!(event.getLevel() instanceof net.minecraft.server.level.ServerLevel)) return;
-        if (!(event.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
+        if (!(event.getPlayer() instanceof ServerPlayer p) || p.hasPermissions(2)) return;
 
-        // Дозволяємо адмінам
-        if (player.hasPermissions(2)) return;
-
-        // Перевіряємо чи це MarketLink блок
-        if (!event.getState().is(MARKET_LINK_BLOCK.get())) return;
-
-        // Перевіряємо чи блок захищений (має встановлений UUID)
-        var be = event.getLevel().getBlockEntity(event.getPos());
-        if (be instanceof MarketLinkBlockEntity link) {
-            if (link.getActiveIslandUuid() != null) {
+        if (event.getState().is(MARKET_LINK_BLOCK.get())) {
+            var be = event.getLevel().getBlockEntity(event.getPos());
+            if (be instanceof MarketLinkBlockEntity link && link.getActiveIslandUuid() != null) {
                 event.setResult(Event.Result.DENY);
                 event.setCanceled(true);
-                player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
-                        "§c[Market] Цей блок захищений і не може бути зламаний!"));
+                p.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Market] Цей блок захищений!"));
             }
         }
     }

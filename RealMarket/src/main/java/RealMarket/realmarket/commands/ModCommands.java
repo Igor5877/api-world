@@ -43,6 +43,15 @@ public class ModCommands {
                             p.sendSystemMessage(Component.literal("§b[Market] §fВам видано §eMarket Link блок§f."));
                             return 1;
                         }))
+                .then(Commands.literal("getcable")
+                        .requires(s -> s.hasPermission(2))
+                        .executes(c -> {
+                            ServerPlayer p = c.getSource().getPlayerOrException();
+                            ItemStack cableStack = new ItemStack(RealMarket.MARKET_CABLE_ITEM.get());
+                            if (!p.getInventory().add(cableStack)) p.drop(cableStack, false);
+                            p.sendSystemMessage(Component.literal("§b[Market] §fВам видано §eMarket Cable§f."));
+                            return 1;
+                        }))
 
                 // --- /market debug --- (тільки для ОП)
                 .then(Commands.literal("debug")
