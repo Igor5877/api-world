@@ -2,12 +2,15 @@ package RealMarket.realmarket;
 
 import RealMarket.realmarket.api.AzuriomClient;
 import RealMarket.realmarket.api.MarketSyncManager;
+import RealMarket.realmarket.block.MarketCableBlock;
 import RealMarket.realmarket.block.MarketLinkBlock;
 import RealMarket.realmarket.block.TradeBlock;
+import RealMarket.realmarket.blockentity.MarketCableBlockEntity;
 import RealMarket.realmarket.blockentity.MarketLinkBlockEntity;
 import RealMarket.realmarket.commands.ModCommands;
 import RealMarket.realmarket.network.ModMessages;
 import RealMarket.realmarket.world.IslandManager;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
@@ -31,6 +34,7 @@ import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
 
+import java.util.Collection;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -62,17 +66,26 @@ public class RealMarket {
     public static final RegistryObject<Item> MARKET_LINK_ITEM = ITEMS.register("market_link",
             () -> new BlockItem(MARKET_LINK_BLOCK.get(), new Item.Properties()));
 
+    public static final RegistryObject<Block> MARKET_CABLE_BLOCK = BLOCKS.register("market_cable",
+            () -> new MarketCableBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_GRAY)
+                    .strength(0.5f, 0.5f)
+                    .noOcclusion()));
+
+    public static final RegistryObject<Item> MARKET_CABLE_ITEM = ITEMS.register("market_cable",
+            () -> new BlockItem(MARKET_CABLE_BLOCK.get(), new Item.Properties()));
+
     public static final RegistryObject<BlockEntityType<MarketLinkBlockEntity>> MARKET_LINK_BE =
             BLOCK_ENTITIES.register("market_link",
-                    () -> BlockEntityType.Builder
-                            .of(MarketLinkBlockEntity::new, MARKET_LINK_BLOCK.get())
-                            .build(null));
+                    () -> BlockEntityType.Builder.of(MarketLinkBlockEntity::new, MARKET_LINK_BLOCK.get()).build(null));
 
-    // Використовуємо BlockPos як ключ для уникнення дублікатів
-    private static final ConcurrentHashMap<net.minecraft.core.BlockPos, MarketLinkBlockEntity> ACTIVE_LINKS =
-            new ConcurrentHashMap<>();
+    public static final RegistryObject<BlockEntityType<MarketCableBlockEntity>> MARKET_CABLE_BE =
+            BLOCK_ENTITIES.register("market_cable",
+                    () -> BlockEntityType.Builder.of(MarketCableBlockEntity::new, MARKET_CABLE_BLOCK.get()).build(null));
 
-    public static java.util.Collection<MarketLinkBlockEntity> getActiveMarketLinks() {
+    private static final ConcurrentHashMap<BlockPos, MarketLinkBlockEntity> ACTIVE_LINKS = new ConcurrentHashMap<>();
+
+    public static Collection<MarketLinkBlockEntity> getActiveMarketLinks() {
         return ACTIVE_LINKS.values();
     }
 
@@ -81,7 +94,7 @@ public class RealMarket {
     }
 
     public static void removeActiveMarketLink(MarketLinkBlockEntity link) {
-        ACTIVE_LINKS.remove(link.getBlockPos(), link);
+        ACTIVE_LINKS.remove(link.getBlockPos());
     }
 
     public RealMarket(FMLJavaModLoadingContext context) {
@@ -99,8 +112,8 @@ public class RealMarket {
 
     @SubscribeEvent
     public void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player) {
-            AzuriomClient.sync(player.getUUID(), player.getName().getString());
+        if (event.getEntity() instanceof ServerPlayer p) {
+            AzuriomClient.sync(p.getUUID(), p.getName().getString());
         }
     }
 
@@ -112,36 +125,26 @@ public class RealMarket {
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
         String uuidStr = System.getenv("ISLAND_UUID");
-        if (uuidStr == null || uuidStr.isEmpty()) {
-            uuidStr = "00000000-0000-0000-0000-000000000001";
-        }
-        System.out.println("[RealMarket] Server starting... Initializing Market Sync Manager for Island: " + uuidStr);
+        if (uuidStr == null || uuidStr.isEmpty()) uuidStr = "00000000-0000-0000-0000-000000000001";
         MarketSyncManager.init(UUID.fromString(uuidStr));
     }
 
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
-        System.out.println("[RealMarket] Server stopping... Shutting down Market Sync Manager.");
         MarketSyncManager.shutdown();
     }
 
     @SubscribeEvent
     public void onBlockBreak(BlockEvent.BreakEvent event) {
         if (!(event.getLevel() instanceof net.minecraft.server.level.ServerLevel)) return;
-        if (!(event.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player)) return;
+        if (!(event.getPlayer() instanceof ServerPlayer p) || p.hasPermissions(2)) return;
 
-        // Адміни можуть ламати
-        if (player.hasPermissions(2)) return;
-
-        if (!event.getState().is(MARKET_LINK_BLOCK.get())) return;
-
-        var be = event.getLevel().getBlockEntity(event.getPos());
-        if (be instanceof MarketLinkBlockEntity link) {
-            if (link.getActiveIslandUuid() != null) {
+        if (event.getState().is(MARKET_LINK_BLOCK.get())) {
+            var be = event.getLevel().getBlockEntity(event.getPos());
+            if (be instanceof MarketLinkBlockEntity link && link.getActiveIslandUuid() != null) {
                 event.setResult(Event.Result.DENY);
                 event.setCanceled(true);
-                player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
-                        "§c[Market] Цей блок захищений і не може бути зламаний!"));
+                p.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Market] Цей блок захищений!"));
             }
         }
     }

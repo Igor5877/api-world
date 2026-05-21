@@ -27,6 +27,12 @@ public class ModMessages {
                 .encoder(PacketShopAction::encode)
                 .consumerMainThread(PacketShopAction::handle)
                 .add();
+        // Додайте це в метод register() у файлі ModMessages.java
+        INSTANCE.messageBuilder(PacketTerminalSync.class, id(), NetworkDirection.PLAY_TO_CLIENT)
+                .decoder(PacketTerminalSync::decode)
+                .encoder(PacketTerminalSync::encode)
+                .consumerMainThread(PacketTerminalSync::handle)
+                .add();
 
         INSTANCE.messageBuilder(PacketOpenTradeUI.class, id(), NetworkDirection.PLAY_TO_CLIENT)
                 .decoder(PacketOpenTradeUI::decode)
