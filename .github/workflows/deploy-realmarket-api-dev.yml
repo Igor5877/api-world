@@ -1,0 +1,50 @@
+name: RealMarket API → Auto-deploy to DEV
+# Запускається на кожен push в гілку RealMarket.
+# Якщо змінились файли API — запускає тести, потім деплоїть на DEV сервер.
+# Якщо API не змінювалось — пропускає все.
+
+on:
+  push:
+    branches:
+      - RealMarket
+
+jobs:
+  # ── 1. Detect changes ──────────────────────────────────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'api/**'
+              - 'requirements.txt'
+
+  # ── 2. Tests ───────────────────────────────────────────────────────────────
+  test-api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    uses: ./.github/workflows/_test-python.yml
+    with:
+      test_path:   "api/app/tests"
+      pytest_args: "-v"
+
+  # ── 3. Deploy to DEV ───────────────────────────────────────────────────────
+  deploy-api-dev:
+    needs: test-api
+    if: needs.test-api.result == 'success'
+    uses: ./.github/workflows/_deploy-api-ssh.yml
+    with:
+      deploy_sha:   ${{ github.sha }}
+      api_path:     ${{ vars.DEV_API_PATH     || '/srv/skyblock-dev/api' }}
+      service_name: ${{ vars.DEV_API_SERVICE  || 'skyblock_api_dev.service' }}
+      health_url:   ${{ vars.DEV_API_HEALTH_URL || 'http://localhost:8001/' }}
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.DEV_SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}

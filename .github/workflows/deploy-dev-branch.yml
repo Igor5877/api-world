@@ -1,0 +1,160 @@
+name: Deploy Branch to DEV (manual)
+# Запускається вручну з будь-якої гілки.
+# Використовуй коли потрібно перевірити зміни на DEV сервері
+# до того як робити merge в main.
+#
+# Actions → "Deploy Branch to DEV" → Run workflow → вибери гілку + модулі
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_api:
+        description: 'Deploy API'
+        type: boolean
+        default: true
+      deploy_mod:
+        description: 'Deploy server mod'
+        type: boolean
+        default: false
+      deploy_plugin:
+        description: 'Deploy Velocity plugin'
+        type: boolean
+        default: false
+      deploy_realmarket:
+        description: 'Deploy RealMarket mod'
+        type: boolean
+        default: false
+
+jobs:
+  # ── Build (тільки вибрані модулі) ──────────────────────────────────────────
+  build-mod:
+    if: ${{ inputs.deploy_mod }}
+    uses: ./.github/workflows/_build-java.yml
+    with:
+      module_path:   mods-server
+      artifact_name: devbranch-mod-jar
+      jar_pattern:   "nestworld-mods-server-*.jar"
+      java_version:  "17"
+
+  build-plugin:
+    if: ${{ inputs.deploy_plugin }}
+    uses: ./.github/workflows/_build-java.yml
+    with:
+      module_path:   Nestworldvelocity
+      artifact_name: devbranch-plugin-jar
+      java_version:  "21"
+
+  build-realmarket:
+    if: ${{ inputs.deploy_realmarket }}
+    uses: ./.github/workflows/_build-java.yml
+    with:
+      module_path:   RealMarket
+      artifact_name: devbranch-realmarket-jar
+      java_version:  "17"
+
+  test-api:
+    if: ${{ inputs.deploy_api }}
+    uses: ./.github/workflows/_test-python.yml
+    with:
+      test_path:   "api/app/tests"
+      pytest_args: "-v"
+
+  # ── Deploy на DEV ───────────────────────────────────────────────────────────
+  deploy-api-dev:
+    needs: test-api
+    if: ${{ inputs.deploy_api && needs.test-api.result == 'success' }}
+    uses: ./.github/workflows/_deploy-api-ssh.yml
+    with:
+      deploy_sha:   ${{ github.sha }}
+      api_path:     ${{ vars.DEV_API_PATH     || '/srv/skyblock-dev/api' }}
+      service_name: ${{ vars.DEV_API_SERVICE  || 'skyblock_api_dev.service' }}
+      health_url:   ${{ vars.DEV_API_HEALTH_URL || 'http://localhost:8001/' }}
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.DEV_SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
+
+  deploy-mod-dev:
+    needs: build-mod
+    if: ${{ inputs.deploy_mod && needs.build-mod.result == 'success' }}
+    uses: ./.github/workflows/_deploy-lxc-jar.yml
+    with:
+      artifact_name:          devbranch-mod-jar
+      jar_name:               ${{ needs.build-mod.outputs.jar_name }}
+      lxc_container:          ${{ vars.DEV_MOD_CONTAINER_NAME }}
+      lxc_project:            ${{ vars.DEV_LXD_PROJECT_NAME }}
+      dest_path:              ${{ vars.DEV_MOD_DEST_PATH }}
+      restart_command:        ${{ vars.DEV_MOD_RESTART_CMD }}
+      health_type:            minecraft
+      health_target:          ${{ vars.DEV_MOD_HEALTH_TARGET }}
+      health_timeout_minutes: 10
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.DEV_SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
+
+  deploy-plugin-dev:
+    needs: build-plugin
+    if: ${{ inputs.deploy_plugin && needs.build-plugin.result == 'success' }}
+    uses: ./.github/workflows/_deploy-lxc-jar.yml
+    with:
+      artifact_name:          devbranch-plugin-jar
+      jar_name:               ${{ needs.build-plugin.outputs.jar_name }}
+      lxc_container:          ${{ vars.DEV_VELOCITY_CONTAINER_NAME }}
+      lxc_project:            ${{ vars.DEV_LXD_PROJECT_NAME }}
+      dest_path:              ${{ vars.DEV_VELOCITY_DEST_PATH }}
+      restart_command:        ${{ vars.DEV_VELOCITY_RESTART_CMD }}
+      health_type:            minecraft
+      health_target:          ${{ vars.DEV_VELOCITY_HEALTH_TARGET }}
+      health_timeout_minutes: 5
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.DEV_SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
+
+  deploy-realmarket-dev:
+    needs: build-realmarket
+    if: ${{ inputs.deploy_realmarket && needs.build-realmarket.result == 'success' }}
+    uses: ./.github/workflows/_deploy-lxc-jar.yml
+    with:
+      artifact_name:          devbranch-realmarket-jar
+      jar_name:               ${{ needs.build-realmarket.outputs.jar_name }}
+      lxc_container:          ${{ vars.DEV_MOD_CONTAINER_NAME }}
+      lxc_project:            ${{ vars.DEV_LXD_PROJECT_NAME }}
+      dest_path:              ${{ vars.DEV_MOD_DEST_PATH }}
+      restart_command:        ${{ vars.DEV_MOD_RESTART_CMD }}
+      health_type:            minecraft
+      health_target:          ${{ vars.DEV_MOD_HEALTH_TARGET }}
+      health_timeout_minutes: 10
+    secrets:
+      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+      SERVER_HOST:     ${{ secrets.DEV_SERVER_HOST }}
+      SERVER_USER:     ${{ secrets.DEV_SERVER_USER }}
+      SERVER_PORT:     ${{ secrets.DEV_SERVER_PORT }}
+
+  # ── Підсумок ────────────────────────────────────────────────────────────────
+  summary:
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - deploy-api-dev
+      - deploy-mod-dev
+      - deploy-plugin-dev
+      - deploy-realmarket-dev
+    steps:
+      - name: Report
+        run: |
+          echo "=== DEV deploy from branch: ${{ github.ref_name }} (${{ github.sha }}) ==="
+          echo "api:        ${{ needs.deploy-api-dev.result }}"
+          echo "mod:        ${{ needs.deploy-mod-dev.result }}"
+          echo "plugin:     ${{ needs.deploy-plugin-dev.result }}"
+          echo "realmarket: ${{ needs.deploy-realmarket-dev.result }}"
+
+          if echo '${{ toJSON(needs) }}' | grep -q '"result": "failure"'; then
+            echo "::error::DEV deploy failed — не мержи в main поки не виправиш"
+            exit 1
+          fi
+          echo "DEV deploy успішний. Можна мержити в main."

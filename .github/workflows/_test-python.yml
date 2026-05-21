@@ -1,0 +1,59 @@
+name: "[Reusable] Test Python Module"
+# Called by pr-checks, ci-dev, and prod deploy workflows.
+
+on:
+  workflow_call:
+    inputs:
+      python_version:
+        required: false
+        type: string
+        default: "3.12"
+      test_path:
+        description: "Path to pass to pytest"
+        required: false
+        type: string
+        default: "api/app/tests"
+      requirements_file:
+        required: false
+        type: string
+        default: "requirements.txt"
+      extra_deps:
+        description: "Extra pip packages to install (space-separated)"
+        required: false
+        type: string
+        default: "pytest pytest-asyncio httpx sqlalchemy aiosqlite fakeredis"
+      pythonpath:
+        description: "Path appended to PYTHONPATH"
+        required: false
+        type: string
+        default: "api"
+      pytest_args:
+        description: "Extra arguments forwarded to pytest"
+        required: false
+        type: string
+        default: "-v"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ inputs.python_version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r ${{ inputs.requirements_file }}
+          pip install ${{ inputs.extra_deps }}
+
+      - name: Run tests
+        env:
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)/${{ inputs.pythonpath }}"
+          python -m pytest ${{ inputs.test_path }} ${{ inputs.pytest_args }}

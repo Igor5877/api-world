@@ -112,7 +112,7 @@ async def stop_island_endpoint(
         return updated_island
     except ValueError as e:
         logger.warning(f"Endpoint: ValueError during island stop for {player_uuid}: {e}")
-        if "not found" in str(e).lower():
+        if "not found" in str(e).lower() or "no island found" in str(e).lower():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
         elif "cannot be stopped" in str(e).lower() or "already stopped" in str(e).lower() or "pending_stop" in str(e).lower():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
@@ -157,7 +157,7 @@ async def freeze_island_endpoint(
         return updated_island
     except ValueError as e:
         logger.warning(f"Endpoint: ValueError during island freeze for {player_uuid}: {e}")
-        if "not found" in str(e).lower():
+        if "not found" in str(e).lower() or "no island found" in str(e).lower():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
         elif "cannot be frozen" in str(e).lower() or "already frozen" in str(e).lower() or "pending_freeze" in str(e).lower():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))

@@ -1,0 +1,198 @@
+name: "[Reusable] Deploy JAR to LXC Container"
+# Downloads a previously uploaded JAR artifact, SCPs it to the host server,
+# pushes it into the target LXC container, restarts the service, runs a
+# health check, and automatically rolls back on failure.
+#
+# health_type options:
+#   minecraft  — uses mcstatus ping on the host server (for containers on private LAN)
+#   http       — curl from the runner (for publicly accessible endpoints)
+#   none       — skips health check (use only in CI/dev fast-path)
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: "Name of the artifact uploaded by the build job"
+        required: true
+        type: string
+      jar_name:
+        description: "Filename of the JAR inside the artifact"
+        required: true
+        type: string
+      lxc_container:
+        description: "Target LXC container name"
+        required: true
+        type: string
+      lxc_project:
+        description: "LXD project name"
+        required: true
+        type: string
+      dest_path:
+        description: "Absolute path inside the container to place the JAR"
+        required: true
+        type: string
+      restart_command:
+        description: "Command to run inside the container to restart the service"
+        required: false
+        type: string
+        default: ""
+      health_type:
+        description: "Health check strategy: minecraft | http | none"
+        required: false
+        type: string
+        default: "minecraft"
+      health_target:
+        description: "host:port for minecraft, full URL for http"
+        required: false
+        type: string
+        default: ""
+      health_timeout_minutes:
+        description: "Minutes to wait for health check to pass"
+        required: false
+        type: number
+        default: 15
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: true
+      SERVER_HOST:
+        required: true
+      SERVER_USER:
+        required: true
+      SERVER_PORT:
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ./dist/
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          cat >> ~/.ssh/config << EOF
+          Host deploy_host
+            HostName ${{ secrets.SERVER_HOST }}
+            User ${{ secrets.SERVER_USER }}
+            Port ${{ secrets.SERVER_PORT }}
+            IdentityFile ~/.ssh/deploy_key
+            StrictHostKeyChecking no
+            ServerAliveInterval 30
+          EOF
+
+      - name: Copy JAR to host via SCP
+        run: |
+          for i in 1 2 3; do
+            scp -F ~/.ssh/config \
+              "./dist/${{ inputs.jar_name }}" \
+              "deploy_host:/tmp/${{ inputs.jar_name }}"
+            if [ $? -eq 0 ]; then echo "SCP OK (attempt $i)"; break; fi
+            [ $i -lt 3 ] && echo "Retrying in $((i * 5))s…" && sleep $((i * 5))
+            [ $i -eq 3 ] && echo "::error::SCP failed after 3 attempts" && exit 1
+          done
+
+      - name: Deploy to container (with backup)
+        run: |
+          ssh deploy_host bash << 'DEPLOY'
+          set -euo pipefail
+          CONTAINER="${{ inputs.lxc_container }}"
+          PROJECT="${{ inputs.lxc_project }}"
+          DEST="${{ inputs.dest_path }}"
+          JAR="${{ inputs.jar_name }}"
+          FULL="$DEST/$JAR"
+
+          echo "=== Deploying $JAR → $CONTAINER:$DEST ==="
+
+          if lxc exec --project "$PROJECT" "$CONTAINER" -- test -f "$FULL" 2>/dev/null; then
+            echo "Backing up existing JAR → $FULL.bak"
+            lxc exec --project "$PROJECT" "$CONTAINER" -- cp "$FULL" "$FULL.bak"
+          fi
+
+          lxc file push --project "$PROJECT" "/tmp/$JAR" "$CONTAINER/$DEST/"
+          echo "JAR pushed."
+
+          if [ -n "${{ inputs.restart_command }}" ]; then
+            echo "Restarting: ${{ inputs.restart_command }}"
+            lxc exec --project "$PROJECT" "$CONTAINER" -- ${{ inputs.restart_command }}
+          fi
+          DEPLOY
+
+      - name: Health check
+        run: |
+          TYPE="${{ inputs.health_type }}"
+
+          if [ "$TYPE" = "none" ]; then
+            echo "Health check skipped."
+            exit 0
+          fi
+
+          if [ "$TYPE" = "http" ]; then
+            TIMEOUT=$(( ${{ inputs.health_timeout_minutes }} * 60 ))
+            ELAPSED=0
+            echo "Waiting for HTTP ${{ inputs.health_target }} …"
+            while [ $ELAPSED -lt $TIMEOUT ]; do
+              if curl -fsL "${{ inputs.health_target }}" > /dev/null 2>&1; then
+                echo "HTTP health check passed (${ELAPSED}s)."
+                exit 0
+              fi
+              sleep 10; ELAPSED=$((ELAPSED + 10))
+            done
+            echo "::error::HTTP health check timed out after ${{ inputs.health_timeout_minutes }}m"
+            exit 1
+          fi
+
+          if [ "$TYPE" = "minecraft" ]; then
+            ssh deploy_host bash << 'HCHECK'
+            pip install -qU mcstatus --break-system-packages 2>/dev/null || true
+            export PATH="$HOME/.local/bin:$PATH"
+            TARGET="${{ inputs.health_target }}"
+            END=$(( $(date +%s) + ${{ inputs.health_timeout_minutes }} * 60 ))
+            echo "Waiting for Minecraft server at $TARGET …"
+            while [ "$(date +%s)" -lt "$END" ]; do
+              if mcstatus "$TARGET" ping 2>/dev/null; then
+                echo "Minecraft health check passed."
+                exit 0
+              fi
+              echo "Not ready yet, retrying in 10s…"; sleep 10
+            done
+            echo "::error::Minecraft health check timed out after ${{ inputs.health_timeout_minutes }}m"
+            exit 1
+            HCHECK
+          fi
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "::warning::Deployment failed — rolling back ${{ inputs.jar_name }}"
+          ssh deploy_host bash << 'ROLLBACK' || true
+          set -euo pipefail
+          CONTAINER="${{ inputs.lxc_container }}"
+          PROJECT="${{ inputs.lxc_project }}"
+          FULL="${{ inputs.dest_path }}/${{ inputs.jar_name }}"
+
+          lxc exec --project "$PROJECT" "$CONTAINER" -- rm -f "$FULL" || true
+          if lxc exec --project "$PROJECT" "$CONTAINER" -- test -f "$FULL.bak" 2>/dev/null; then
+            echo "Restoring from backup"
+            lxc exec --project "$PROJECT" "$CONTAINER" -- mv "$FULL.bak" "$FULL"
+          else
+            echo "No backup found — container may be in a degraded state"
+          fi
+          ROLLBACK
+
+      - name: Remove backup on success
+        if: success()
+        run: |
+          ssh deploy_host \
+            "lxc exec --project '${{ inputs.lxc_project }}' '${{ inputs.lxc_container }}' \
+             -- rm -f '${{ inputs.dest_path }}/${{ inputs.jar_name }}.bak' || true"
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
