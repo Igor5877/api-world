@@ -153,8 +153,8 @@ public class ModCommands {
                 )
         );
 
-        // --- /island ---
-        disp.register(Commands.literal("island")
+        // --- /marketisland ---
+        disp.register(Commands.literal("marketisland")
                 // /island create — створює платформу для себе
                 .then(Commands.literal("create")
                         .requires(s -> s.hasPermission(2))
