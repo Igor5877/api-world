@@ -133,12 +133,26 @@ public class PlayerConnectionListener {
                 scheduleNextPoll(player, attempt + 1);
                 return CompletableFuture.completedFuture(new ApiResponse(0, ""));
             }
-            JsonObject islandData = JsonParser.parseString(detailsResponse.body()).getAsJsonObject();
+            JsonObject islandData;
+            try {
+                islandData = JsonParser.parseString(detailsResponse.body()).getAsJsonObject();
+            } catch (RuntimeException ex) {
+                logger.warn("Player {}'s island details returned unparseable body. Will continue polling. Attempt: {}", player.getUsername(), attempt + 1);
+                scheduleNextPoll(player, attempt + 1);
+                return CompletableFuture.completedFuture(null);
+            }
+            if (islandData == null || !islandData.has("status") || islandData.get("status").isJsonNull()) {
+                logger.warn("Player {}'s island details missing 'status' field. Will continue polling. Attempt: {}", player.getUsername(), attempt + 1);
+                scheduleNextPoll(player, attempt + 1);
+                return CompletableFuture.completedFuture(null);
+            }
             String status = islandData.get("status").getAsString();
-            boolean minecraftReady = islandData.has("minecraft_ready") && islandData.get("minecraft_ready").getAsBoolean();
+            boolean minecraftReady = islandData.has("minecraft_ready") && !islandData.get("minecraft_ready").isJsonNull() && islandData.get("minecraft_ready").getAsBoolean();
 
             if ("RUNNING".equalsIgnoreCase(status)) {
-                if (minecraftReady) {
+                boolean hasIp = islandData.has("internal_ip_address") && !islandData.get("internal_ip_address").isJsonNull();
+                boolean hasPort = islandData.has("internal_port") && !islandData.get("internal_port").isJsonNull();
+                if (minecraftReady && hasIp && hasPort) {
                     String ip = islandData.get("internal_ip_address").getAsString();
                     int port = islandData.get("internal_port").getAsInt();
                     logger.info("Player {}'s island is RUNNING and minecraft_ready. Attempting connection to {}:{}", player.getUsername(), ip, port);

@@ -276,11 +276,20 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         client_id: The ID of the client.
     """
     valid_keys = {k for k in [settings.PROXY_API_KEY, settings.SPAWN_API_KEY] if k}
-    if valid_keys:
-        api_key = websocket.headers.get("x-api-key", "")
-        if api_key not in valid_keys:
-            await websocket.close(code=4001)
-            return
+    if not valid_keys:
+        # Fail closed: without configured keys any client could claim an arbitrary
+        # client_id (e.g. "island_<victim_uuid>") and intercept its messages.
+        logger.error(
+            "WebSocket rejected: no API keys configured (PROXY_API_KEY/SPAWN_API_KEY). "
+            "Refusing unauthenticated connection."
+        )
+        await websocket.close(code=4001)
+        return
+
+    api_key = websocket.headers.get("x-api-key", "")
+    if api_key not in valid_keys:
+        await websocket.close(code=4001)
+        return
 
     await websocket_manager.connect(websocket, client_id)
 

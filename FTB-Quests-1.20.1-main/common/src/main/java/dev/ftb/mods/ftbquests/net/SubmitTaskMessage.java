@@ -49,8 +49,14 @@ public class SubmitTaskMessage extends BaseC2SMessage {
 			boolean isMember = com.skyblock.dynamic.utils.QuestTeamBridge.getInstance().isPlayerOnTeam(player.getUUID(), data.getTeamId());
 
 			// ADDED: Crucial check to ensure the player is on THEIR OWN island server when submitting tasks.
-			boolean isCorrectIsland = !com.skyblock.dynamic.SkyBlockMod.isIslandServer() ||
-					java.util.UUID.fromString(com.skyblock.dynamic.SkyBlockMod.getOwnerUuid()).equals(data.getTeamId());
+			// Quest progress must only be credited on the island whose owner == the player's team id.
+			// Non-island servers (hub, etc.) are NOT a valid place to progress quests, so deny there.
+			boolean isCorrectIsland = false;
+			if (com.skyblock.dynamic.SkyBlockMod.isIslandServer()) {
+				String ownerUuid = com.skyblock.dynamic.SkyBlockMod.getOwnerUuid();
+				isCorrectIsland = ownerUuid != null
+						&& java.util.UUID.fromString(ownerUuid).equals(data.getTeamId());
+			}
 
 			if (isMember && isCorrectIsland) {
 				ServerQuestFile.INSTANCE.withPlayerContext(player, () -> task.submitTask(data, player));

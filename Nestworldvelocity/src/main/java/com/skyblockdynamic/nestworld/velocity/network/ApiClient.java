@@ -127,9 +127,10 @@ public class ApiClient {
 
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenApply(httpResponse -> {
+                    String body = httpResponse.body() != null ? httpResponse.body() : "";
                     logger.info("API Response for requestIslandStop for {}: Status Code {}", playerUuid, httpResponse.statusCode());
-                    logger.debug("API Response Body: {}", httpResponse.body().substring(0, Math.min(httpResponse.body().length(), 500)));
-                    return new ApiResponse(httpResponse.statusCode(), httpResponse.body());
+                    logger.debug("API Response Body: {}", body.substring(0, Math.min(body.length(), 500)));
+                    return new ApiResponse(httpResponse.statusCode(), body);
                 })
                 .exceptionally(ex -> {
                     logger.error("API request failed for requestIslandStop for {}: {}", playerUuid, ex.getMessage(), ex);
