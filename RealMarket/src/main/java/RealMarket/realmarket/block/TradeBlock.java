@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 
 public class TradeBlock extends Block implements EntityBlock {
     public static final DirectionProperty FACING = HorizontalDirectionalBlock.FACING;
-    protected static final VoxelShape SHAPE = box(1, 0, 1, 15, 14, 15);
+    protected static final VoxelShape SHAPE = box(0, 0, 0, 16, 14.2, 16);
 
     public TradeBlock(Properties p) {
         super(p);
