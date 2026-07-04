@@ -24,36 +24,6 @@ public class ModCommands {
 
         // --- /market ---
         disp.register(Commands.literal("market")
-                .then(Commands.literal("getblock")
-                        .requires(s -> s.hasPermission(2))
-                        .executes(c -> {
-                            ServerPlayer p = c.getSource().getPlayerOrException();
-                            ItemStack tradeStack = new ItemStack(RealMarket.TRADE_ITEM.get());
-                            if (!p.getInventory().add(tradeStack)) p.drop(tradeStack, false);
-                            p.sendSystemMessage(Component.literal("§b[Market] §fВам видано §eТорговий Термінал§f."));
-                            return 1;
-                        }))
-
-                .then(Commands.literal("getlink")
-                        .requires(s -> s.hasPermission(2))
-                        .executes(c -> {
-                            ServerPlayer p = c.getSource().getPlayerOrException();
-                            ItemStack linkStack = new ItemStack(RealMarket.MARKET_LINK_ITEM.get());
-                            if (!p.getInventory().add(linkStack)) p.drop(linkStack, false);
-                            p.sendSystemMessage(Component.literal("§b[Market] §fВам видано §eMarket Link блок§f."));
-                            return 1;
-                        }))
-                .then(Commands.literal("getcable")
-                        .requires(s -> s.hasPermission(2))
-                        .executes(c -> {
-                            ServerPlayer p = c.getSource().getPlayerOrException();
-                            ItemStack cableStack = new ItemStack(RealMarket.MARKET_CABLE_ITEM.get());
-                            if (!p.getInventory().add(cableStack)) p.drop(cableStack, false);
-                            p.sendSystemMessage(Component.literal("§b[Market] §fВам видано §eMarket Cable§f."));
-                            return 1;
-                        }))
-
-                // --- /market debug --- (тільки для ОП)
                 .then(Commands.literal("debug")
                         .requires(s -> s.hasPermission(2))
 

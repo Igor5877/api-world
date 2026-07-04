@@ -11,9 +11,13 @@ import RealMarket.realmarket.commands.ModCommands;
 import RealMarket.realmarket.network.ModMessages;
 import RealMarket.realmarket.world.IslandManager;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
@@ -45,7 +49,9 @@ public class RealMarket {
     public static final DeferredRegister<Block> BLOCKS = DeferredRegister.create(ForgeRegistries.BLOCKS, MODID);
     public static final DeferredRegister<Item> ITEMS = DeferredRegister.create(ForgeRegistries.ITEMS, MODID);
     public static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITIES = DeferredRegister.create(ForgeRegistries.BLOCK_ENTITY_TYPES, MODID);
+    public static final DeferredRegister<CreativeModeTab> CREATIVE_TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MODID);
 
+    // Блоки
     public static final RegistryObject<Block> TRADE_BLOCK = BLOCKS.register("trade_station",
             () -> new TradeBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.COLOR_GRAY)
@@ -54,17 +60,11 @@ public class RealMarket {
                     .noOcclusion()
                     .dynamicShape()));
 
-    public static final RegistryObject<Item> TRADE_ITEM = ITEMS.register("trade_station",
-            () -> new BlockItem(TRADE_BLOCK.get(), new Item.Properties()));
-
     public static final RegistryObject<Block> MARKET_LINK_BLOCK = BLOCKS.register("market_link",
             () -> new MarketLinkBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.COLOR_BLUE)
                     .strength(2f, 6f)
                     .noOcclusion()));
-
-    public static final RegistryObject<Item> MARKET_LINK_ITEM = ITEMS.register("market_link",
-            () -> new BlockItem(MARKET_LINK_BLOCK.get(), new Item.Properties()));
 
     public static final RegistryObject<Block> MARKET_CABLE_BLOCK = BLOCKS.register("market_cable",
             () -> new MarketCableBlock(BlockBehaviour.Properties.of()
@@ -72,8 +72,27 @@ public class RealMarket {
                     .strength(0.5f, 0.5f)
                     .noOcclusion()));
 
+    // Предмети
+    public static final RegistryObject<Item> TRADE_ITEM = ITEMS.register("trade_station",
+            () -> new BlockItem(TRADE_BLOCK.get(), new Item.Properties()));
+
+    public static final RegistryObject<Item> MARKET_LINK_ITEM = ITEMS.register("market_link",
+            () -> new BlockItem(MARKET_LINK_BLOCK.get(), new Item.Properties()));
+
     public static final RegistryObject<Item> MARKET_CABLE_ITEM = ITEMS.register("market_cable",
             () -> new BlockItem(MARKET_CABLE_BLOCK.get(), new Item.Properties()));
+
+    // Креативна вкладка
+    public static final RegistryObject<CreativeModeTab> REAL_MARKET_TAB = CREATIVE_TABS.register("realmarket_tab",
+            () -> CreativeModeTab.builder()
+                    .title(Component.translatable("itemGroup.realmarket"))
+                    .icon(() -> new ItemStack(TRADE_ITEM.get()))
+                    .displayItems((params, output) -> {
+                        output.accept(TRADE_ITEM.get());
+                        output.accept(MARKET_LINK_ITEM.get());
+                        output.accept(MARKET_CABLE_ITEM.get());
+                    })
+                    .build());
 
     public static final RegistryObject<BlockEntityType<MarketLinkBlockEntity>> MARKET_LINK_BE =
             BLOCK_ENTITIES.register("market_link",
@@ -103,6 +122,7 @@ public class RealMarket {
         BLOCKS.register(bus);
         ITEMS.register(bus);
         BLOCK_ENTITIES.register(bus);
+        CREATIVE_TABS.register(bus);
         
         MinecraftForge.EVENT_BUS.register(this);
         IslandManager.initPaths();
@@ -144,7 +164,7 @@ public class RealMarket {
             if (be instanceof MarketLinkBlockEntity link && link.getActiveIslandUuid() != null) {
                 event.setResult(Event.Result.DENY);
                 event.setCanceled(true);
-                p.sendSystemMessage(net.minecraft.network.chat.Component.literal("§c[Market] Цей блок захищений!"));
+                p.sendSystemMessage(Component.literal("§c[Market] Цей блок захищений!"));
             }
         }
     }
