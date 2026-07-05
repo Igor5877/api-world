@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS islands (
     
     world_seed VARCHAR(255), -- Optional: if each island can have a unique seed
     
+    current_version VARCHAR(50) NULL, -- last applied update tag (auto-update system)
+    skip_auto_updates BOOLEAN NOT NULL DEFAULT FALSE, -- unique servers are never auto-updated
+    
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     last_seen_at TIMESTAMP NULL, -- Timestamp of when the player was last on their island or connected to proxy
@@ -62,6 +65,11 @@ CREATE TABLE IF NOT EXISTS island_backups (
     snapshot_name VARCHAR(255) NOT NULL, -- LXD snapshot name
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     description TEXT,
+    backup_type VARCHAR(20) NOT NULL DEFAULT 'snapshot', -- 'snapshot' | 'files' (auto-update system)
+    backup_path VARCHAR(512) NULL,  -- host-side dir with saved files (backup_type='files')
+    changed_paths JSON NULL,        -- [git-status, path] pairs the backup covers
+    version VARCHAR(50) NULL,       -- campaign version the backup was made for
+    campaign_id INT NULL,
     
     FOREIGN KEY (island_id) REFERENCES islands(id) ON DELETE CASCADE,
     INDEX idx_island_id (island_id)
@@ -238,3 +246,73 @@ CREATE TABLE IF NOT EXISTS warp_pending_commands (
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_player_uuid (player_uuid)
 );
+
+-- ─────────────────────────────────────────────────────────────────
+-- Auto-update system (2026-07: UPDATE_SYSTEM_PLAN.md)
+-- ─────────────────────────────────────────────────────────────────
+
+-- Одна кампанія = один git-тег репозиторію skyblock-updates
+CREATE TABLE IF NOT EXISTS update_campaigns (
+    id               INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    version          VARCHAR(50)  NOT NULL UNIQUE,
+    previous_version VARCHAR(50)  NULL,
+    git_commit       VARCHAR(40)  NULL,
+    update_type      ENUM('server_only','both','critical') NOT NULL DEFAULT 'server_only',
+    requires_restart BOOLEAN      NOT NULL DEFAULT FALSE,
+    reload_commands  JSON         NULL,       -- ["ftbquests reload", "reload"]
+    changed_paths    JSON         NULL,       -- пари [git-статус, шлях] з diff --name-status
+    message          TEXT         NULL,       -- commit message для гравців/логів
+    status           ENUM('PENDING','IN_PROGRESS','COMPLETED','FAILED','ROLLED_BACK') NOT NULL DEFAULT 'PENDING',
+    error_message    TEXT         NULL,
+    created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at     DATETIME     NULL,
+    INDEX idx_update_campaigns_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Черга островів у межах кампанії
+-- WAITING = острів онлайн, чекаємо виходу гравця (тригер: POST /islands/{uuid}/player_left)
+CREATE TABLE IF NOT EXISTS update_queue (
+    id                    INT         NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    campaign_id           INT         NOT NULL,
+    island_id             INT         NOT NULL,
+    player_uuid           VARCHAR(36) NULL,
+    status                ENUM('PENDING','PROCESSING','WAITING','COMPLETED','FAILED','SKIPPED') NOT NULL DEFAULT 'PENDING',
+    error_message         TEXT        NULL,
+    retry_count           INT         NOT NULL DEFAULT 0,
+    added_to_queue_at     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    processing_started_at DATETIME    NULL,
+    completed_at          DATETIME    NULL,
+    FOREIGN KEY (campaign_id) REFERENCES update_campaigns(id) ON DELETE CASCADE,
+    FOREIGN KEY (island_id)   REFERENCES islands(id)          ON DELETE CASCADE,
+    UNIQUE KEY uq_campaign_island (campaign_id, island_id),
+    INDEX idx_update_queue_status (status),
+    INDEX idx_update_queue_added (added_to_queue_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Команди для острівних серверів, що чекають виконання
+-- (досилаються при реконнекті WebSocket — той самий патерн, що market_pending_extractions)
+CREATE TABLE IF NOT EXISTS island_pending_commands (
+    id          INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    island_id   INT          NOT NULL,
+    player_uuid VARCHAR(36)  NOT NULL,
+    command     TEXT         NOT NULL,
+    campaign_id INT          NULL,
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    delivered   BOOLEAN      NOT NULL DEFAULT FALSE,
+    FOREIGN KEY (island_id)   REFERENCES islands(id)          ON DELETE CASCADE,
+    FOREIGN KEY (campaign_id) REFERENCES update_campaigns(id) ON DELETE SET NULL,
+    INDEX idx_ipc_player_uuid (player_uuid),
+    INDEX idx_ipc_delivered (delivered)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Migration: нові колонки islands (виконати на існуючій БД)
+-- ALTER TABLE islands ADD COLUMN current_version VARCHAR(50) NULL AFTER minecraft_ready;
+-- ALTER TABLE islands ADD COLUMN skip_auto_updates BOOLEAN NOT NULL DEFAULT FALSE AFTER current_version;
+
+-- Migration: розширення island_backups для file-level відкатів
+-- ALTER TABLE island_backups ADD COLUMN backup_type VARCHAR(20) NOT NULL DEFAULT 'snapshot' AFTER description;
+-- ALTER TABLE island_backups ADD COLUMN backup_path VARCHAR(512) NULL AFTER backup_type;
+-- ALTER TABLE island_backups ADD COLUMN changed_paths JSON NULL AFTER backup_path;
+-- ALTER TABLE island_backups ADD COLUMN version VARCHAR(50) NULL AFTER changed_paths;
+-- ALTER TABLE island_backups ADD COLUMN campaign_id INT NULL AFTER version;
+-- ALTER TABLE island_backups ADD CONSTRAINT fk_island_backups_campaign FOREIGN KEY (campaign_id) REFERENCES update_campaigns(id) ON DELETE SET NULL;

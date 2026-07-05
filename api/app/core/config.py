@@ -72,6 +72,23 @@ class Settings(BaseSettings):
     # CORS — конкретні домени через кому; "*" лише для розробки
     CORS_ORIGINS: list[str] = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
 
+    # ── Auto-update system ──────────────────────────────────────────
+    # Репозиторій з оновленнями (моди/конфіги/квести/рецепти)
+    UPDATES_REPO_URL: str = os.getenv("UPDATES_REPO_URL", "")
+    UPDATES_REPO_LOCAL_PATH: str = os.getenv("UPDATES_REPO_LOCAL_PATH", "/opt/skyblock/updates-repo")
+    GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")                    # для приватного репо
+    GITHUB_WEBHOOK_SECRET: str = os.getenv("GITHUB_WEBHOOK_SECRET", "")  # HMAC-верифікація webhook
+    # Шаблонний контейнер + аліас image, який публікується після оновлення шаблону
+    TEMPLATE_CONTAINER_NAME: str = os.getenv("TEMPLATE_CONTAINER_NAME", "skyblock-base")
+    # Куди в контейнері копіюються файли оновлення
+    UPDATES_TARGET_DIR: str = os.getenv("UPDATES_TARGET_DIR", "/opt/minecraft")
+    # Host-side директорія для file-level бекапів островів
+    UPDATES_BACKUP_DIR: str = os.getenv("UPDATES_BACKUP_DIR", "/opt/skyblock/island-backups")
+    SNAPSHOT_RETENTION_DAYS: int = int(os.getenv("SNAPSHOT_RETENTION_DAYS", "7"))
+    UPDATE_WORKER_INTERVAL: int = int(os.getenv("UPDATE_WORKER_INTERVAL", "10"))  # секунд між перевірками черги
+    UPDATE_MAX_RETRIES: int = int(os.getenv("UPDATE_MAX_RETRIES", "3"))
+    LXC_BIN: str = os.getenv("LXC_BIN", "lxc")  # шлях до lxc CLI (для рекурсивних file-операцій)
+
 
     class Config:
         """Represents the configuration for the settings.

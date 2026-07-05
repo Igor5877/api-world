@@ -8,5 +8,6 @@ from app.models.island_start_queue import IslandStartQueue
 from app.models.team import Team, TeamMember
 from app.models.market import MarketItem, MarketTransaction, MarketPendingExtraction, WarpPendingCommand
 from app.models.analytics import MarketStatsHourly, EconomySnapshot, MarketAnomaly
+from app.models.update import UpdateCampaign, UpdateQueue, IslandPendingCommand
 
-__all__ = ["Base", "Island", "IslandQueue", "IslandBackup", "IslandStartQueue", "Team", "TeamMember", "MarketItem", "MarketTransaction", "MarketPendingExtraction", "WarpPendingCommand", "MarketStatsHourly", "EconomySnapshot", "MarketAnomaly"]
+__all__ = ["Base", "Island", "IslandQueue", "IslandBackup", "IslandStartQueue", "Team", "TeamMember", "MarketItem", "MarketTransaction", "MarketPendingExtraction", "WarpPendingCommand", "MarketStatsHourly", "EconomySnapshot", "MarketAnomaly", "UpdateCampaign", "UpdateQueue", "IslandPendingCommand"]

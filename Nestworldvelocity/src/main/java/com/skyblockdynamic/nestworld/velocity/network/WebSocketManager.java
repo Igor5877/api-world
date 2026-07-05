@@ -51,7 +51,17 @@ public class WebSocketManager implements WebSocket.Listener {
      * Connects to the WebSocket server.
      */
     public void connect() {
-        HttpClient.newHttpClient().newWebSocketBuilder().buildAsync(uri, this);
+        WebSocket.Builder builder = HttpClient.newHttpClient().newWebSocketBuilder();
+        // API відхиляє WS-з'єднання без X-Api-Key (код 4001), коли ключі налаштовані
+        String apiKey = plugin.getPluginConfig().getApiKey();
+        if (apiKey != null && !apiKey.isBlank()) {
+            builder.header("X-Api-Key", apiKey);
+        }
+        builder.buildAsync(uri, this).exceptionally(ex -> {
+            logger.error("WebSocket connection failed for player {}: {}", player.getUsername(), ex.getMessage());
+            latch.countDown();
+            return null;
+        });
     }
 
     @Override

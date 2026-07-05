@@ -1,0 +1,43 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="nestworld_teams_client"
+version="${file.jarVersion}"
+displayName="Nestworld Teams Client"
+displayTest="IGNORE_ALL_VERSION"
+description='''
+Client-side companion for the Nestworld Teams system. Redirects FTB Teams GUI
+actions (invite, kick) through the Nestworld API so team management works
+across the whole server network with a single action. Adds the /nwteam client
+command and invite notifications.
+'''
+
+[[dependencies.nestworld_teams_client]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="CLIENT"
+
+[[dependencies.nestworld_teams_client]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.20.1,1.21)"
+    ordering="NONE"
+    side="CLIENT"
+
+[[dependencies.nestworld_teams_client]]
+    modId="ftbteams"
+    mandatory=true
+    versionRange="[2001.1.4,)"
+    ordering="AFTER"
+    side="CLIENT"
+
+[[dependencies.nestworld_teams_client]]
+    modId="ftblibrary"
+    mandatory=true
+    versionRange="[2001.1.0,)"
+    ordering="AFTER"
+    side="CLIENT"

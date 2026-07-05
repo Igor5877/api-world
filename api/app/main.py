@@ -200,6 +200,7 @@ from app.core.azuriom_client import close_client as close_azuriom_client
 from app.services.creation_worker import start_creation_worker
 from app.services.start_worker import start_start_worker
 from app.services.workers.analytics_worker import start_analytics_worker
+from app.services.update_worker import start_update_worker
 
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
@@ -239,6 +240,7 @@ async def lifespan(app: FastAPI):
         await start_creation_worker()
         await start_start_worker()
         await start_analytics_worker()
+        start_update_worker()
         logger.info("Startup leader has finished initial tasks.")
     else:
         logger.info("This worker is not the startup leader. Skipping initial tasks.")
@@ -313,6 +315,18 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         except Exception as e:
             logger.error(f"Failed to send pending extractions to {client_id}: {e}")
 
+        # Закриваємо reload-команди оновлень, що лишилися з минулої сесії:
+        # сервер щойно перезапустився і вже завантажив нові файли, тож
+        # повторний reload не потрібен (і мод може його не підтримувати).
+        try:
+            from app.crud.crud_update import crud_island_pending_command
+            async with AsyncSessionLocal() as db:
+                closed = await crud_island_pending_command.mark_all_delivered_for_player(db, player_uuid=island_uuid)
+                if closed:
+                    logger.info(f"Closed {closed} stale update commands for {client_id} (server restarted with fresh files)")
+        except Exception as e:
+            logger.error(f"Failed to close stale update commands for {client_id}: {e}")
+
     # Якщо це спавн-хаб — надсилаємо всі pending warp команди
     if client_id == "spawn_hub":
         try:
@@ -331,7 +345,17 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
     try:
         while True:
-            await websocket.receive_text()
+            raw = await websocket.receive_text()
+            # Ack від мода: команда оновлення виконана — прибираємо з pending
+            try:
+                import json as _json
+                msg = _json.loads(raw)
+                if isinstance(msg, dict) and msg.get("type") == "command_ack" and msg.get("pending_id"):
+                    from app.crud.crud_update import crud_island_pending_command
+                    async with AsyncSessionLocal() as db:
+                        await crud_island_pending_command.mark_delivered(db, command_id=int(msg["pending_id"]))
+            except Exception:
+                pass  # не-JSON повідомлення ігноруємо, як і раніше
     except WebSocketDisconnect:
         websocket_manager.disconnect(client_id)
 
@@ -381,6 +405,23 @@ app.include_router(
     analytics_router_module.router,
     prefix=f"{settings.API_V1_STR}/analytics",
     tags=["Analytics"],
+    dependencies=_auth,
+)
+
+from app.api.v1.endpoints import updates as updates_router_module
+
+# Webhook від GitHub автентифікується HMAC-підписом, НЕ api-key —
+# тому цей роутер підключається без _auth.
+app.include_router(
+    updates_router_module.webhook_router,
+    prefix=f"{settings.API_V1_STR}/updates",
+    tags=["Updates"],
+)
+
+app.include_router(
+    updates_router_module.router,
+    prefix=f"{settings.API_V1_STR}/updates",
+    tags=["Updates"],
     dependencies=_auth,
 )
 

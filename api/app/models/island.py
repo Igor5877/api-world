@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLAlchemyEnum, ForeignKey, Text, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLAlchemyEnum, ForeignKey, Text, Boolean, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
@@ -74,7 +74,11 @@ class Island(Base):
 
     world_seed = Column(String(255), nullable=True)
     minecraft_ready = Column(Boolean, default=False, nullable=False, server_default='0') # Added field
-    
+
+    # Auto-update system
+    current_version = Column(String(50), nullable=True)  # last applied update tag, e.g. "v1.3.0"
+    skip_auto_updates = Column(Boolean, default=False, nullable=False, server_default='0')  # unique servers are never touched
+
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -127,6 +131,13 @@ class IslandBackup(Base):
     snapshot_name = Column(String(255), nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     description = Column(Text, nullable=True)
+
+    # Auto-update system: file-level backups for soft rollback (world/ is never touched)
+    backup_type = Column(String(20), nullable=False, default="snapshot", server_default="snapshot")  # "snapshot" | "files"
+    backup_path = Column(String(512), nullable=True)   # host-side directory with the saved files
+    changed_paths = Column(JSON, nullable=True)        # [status, path] pairs the backup covers
+    version = Column(String(50), nullable=True)        # campaign version the backup was made for
+    campaign_id = Column(Integer, ForeignKey("update_campaigns.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Relationship to Island (optional)
     # island = relationship("Island", back_populates="backups")

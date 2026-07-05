@@ -1,0 +1,15 @@
+{
+    "required": true,
+    "minVersion": "0.8",
+    "package": "com.skyblock.dynamic.teamsclient.mixin",
+    "compatibilityLevel": "JAVA_17",
+    "refmap": "nestworld_teams_client.refmap.json",
+    "client": [
+        "BaseInvitationScreenMixin",
+        "MemberButtonMixin",
+        "MemberButtonAccessor"
+    ],
+    "injectors": {
+        "defaultRequire": 1
+    }
+}
