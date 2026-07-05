@@ -205,8 +205,14 @@ public class NestworldModsServer {
                 for (UUID memberUuid : memberUuids) {
                     islandCache.put(memberUuid, ownerUuid);
                 }
-                
+
                 com.skyblock.dynamic.utils.QuestTeamBridge.getInstance().syncTeamData(ownerUuid, memberUuids);
+
+                int teamId = teamJson.has("id") ? teamJson.get("id").getAsInt() : -1;
+                String teamName = teamJson.has("name") ? teamJson.get("name").getAsString() : null;
+                net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(
+                        new com.skyblock.dynamic.events.TeamDataUpdatedEvent(teamId, teamName, ownerUuid, memberUuids));
+
                 LOGGER.info("Successfully processed and synced team data for owner {}", ownerUuid);
                 return ownerUuid;
             }

@@ -1,0 +1,48 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="nestworld_teams"
+version="${file.jarVersion}"
+displayName="Nestworld Teams Addon"
+description='''
+Server-side bridge between the Nestworld API team system and FTB Teams/FTB Chunks.
+Syncs API team membership into FTB Teams parties, auto-claims island chunks,
+and relays invite/kick GUI actions from the client addon to the API.
+'''
+
+[[dependencies.nestworld_teams]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="SERVER"
+
+[[dependencies.nestworld_teams]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.20.1,1.21)"
+    ordering="NONE"
+    side="SERVER"
+
+[[dependencies.nestworld_teams]]
+    modId="ftbteams"
+    mandatory=true
+    versionRange="[2001.1.4,)"
+    ordering="AFTER"
+    side="SERVER"
+
+[[dependencies.nestworld_teams]]
+    modId="ftbchunks"
+    mandatory=false
+    versionRange="[2001.0.0,)"
+    ordering="AFTER"
+    side="SERVER"
+
+[[dependencies.nestworld_teams]]
+    modId="skyblock"
+    mandatory=true
+    versionRange="[1.2,)"
+    ordering="AFTER"
+    side="SERVER"

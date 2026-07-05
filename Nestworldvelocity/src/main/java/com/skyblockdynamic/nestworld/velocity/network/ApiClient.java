@@ -138,6 +138,31 @@ public class ApiClient {
     }
 
     /**
+     * Повідомляє API, що останній гравець покинув острів.
+     * Тригер для update worker: якщо острів чекає оновлення (WAITING),
+     * воно буде застосоване після зупинки сервера.
+     *
+     * @param ownerUuid The UUID of the island owner.
+     * @return A CompletableFuture that completes with the API response.
+     */
+    public CompletableFuture<ApiResponse> notifyPlayerLeft(UUID ownerUuid) {
+        String path = "/islands/" + ownerUuid.toString() + "/player_left";
+        HttpRequest request = baseRequest(apiUrlBase + path).POST(HttpRequest.BodyPublishers.noBody()).build();
+
+        logger.info("Notifying API that the last player left island of {}: POST {}", ownerUuid, request.uri());
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(httpResponse -> {
+                    logger.debug("API Response for notifyPlayerLeft for {}: Status Code {}", ownerUuid, httpResponse.statusCode());
+                    return new ApiResponse(httpResponse.statusCode(), httpResponse.body());
+                })
+                .exceptionally(ex -> {
+                    logger.warn("API request failed for notifyPlayerLeft for {}: {}", ownerUuid, ex.getMessage());
+                    return new ApiResponse(ex.getMessage());
+                });
+    }
+
+    /**
      * Creates a solo island for a player.
      *
      * @param playerUuid The UUID of the player.

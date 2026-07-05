@@ -168,6 +168,35 @@ async def freeze_island_endpoint(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while freezing the island.")
 
 
+@router.post("/{player_uuid}/player_left", response_model=MessageResponse, status_code=status.HTTP_200_OK)
+async def player_left_island_endpoint(
+    player_uuid: uuid.UUID,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """Called by Velocity when the last player leaves an island.
+
+    Releases a WAITING update-queue entry so the update worker can apply a
+    pending hard update once the island stops.
+
+    Args:
+        player_uuid: The UUID of the island owner.
+        db_session: The database session.
+
+    Returns:
+        A message stating whether a pending update was re-queued.
+    """
+    from app.services.update_worker import on_player_left_island
+
+    island = await island_service.get_island_by_player_uuid(db_session=db_session, player_uuid=str(player_uuid))
+    if not island or island.id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Island not found for this player.")
+
+    requeued = await on_player_left_island(db_session, island.id)
+    if requeued:
+        return MessageResponse(message="Pending update re-queued for this island.")
+    return MessageResponse(message="No pending update for this island.")
+
+
 @router.post("/{owner_uuid}/ready", response_model=MessageResponse, status_code=status.HTTP_200_OK)
 async def mark_island_ready_endpoint(
     owner_uuid: str,

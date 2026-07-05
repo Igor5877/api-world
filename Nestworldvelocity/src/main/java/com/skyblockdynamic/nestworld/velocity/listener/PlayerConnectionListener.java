@@ -307,6 +307,10 @@ public class PlayerConnectionListener {
                         logger.info("Last team member {} disconnected from island {}. Scheduling stop for owner {}.",
                                 player.getUsername(), serverName, ownerUuid);
 
+                        // Повідомити API про вихід останнього гравця — тригер для update worker
+                        // (якщо острів чекає оновлення, воно застосується після зупинки).
+                        apiClient.notifyPlayerLeft(ownerUuid);
+
                         Runnable stopTaskRunnable = () -> {
                             logger.info("Executing scheduled stop for island of owner {}", ownerUuid);
                             apiClient.requestIslandStop(ownerUuid);
