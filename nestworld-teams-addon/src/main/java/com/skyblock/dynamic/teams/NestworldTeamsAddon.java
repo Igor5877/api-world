@@ -244,17 +244,19 @@ public class NestworldTeamsAddon {
         }
         // Хаб: підтягуємо команду гравця з API, щоб GUI FTB Teams показував
         // реальний склад (без цього кожен на спавні виглядав "соло").
+        // reconcilePlayer також ВИГАНЯЄ гравця зі застарілої чужої паті на
+        // спавні, якщо за API він у ній більше не перебуває (вихід/кік,
+        // зроблені на острові, спавн інакше не дізнається).
         UUID playerUuid = event.getEntity().getUUID();
         API_CLIENT.getMyTeam(playerUuid).thenAccept(r -> {
-            if (!r.isSuccess()) {
-                return; // гравець без команди — лишається в personal team FTB
-            }
             try {
-                TeamState state = TeamState.fromJson(r.json());
-                if (state.isSolo()) {
-                    return;
-                }
-                server.execute(() -> SYNC_SERVICE.reconcileTeam(server, state));
+                TeamState state = r.isSuccess() ? TeamState.fromJson(r.json()) : null;
+                server.execute(() -> {
+                    SYNC_SERVICE.reconcilePlayer(server, playerUuid, state);
+                    if (state != null && !state.isSolo()) {
+                        SYNC_SERVICE.reconcileTeam(server, state);
+                    }
+                });
             } catch (Exception ex) {
                 LOGGER.error("Hub team sync failed for {}", playerUuid, ex);
             }
