@@ -350,6 +350,7 @@ async def accept_invite_by_id(
         raise HTTPException(status_code=400, detail=str(e))
 
     await crud_team.delete_invite(db, invite=invite)
+    logger.info(f"Teams: Player {player_uuid} accepted invite {invite_id} and joined team {updated_team.id}.")
     await broadcast_team_update(db, updated_team.id)
     return updated_team
 

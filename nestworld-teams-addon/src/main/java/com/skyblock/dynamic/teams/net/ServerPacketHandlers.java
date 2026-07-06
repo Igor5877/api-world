@@ -65,6 +65,10 @@ public final class ServerPacketHandlers {
                             reply(sender, true, "nestworld_teams.msg.invite_accepted", "");
                         } else if (r.isNotImplementedYet()) {
                             reply(sender, false, "nestworld_teams.msg.api_not_ready", "");
+                        } else if (r.status() == 404 || r.status() == 410) {
+                            // Клік по старій кнопці в чаті: запрошення вже
+                            // прийняте/відхилене/скасоване.
+                            reply(sender, false, "nestworld_teams.msg.invite_stale", "");
                         } else {
                             reply(sender, false, "nestworld_teams.msg.error", detail(r));
                         }
