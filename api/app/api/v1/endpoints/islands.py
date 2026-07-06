@@ -4,7 +4,7 @@ import uuid # For player_uuid
 from sqlalchemy.ext.asyncio import AsyncSession # Added for DB session type hint
 import logging
 
-from app.schemas.island import IslandCreate, IslandResponse, IslandStatusEnum, MessageResponse
+from app.schemas.island import IslandCreate, IslandResponse, IslandStatusEnum, MessageResponse, QuestProgressUpload, QuestProgressResponse
 from app.services.island_service import island_service
 from app.db.session import get_db_session # Import the dependency
 
@@ -235,3 +235,68 @@ async def mark_island_ready_endpoint(
     except Exception as e:
         logger.error(f"Endpoint Error: Unexpected error marking island ready for {owner_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while marking the island ready.")
+
+
+# ── FTB Quests progress sync (island = source of truth, spawn reads) ──────
+
+async def _resolve_island_by_owner(db_session: AsyncSession, owner_uuid: str):
+    """Finds the island for an owner UUID (team owner or legacy solo player).
+
+    Returns:
+        The island model.
+
+    Raises:
+        HTTPException: 404 if no island exists for this owner.
+    """
+    from app.crud import crud_team
+    from app.crud.crud_island import crud_island
+
+    team = await crud_team.get_team_by_owner_with_relations(db_session, owner_uuid=owner_uuid)
+    if team and team.island:
+        return team.island
+    island = await crud_island.get_by_player_uuid(db_session, player_uuid=owner_uuid)
+    if island:
+        return island
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"No island found for owner {owner_uuid}.")
+
+
+@router.put("/{owner_uuid}/quest-progress", response_model=MessageResponse)
+async def upload_quest_progress_endpoint(
+    owner_uuid: str,
+    payload: QuestProgressUpload,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """Stores the island's FTB Quests progress snapshot.
+
+    Called by the island's Forge mod on player logout / server stop, so the
+    spawn server can show up-to-date read-only progress.
+    """
+    from app.crud.crud_quest_progress import crud_quest_progress
+
+    if not payload.snbt.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="snbt must not be empty.")
+
+    island = await _resolve_island_by_owner(db_session, owner_uuid)
+    await crud_quest_progress.upsert(db_session, island_id=island.id,
+                                     owner_uuid=owner_uuid, snbt=payload.snbt)
+    logger.info(f"Endpoint: Stored quest progress for owner {owner_uuid} ({len(payload.snbt)} bytes).")
+    return MessageResponse(message="Quest progress stored.")
+
+
+@router.get("/{owner_uuid}/quest-progress", response_model=QuestProgressResponse)
+async def get_quest_progress_endpoint(
+    owner_uuid: str,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """Returns the latest stored FTB Quests progress snapshot for an island.
+
+    Called by the spawn/hub server on player join.
+    """
+    from app.crud.crud_quest_progress import crud_quest_progress
+
+    snapshot = await crud_quest_progress.get_by_owner_uuid(db_session, owner_uuid=owner_uuid)
+    if not snapshot:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"No quest progress stored for owner {owner_uuid}.")
+    return snapshot

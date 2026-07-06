@@ -125,7 +125,17 @@ repositories {
 }
 
 dependencies {
-    implementation files('libs/ftb-quests-2001.4.14-transformProductionForge.jar')
+    // FTB Quests is installed separately as its own mod jar in production;
+    // this is classpath-only for compiling against it, never shaded in.
+    // compileOnly (not runtimeOnly) is deliberate — runtimeOnly would still
+    // land in runtimeClasspath, which shadowJar bundles regardless of the
+    // dependencies{ include(...) } filter below (that filter only matches
+    // module coordinates, not raw files() dependencies).
+    compileOnly files('libs/ftb-quests-2001.4.14-transformProductionForge.jar')
+    // Потрібні для QuestProgressSync (SNBT + мережеві повідомлення квестів);
+    // у проді це окремі моди ftb-library/architectury, тому тільки compileOnly.
+    compileOnly files('libs/ftb-library-forge-2001.2.12.jar')
+    compileOnly files('libs/architectury-9.2.14-forge.jar')
     implementation 'org.java-websocket:Java-WebSocket:1.5.3'
     // Specify the version of Minecraft to use.
     // Any artifact can be supplied so long as it has a "userdev" classifier artifact and is a compatible patcher artifact.
@@ -152,14 +162,30 @@ dependencies {
     implementation 'com.electronwill.night-config:toml:3.6.6'
 }
 shadowJar {
-    // БЕЗ relocate — залишаємо оригінальний пакет
+    // Allow-list mode: ЛИШЕ ці дві залежності пакуються в jar. Все інше
+    // (Forge/Minecraft/logging/FTB Quests тощо) НІКОЛИ не потрапляє сюди —
+    // це і є фікс split-package крашів (bootstraplauncher, com.mojang.logging).
     dependencies {
-        // include(dependency('org.java-websocket:Java-WebSocket:1.5.3'))
-        exclude(dependency('org.apache.maven:.*'))
+        include(dependency('org.java-websocket:Java-WebSocket:1.5.3'))
+        include(dependency('com.electronwill.night-config:toml:3.6.6'))
+        include(dependency('com.electronwill.night-config:core:3.6.6'))
     }
+    // relocate обов'язковий: інші моди в модпаку (напр. jumbofurnace) теж
+    // шейдять ці самі бібліотеки під оригінальними пакетами — без relocate
+    // це той самий split-package крах, тільки конфлікт вже не з Forge,
+    // а зі стороннім модом.
+    relocate 'com.electronwill.nightconfig', 'com.skyblock.dynamic.shaded.nightconfig'
+    relocate 'org.java_websocket', 'com.skyblock.dynamic.shaded.javawebsocket'
     archiveBaseName.set('nestworld-mods-server')
     archiveClassifier.set('')
     archiveVersion.set('1.2.2')
+    // shadowJar перезаписує вихідний jar ПІСЛЯ reobfJar, тож без власного
+    // reobf у прод їде jar з неремапленими (MCP) іменами методів Minecraft —
+    // будь-який прямий виклик (getPlayerList тощо) падає з NoSuchMethodError.
+    finalizedBy 'reobfShadowJar'
+}
+reobf {
+    shadowJar {}
 }
 // This block of code expands all declared replace properties in the specified resource targets.
 // A missing property will result in an error. Properties are expanded using ${} Groovy notation.
