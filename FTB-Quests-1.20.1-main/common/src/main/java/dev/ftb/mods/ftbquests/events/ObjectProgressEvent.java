@@ -2,6 +2,7 @@ package dev.ftb.mods.ftbquests.events;
 
 import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.QuestObject;
+import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.Date;
@@ -24,6 +25,16 @@ public abstract class ObjectProgressEvent<T extends QuestObject> {
 
     public IslandData getIslandData() {
         return data.getIslandData();
+    }
+
+    /**
+     * @deprecated Binary-compat shim for addons compiled against the pre-fork
+     * API (e.g. ftb-xmod-compat's KubeJS integration calls this exact
+     * signature via reflection/ASM). Use {@link #getIslandData()} instead.
+     */
+    @Deprecated
+    public TeamData getData() {
+        return new TeamData(data.getIslandData());
     }
 
     public T getObject() {
