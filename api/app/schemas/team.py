@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -27,9 +27,7 @@ class TeamMemberCreate(TeamMemberBase):
 # Properties to return to client
 class TeamMember(TeamMemberBase):
     """Schema for a team member."""
-    class Config:
-        """Pydantic configuration."""
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 # -- Team Schemas --
 
@@ -76,9 +74,7 @@ class Team(TeamBase):
     members: List[TeamMember] = []
     island_id: Optional[int] = None # The ID of the associated island
 
-    class Config:
-        """Pydantic configuration."""
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TeamCreateResponse(BaseModel):
     """Schema for a team creation response.
