@@ -49,10 +49,20 @@ public class TeamSyncService {
     }
 
     /**
-     * Runs one reconciliation pass. Must be called on the server thread.
+     * Runs one reconciliation pass for the island's own team (lastState).
+     * Must be called on the server thread.
      */
     public void reconcile(MinecraftServer server) {
-        TeamState state = lastState;
+        reconcileTeam(server, lastState);
+    }
+
+    /**
+     * Reconciles ONE team's FTB party with the given API state. Used both by
+     * the island flow (lastState) and by the hub, where many teams coexist
+     * and each is reconciled when one of its members logs in.
+     * Must be called on the server thread.
+     */
+    public void reconcileTeam(MinecraftServer server, TeamState state) {
         if (state == null || state.ownerUuid() == null) {
             return;
         }
@@ -73,19 +83,20 @@ public class TeamSyncService {
                 return;
             }
 
-            // Multi-member team: make sure the owner has a party.
+            // Multi-member team: make sure the owner has a party. The full
+            // createParty overload accepts a null ServerPlayer, so a party can
+            // be created even while the owner is offline (hub case).
             if (ownerTeam == null || !ownerTeam.isPartyTeam()) {
                 ServerPlayer ownerPlayer = server.getPlayerList().getPlayer(state.ownerUuid());
-                if (ownerPlayer == null) {
-                    LOGGER.info("Owner {} is offline; party creation deferred until their next login.", state.ownerUuid());
-                    return;
-                }
                 try {
                     String name = state.teamName() != null && !state.teamName().isBlank()
                             ? state.teamName()
-                            : ownerPlayer.getGameProfile().getName();
-                    ownerTeam = TeamManagerImpl.INSTANCE.createParty(ownerPlayer, name);
-                    LOGGER.info("Created FTB Teams party '{}' for island owner {}.", name, state.ownerUuid());
+                            : (ownerPlayer != null ? ownerPlayer.getGameProfile().getName()
+                                                   : state.ownerUuid().toString());
+                    ownerTeam = TeamManagerImpl.INSTANCE.createParty(
+                            state.ownerUuid(), ownerPlayer, name, null, null);
+                    LOGGER.info("Created FTB Teams party '{}' for team owner {}{}.",
+                            name, state.ownerUuid(), ownerPlayer == null ? " (offline)" : "");
                 } catch (Exception e) {
                     LOGGER.error("Failed to create FTB Teams party for owner {}", state.ownerUuid(), e);
                     return;

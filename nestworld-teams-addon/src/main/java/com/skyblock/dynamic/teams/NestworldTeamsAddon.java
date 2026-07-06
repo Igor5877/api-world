@@ -59,28 +59,143 @@ public class NestworldTeamsAddon {
                 FTBTeamsAPI.api().setPartyCreationFromAPIOnly(true);
             }
 
-            // Party guard: revert any membership change that did not come from the API.
-            TeamEvent.PLAYER_JOINED_PARTY.register(e -> {
-                if (SYNC_SERVICE.isReconciling() || !isIslandServer()) {
-                    return;
-                }
-                TeamState state = SYNC_SERVICE.getLastState();
-                UUID joined = e.getPlayer().getUUID();
-                if (state != null && !state.isMember(joined)) {
-                    LOGGER.warn("Player {} joined party outside API control; scheduling reconciliation.", joined);
-                    MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
-                    if (server != null) {
-                        server.execute(() -> SYNC_SERVICE.reconcile(server));
-                    }
-                }
-            });
+            // Двостороння синхронізація: дії гравців у GUI FTB Teams
+            // (прийняти запрошення, вийти, кік) прокидаються в API.
+            // API лишається джерелом правди: якщо він відмовив — стан FTB
+            // повертається до API-стану реконсиляцією.
+            TeamEvent.PLAYER_JOINED_PARTY.register(NestworldTeamsAddon::onFtbPartyJoin);
+            TeamEvent.PLAYER_LEFT_PARTY.register(NestworldTeamsAddon::onFtbPartyLeave);
         });
+    }
+
+    /** Гравець приєднався до FTB-паті через GUI → вступ у API-команду. */
+    private static void onFtbPartyJoin(dev.ftb.mods.ftbteams.api.event.PlayerJoinedPartyTeamEvent e) {
+        if (SYNC_SERVICE.isReconciling()) {
+            return; // це наша власна синхронізація API -> FTB
+        }
+        UUID joined = e.getPlayer().getUUID();
+        UUID partyOwner = e.getTeam().getOwner();
+        if (joined.equals(partyOwner)) {
+            return; // створення паті власником — не вступ
+        }
+        LOGGER.info("FTB GUI: {} joined the party of {} — forwarding to the API.", joined, partyOwner);
+        API_CLIENT.getMyTeam(partyOwner).thenAccept(r -> {
+            if (!r.isSuccess()) {
+                LOGGER.warn("FTB GUI join: owner {} has no API team (HTTP {}) — reverting.", partyOwner, r.status());
+                resyncTeamOf(partyOwner);
+                return;
+            }
+            try {
+                TeamState apiState = TeamState.fromJson(r.json());
+                if (apiState.isMember(joined)) {
+                    return; // вже в API-команді (синхронізація з іншого сервера)
+                }
+                API_CLIENT.forceJoin(apiState.teamId(), joined).thenAccept(res -> {
+                    if (res.isSuccess()) {
+                        LOGGER.info("FTB GUI: {} joined API team {}.", joined, apiState.teamId());
+                    } else {
+                        LOGGER.warn("FTB GUI: API refused join of {} to team {} (HTTP {}): {} — reverting.",
+                                joined, apiState.teamId(), res.status(), res.body());
+                        notifyPlayer(joined, "Не вдалося приєднатися до команди: " + apiDetail(res));
+                        resyncTeamOf(partyOwner);
+                    }
+                });
+            } catch (Exception ex) {
+                LOGGER.error("FTB GUI join: malformed my_team response for {}", partyOwner, ex);
+            }
+        });
+    }
+
+    /** Гравець вийшов / був вигнаний із FTB-паті через GUI → вихід з API-команди. */
+    private static void onFtbPartyLeave(dev.ftb.mods.ftbteams.api.event.PlayerLeftPartyTeamEvent e) {
+        if (SYNC_SERVICE.isReconciling()) {
+            return;
+        }
+        if (e.getTeamDeleted()) {
+            // Розпуск паті НЕ транслюємо як масовий вихід — API-команда
+            // лишається джерелом правди, паті буде відтворена реконсиляцією.
+            LOGGER.warn("FTB GUI: party of {} was disbanded locally; the API team is untouched "
+                    + "and the party will be recreated on the next sync.", e.getTeam().getOwner());
+            return;
+        }
+        UUID left = e.getPlayerId();
+        UUID partyOwner = e.getTeam().getOwner();
+        if (left.equals(partyOwner)) {
+            return; // власник не виходить (FTB вимагає передати володіння)
+        }
+        LOGGER.info("FTB GUI: {} left the party of {} — forwarding to the API.", left, partyOwner);
+        API_CLIENT.getMyTeam(left).thenAccept(r -> {
+            if (!r.isSuccess()) {
+                return; // гравець і так не в API-команді
+            }
+            try {
+                TeamState apiState = TeamState.fromJson(r.json());
+                if (!apiState.ownerUuid().equals(partyOwner) || !apiState.isMember(left)) {
+                    return; // інша команда або вже не член — нічого знімати
+                }
+                API_CLIENT.leaveTeam(apiState.teamId(), left).thenAccept(res -> {
+                    if (res.isSuccess()) {
+                        LOGGER.info("FTB GUI: {} left API team {}.", left, apiState.teamId());
+                    } else {
+                        LOGGER.warn("FTB GUI: API refused leave of {} from team {} (HTTP {}): {} — reverting.",
+                                left, apiState.teamId(), res.status(), res.body());
+                        resyncTeamOf(partyOwner);
+                    }
+                });
+            } catch (Exception ex) {
+                LOGGER.error("FTB GUI leave: malformed my_team response for {}", left, ex);
+            }
+        });
+    }
+
+    /** Повертає FTB-паті до API-стану команди власника (revert невдалих GUI-дій). */
+    private static void resyncTeamOf(UUID ownerUuid) {
+        API_CLIENT.getMyTeam(ownerUuid).thenAccept(r -> {
+            if (!r.isSuccess()) {
+                return;
+            }
+            try {
+                TeamState state = TeamState.fromJson(r.json());
+                MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+                if (server != null) {
+                    server.execute(() -> SYNC_SERVICE.reconcileTeam(server, state));
+                }
+            } catch (Exception ex) {
+                LOGGER.error("Failed to resync team of {}", ownerUuid, ex);
+            }
+        });
+    }
+
+    private static void notifyPlayer(UUID playerUuid, String message) {
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server == null) {
+            return;
+        }
+        server.execute(() -> {
+            var player = server.getPlayerList().getPlayer(playerUuid);
+            if (player != null) {
+                player.sendSystemMessage(net.minecraft.network.chat.Component.literal(message)
+                        .withStyle(net.minecraft.ChatFormatting.RED));
+            }
+        });
+    }
+
+    private static String apiDetail(TeamApiClient.ApiResult r) {
+        try {
+            var json = r.json();
+            if (json.has("detail")) {
+                return json.get("detail").getAsString();
+            }
+        } catch (Exception ignored) {
+        }
+        return "HTTP " + r.status();
     }
 
     @SubscribeEvent
     public void onServerStarted(ServerStartedEvent event) {
         if (!isIslandServer()) {
-            LOGGER.info("Nestworld Teams Addon running on a HUB server; party sync and auto-claim are inactive.");
+            LOGGER.info("Nestworld Teams Addon running on a HUB server; per-player team sync on login, "
+                    + "auto-claim inactive.");
             return;
         }
         UUID owner = ownerUuid();
@@ -110,11 +225,14 @@ public class NestworldTeamsAddon {
 
     @SubscribeEvent
     public void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-        if (!isIslandServer() || event.getEntity().level().isClientSide()) {
+        if (event.getEntity().level().isClientSide()) {
             return;
         }
         MinecraftServer server = event.getEntity().getServer();
-        if (server != null) {
+        if (server == null) {
+            return;
+        }
+        if (isIslandServer()) {
             server.execute(() -> {
                 SYNC_SERVICE.reconcile(server);
                 UUID owner = ownerUuid();
@@ -122,7 +240,25 @@ public class NestworldTeamsAddon {
                     CLAIM_SERVICE.autoClaimIfNeeded(server, owner);
                 }
             });
+            return;
         }
+        // Хаб: підтягуємо команду гравця з API, щоб GUI FTB Teams показував
+        // реальний склад (без цього кожен на спавні виглядав "соло").
+        UUID playerUuid = event.getEntity().getUUID();
+        API_CLIENT.getMyTeam(playerUuid).thenAccept(r -> {
+            if (!r.isSuccess()) {
+                return; // гравець без команди — лишається в personal team FTB
+            }
+            try {
+                TeamState state = TeamState.fromJson(r.json());
+                if (state.isSolo()) {
+                    return;
+                }
+                server.execute(() -> SYNC_SERVICE.reconcileTeam(server, state));
+            } catch (Exception ex) {
+                LOGGER.error("Hub team sync failed for {}", playerUuid, ex);
+            }
+        });
     }
 
     @SubscribeEvent

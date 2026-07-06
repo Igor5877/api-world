@@ -82,6 +82,16 @@ public class TeamApiClient {
                 .POST(HttpRequest.BodyPublishers.noBody()).build());
     }
 
+    /**
+     * Вступ у команду без API-запрошення: викликається, коли гравець прийняв
+     * запрошення в GUI FTB Teams (згода вже відбулась там). Старий соло-острів
+     * гравця видаляється — так само, як при прийнятті API-запрошення.
+     */
+    public CompletableFuture<ApiResult> forceJoin(int teamId, UUID playerUuid) {
+        return send(request("teams/" + teamId + "/members?player_uuid=" + playerUuid)
+                .POST(HttpRequest.BodyPublishers.noBody()).build());
+    }
+
     public CompletableFuture<ApiResult> renameTeam(int teamId, UUID playerUuid, String newName) {
         JsonObject body = new JsonObject();
         body.addProperty("name", newName);

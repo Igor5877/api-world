@@ -237,6 +237,44 @@ async def leave_team(
     return
 
 
+@router.post("/{team_id}/members", response_model=TeamSchema, status_code=201)
+async def force_join_team(
+    *,
+    team_id: int,
+    player_uuid: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Joins a player to a team WITHOUT a pending API invite.
+
+    Server-to-server call (API key): the island/hub addon forwards party
+    joins made through the FTB Teams GUI — the invite+accept consent already
+    happened there. Same flow as accepting an invite: the player's old solo
+    island is deleted.
+    """
+    result = await db.execute(
+        select(Team).where(Team.id == team_id)
+        .options(selectinload(Team.members), selectinload(Team.island))
+    )
+    team = result.scalars().first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found.")
+
+    try:
+        updated_team = await island_service.handle_join_team(
+            db_session=db,
+            player_to_join_uuid=player_uuid,
+            team_to_join=team,
+            background_tasks=background_tasks,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    logger.info(f"Teams: Player {player_uuid} joined team {team_id} via FTB GUI (force-join).")
+    await broadcast_team_update(db, updated_team.id)
+    return updated_team
+
+
 # ── invite system (API_TEAMS_TODO.md §1) ──────────────────────────────
 
 def _is_owner_or_moderator(team: Team, member, requester_uuid: str) -> bool:
