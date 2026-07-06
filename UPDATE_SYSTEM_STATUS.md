@@ -128,6 +128,9 @@ HEALTH_WORKER_INTERVAL=30          # частота проходів watchdog
 | 3 | `list_directory` | той самий легасі-шлях `/1.0/containers/{name}/files`, помилка тихо ковталась як "not found" → `delete_extra` завжди бачив порожню директорію → **старі моди ніколи не видалялись** | `/1.0/containers/` → `/1.0/instances/` |
 | 4 | `delete_file` | прапорець `--recursive` не існує в `lxc file delete` (LXD CLI 6.8) | прапорець прибрано |
 | 5 | `create_snapshot` | retry після часткової невдачі падав з "snapshot already exists" | ловимо `"already exists"` і перевикористовуємо снапшот |
+| 6 | `list_directory` | шлях не кодувався в query-URL — файл із пробілом (`kubejs/.../Add crafting`) валив clean-sync з 400 Bad Request | percent-encoding через `urllib.parse.quote` |
+| 7 | `pull_file`/`delete_*` | LXD каже "file **does not exist**", а матчились лише "not found"/"no such file" → retry оновлення падав на бекапі файлу, видаленого попередньою (перерваною) спробою | спільний `_is_missing_path_error()` на всі 3 формулювання |
+| 8 | `update_worker` | воркер упав посеред оновлення → острів навічно застряг в `UPDATING` (черга PENDING, але транзитні статуси вічно defer-яться) — дедлок кампанії без помилок у логах | recovery при старті: всі UPDATING скидаються за реальним станом LXD-контейнера |
 
 **Урок:** будь-який прямий (не через модель pylxd) виклик LXD API — перевіряти
 на `containers` vs `instances` endpoint і на реальні прапорці поточної версії
