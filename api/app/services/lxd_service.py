@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import pathlib
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List, Tuple
 from functools import partial
@@ -470,6 +471,12 @@ class LXDService:
             logger.error(f"Error listing snapshots for '{container_name}': {e}", exc_info=True)
             raise LXDServiceError(f"Failed to list snapshots: {e}")
 
+    @staticmethod
+    def _is_missing_path_error(e: Exception) -> bool:
+        """True if the LXD error means the file/dir simply is not there."""
+        msg = str(e).lower()
+        return "not found" in msg or "no such file" in msg or "does not exist" in msg
+
     async def list_directory(self, container_name: str, path: str) -> List[str]:
         """Lists entry names of a directory inside a container.
 
@@ -482,7 +489,9 @@ class LXDService:
         Returns:
             A list of entry names; an empty list if the directory does not exist.
         """
-        url = f"/1.0/instances/{container_name}/files?path={path}"
+        # Path goes into a URL query — must be percent-encoded (file names with
+        # spaces like "Add crafting" otherwise 400 the whole request).
+        url = f"/1.0/instances/{container_name}/files?path={urllib.parse.quote(path, safe='/')}"
         if settings.LXD_PROJECT and settings.LXD_PROJECT != "default":
             url += f"&project={settings.LXD_PROJECT}"
         try:
@@ -490,7 +499,7 @@ class LXDService:
             entries = json.loads(output)
             return entries if isinstance(entries, list) else []
         except LXDServiceError as e:
-            if "not found" in str(e).lower() or "no such file" in str(e).lower():
+            if self._is_missing_path_error(e):
                 return []
             raise
 
@@ -555,7 +564,7 @@ class LXDService:
             )
             return True
         except LXDServiceError as e:
-            if "not found" in str(e).lower() or "no such file" in str(e).lower():
+            if self._is_missing_path_error(e):
                 return False
             raise
 
@@ -575,7 +584,7 @@ class LXDService:
                 *self._project_args(),
             )
         except LXDServiceError as e:
-            if "not found" in str(e).lower() or "no such file" in str(e).lower():
+            if self._is_missing_path_error(e):
                 return
             raise
 
@@ -599,8 +608,7 @@ class LXDService:
             )
             return
         except LXDServiceError as e:
-            msg = str(e).lower()
-            if "not found" in msg or "no such file" in msg:
+            if self._is_missing_path_error(e):
                 return
             # Most likely a non-empty directory — empty it and retry below.
 
