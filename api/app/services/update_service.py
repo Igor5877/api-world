@@ -22,7 +22,8 @@ from app.models.team import Team as TeamModel
 from app.models.update import UpdateCampaign as UpdateCampaignModel, CampaignStatusEnum
 from app.schemas.island import IslandStatusEnum
 from app.services import git_sync
-from app.services.git_sync import SYNC_DIRS, CLEAN_SYNC_DIRS, CLEAN_SYNC_SUBDIRS
+from app.services.git_sync import (SYNC_DIRS, CLEAN_SYNC_DIRS, CLEAN_SYNC_SUBDIRS,
+                                   CORE_SYNC_DIRS, CORE_SYNC_FILES)
 from app.services.lxd_service import lxd_service
 from app.services.websocket_manager import manager as websocket_manager
 
@@ -71,14 +72,21 @@ class UpdateService:
             return campaign.update_type.value == "critical"
         return True
 
+    def _backupable(self, path: str) -> bool:
+        """True for paths the file backup/rollback machinery covers.
+
+        SYNC_DIRS and top-level core files are backed up; libraries/ is not —
+        it is far too big, its rollback is the pre-update LXD snapshot.
+        """
+        return path.split("/", 1)[0] in SYNC_DIRS or path in CORE_SYNC_FILES
+
     def _paths_to_back_up(self, campaign: UpdateCampaignModel) -> List[str]:
         """Container paths (modified or deleted by the campaign) that must be saved."""
         target = settings.UPDATES_TARGET_DIR.rstrip("/")
         paths = []
         for entry in (campaign.changed_paths or []):
             status, path = entry[0], entry[1]
-            top = path.split("/", 1)[0]
-            if top not in SYNC_DIRS:
+            if not self._backupable(path):
                 continue
             if status in ("M", "D", "R"):  # files that existed before the update
                 paths.append(f"{target}/{path}")
@@ -90,8 +98,15 @@ class UpdateService:
         return [
             f"{target}/{entry[1]}"
             for entry in (campaign.changed_paths or [])
-            if entry[0] == "A" and entry[1].split("/", 1)[0] in SYNC_DIRS
+            if entry[0] == "A" and self._backupable(entry[1])
         ]
+
+    def _core_dirs_changed(self, campaign: Optional[UpdateCampaignModel]) -> List[str]:
+        """Core directories (libraries/) the campaign actually touched."""
+        if not campaign:
+            return []
+        touched = {entry[1].split("/", 1)[0] for entry in (campaign.changed_paths or [])}
+        return [d for d in CORE_SYNC_DIRS if d in touched]
 
     async def _push_repo_to_container(self, container_name: str):
         """Syncs all whitelisted repo directories into the container.
@@ -115,6 +130,65 @@ class UpdateService:
                 clean_first=(local_dir.name in CLEAN_SYNC_DIRS),
                 clean_subdirs=clean_subdirs,
             )
+
+    async def _push_core_to_container(self, container_name: str,
+                                      campaign: Optional[UpdateCampaignModel]):
+        """Syncs the server core into the container (hard updates only).
+
+        Top-level core files (run.sh, ServerWrapper*.jar, user_jvm_args.txt, …)
+        are small and pushed whenever present in the repo, so every hard update
+        converges them. libraries/ is pushed with a full wipe only when the
+        campaign diff touched it — it is hundreds of MB.
+        """
+        repo = pathlib.Path(settings.UPDATES_REPO_LOCAL_PATH)
+        target = settings.UPDATES_TARGET_DIR.rstrip("/")
+
+        for name in CORE_SYNC_FILES:
+            local_file = repo / name
+            if not local_file.is_file():
+                continue
+            mode = local_file.stat().st_mode & 0o777
+            await lxd_service.push_file_to_container(
+                container_name, f"{target}/{name}", local_file.read_bytes(), mode=mode)
+            logger.info(f"UpdateService: Pushed core file {name} to '{container_name}'.")
+
+        for dir_name in self._core_dirs_changed(campaign):
+            local_dir = repo / dir_name
+            if not local_dir.is_dir():
+                logger.warning(f"UpdateService: Campaign touches {dir_name}/ but the repo has no "
+                               f"such directory — skipping.")
+                continue
+            await lxd_service.push_directory(container_name, str(local_dir),
+                                             settings.UPDATES_TARGET_DIR, clean_first=True)
+            logger.info(f"UpdateService: Pushed core dir {dir_name}/ to '{container_name}' (full wipe).")
+
+    # Файли, які чистка логів не чіпає (активні лог-файли сервера).
+    _LOG_KEEP_ALWAYS = {"latest.log", "debug.log"}
+    _LOG_KEEP_COUNT = 20
+
+    async def _cleanup_container_logs(self, container_name: str):
+        """Deletes old files in logs/ and crash-reports/, keeping the newest 20.
+
+        Minecraft log/crash file names are date-based, so a lexicographic sort
+        is chronological. Runs during hard updates (container stopped), where
+        these directories otherwise grow without bound and eat the disk.
+        """
+        target = settings.UPDATES_TARGET_DIR.rstrip("/")
+        for dir_name in ("logs", "crash-reports"):
+            dir_path = f"{target}/{dir_name}"
+            try:
+                entries = await lxd_service.list_directory(container_name, dir_path)
+                candidates = sorted(e for e in entries if e not in self._LOG_KEEP_ALWAYS)
+                stale_files = candidates[:-self._LOG_KEEP_COUNT]  # порожньо, якщо файлів <= 20
+                for stale in stale_files:
+                    await lxd_service.delete_file(container_name, f"{dir_path}/{stale}")
+                if stale_files:
+                    logger.info(f"UpdateService: Removed {len(stale_files)} old files from "
+                                f"{dir_name}/ in '{container_name}'.")
+            except Exception as e:
+                # Чистка логів — гігієна, не критичний крок оновлення.
+                logger.warning(f"UpdateService: Log cleanup of {dir_name}/ in "
+                               f"'{container_name}' failed: {e}")
 
     async def _queue_reload_commands(self, db_session: AsyncSession, island: IslandModel,
                                      owner_uuid: str, campaign: UpdateCampaignModel):
@@ -246,7 +320,9 @@ class UpdateService:
                 # Safety snapshot for manual emergency recovery only.
                 # UPDATE_SNAPSHOT_MODE: on a dir storage backend a snapshot is a
                 # full container copy, so "critical"/"never" saves a lot of disk.
-                if self._snapshot_wanted(campaign):
+                # A campaign that touches libraries/ ALWAYS snapshots: that is
+                # the only rollback path for the core (no file backup for it).
+                if self._snapshot_wanted(campaign) or self._core_dirs_changed(campaign):
                     snapshot_name = f"pre-update-{campaign.version}"
                     await lxd_service.create_snapshot(container_name, snapshot_name,
                                                       expiry_days=settings.SNAPSHOT_RETENTION_DAYS)
@@ -265,6 +341,8 @@ class UpdateService:
                 )
 
                 await self._push_repo_to_container(container_name)
+                await self._push_core_to_container(container_name, campaign)
+                await self._cleanup_container_logs(container_name)
 
                 # The container stays stopped — islands start on demand when the
                 # player joins, so no restart is needed here.
@@ -421,7 +499,8 @@ class UpdateService:
 
     # ── template container ────────────────────────────────────────────
 
-    async def update_template_container(self, campaign_version: str):
+    async def update_template_container(self, campaign_version: str,
+                                        campaign: Optional[UpdateCampaignModel] = None):
         """Pushes the update into the template container and republishes the image.
 
         New islands are cloned from the published image (LXD_BASE_IMAGE), so
@@ -439,11 +518,14 @@ class UpdateService:
                 await lxd_service.stop_container(template, force=True)
 
         await self._push_repo_to_container(template)
+        await self._push_core_to_container(template, campaign)
+        await self._cleanup_container_logs(template)
         await lxd_service.publish_container_image(template, settings.LXD_BASE_IMAGE)
         logger.info(f"UpdateService: Template '{template}' updated to {campaign_version} and image "
                     f"'{settings.LXD_BASE_IMAGE}' republished.")
 
-    async def update_spawn_container(self, campaign_version: str):
+    async def update_spawn_container(self, campaign_version: str,
+                                     campaign: Optional[UpdateCampaignModel] = None):
         """Pushes the update into the spawn/hub container and brings it back up.
 
         Unlike the template, the spawn server is live and must end the update
@@ -468,6 +550,8 @@ class UpdateService:
                 await lxd_service.stop_container(spawn, force=True)
 
         await self._push_repo_to_container(spawn)
+        await self._push_core_to_container(spawn, campaign)
+        await self._cleanup_container_logs(spawn)
 
         if was_running:
             await lxd_service.start_container(spawn)
