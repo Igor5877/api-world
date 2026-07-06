@@ -178,7 +178,7 @@ shadowJar {
     relocate 'org.java_websocket', 'com.skyblock.dynamic.shaded.javawebsocket'
     archiveBaseName.set('nestworld-mods-server')
     archiveClassifier.set('')
-    archiveVersion.set('1.2.2')
+    archiveVersion.set('1.3.0')
     // shadowJar перезаписує вихідний jar ПІСЛЯ reobfJar, тож без власного
     // reobf у прод їде jar з неремапленими (MCP) іменами методів Minecraft —
     // будь-який прямий виклик (getPlayerList тощо) падає з NoSuchMethodError.
@@ -186,6 +186,11 @@ shadowJar {
 }
 reobf {
     shadowJar {}
+}
+// Gradle 8 вимагає явний порядок: shadowJar і jar пишуть у той самий файл,
+// тож reobfJar мусить іти після shadowJar (реальний ремап робить reobfShadowJar).
+tasks.matching { it.name == 'reobfJar' || it.name == 'reobfShadowJar' }.configureEach {
+    mustRunAfter tasks.named('jar'), tasks.named('shadowJar')
 }
 // This block of code expands all declared replace properties in the specified resource targets.
 // A missing property will result in an error. Properties are expanded using ${} Groovy notation.

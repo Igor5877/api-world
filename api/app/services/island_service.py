@@ -321,7 +321,8 @@ class IslandService:
                 ip = await lxd_service.get_container_ip(container_name)
                 if not ip: raise LXDServiceError("Failed to get IP for solo island.")
                 
-                update_data = {"status": IslandStatusEnum.RUNNING, "internal_ip_address": ip}
+                update_data = {"status": IslandStatusEnum.RUNNING, "internal_ip_address": ip,
+                               "last_heartbeat_at": None}
                 updated_island = await crud_island.update(db, db_obj=island, obj_in=update_data)
                 await db.commit()
                 await db.refresh(updated_island)
@@ -363,7 +364,7 @@ class IslandService:
                 if not ip_address:
                     raise LXDServiceError("Failed to get IP address for container.")
 
-                update_fields = {"internal_ip_address": ip_address, "internal_port": settings.DEFAULT_MC_PORT_INTERNAL, "status": IslandStatusEnum.RUNNING, "last_seen_at": datetime.now(timezone.utc)}
+                update_fields = {"internal_ip_address": ip_address, "internal_port": settings.DEFAULT_MC_PORT_INTERNAL, "status": IslandStatusEnum.RUNNING, "last_seen_at": datetime.now(timezone.utc), "last_heartbeat_at": None}
                 updated_island = await crud_island.update(db_session_bg, db_obj=team.island, obj_in=update_fields)
                 await db_session_bg.commit()
                 await db_session_bg.refresh(updated_island)
@@ -623,10 +624,21 @@ class IslandService:
         if island_db_model.status != IslandStatusEnum.RUNNING:
             raise ValueError(f"Island is not in RUNNING state, but in {island_db_model.status}. Cannot mark as ready.")
         if island_db_model.minecraft_ready:
-            logger.warning(f"Service: Island for team {team.id} was already marked as ready. Ignoring duplicate request.")
-            return
+            # Повторний /ready без старту з боку API = Minecraft перезапустився
+            # сам (краш + systemd Restart=...). Фіксуємо подію і приймаємо
+            # нову сесію замість того, щоб мовчки ігнорувати.
+            from app.crud.crud_island_event import crud_island_event
+            logger.warning(f"Service: Island for team {team.id} sent /ready while already ready — "
+                           f"Minecraft restarted on its own. Recording 'restarted' event.")
+            await crud_island_event.add(db_session, island_id=island_db_model.id,
+                                        event_type="restarted",
+                                        details="/ready arrived while the island was already marked "
+                                                "ready — Minecraft restarted without the API.")
 
-        updated_island = await crud_island.update(db_session, db_obj=island_db_model, obj_in={"minecraft_ready": True})
+        updated_island = await crud_island.update(
+            db_session, db_obj=island_db_model,
+            obj_in={"minecraft_ready": True, "last_heartbeat_at": None,
+                    "last_seen_at": datetime.now(timezone.utc)})
         await db_session.commit()
         await db_session.refresh(updated_island)
         await db_session.refresh(team, attribute_names=['island', 'members'])

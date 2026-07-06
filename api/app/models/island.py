@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum as SQLAlchemyEnum, ForeignKey, Text, Boolean, JSON
+from sqlalchemy import Column, Integer, Float, String, DateTime, Enum as SQLAlchemyEnum, ForeignKey, Text, Boolean, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
@@ -75,6 +75,13 @@ class Island(Base):
     world_seed = Column(String(255), nullable=True)
     minecraft_ready = Column(Boolean, default=False, nullable=False, server_default='0') # Added field
 
+    # Health monitoring: the mod sends a heartbeat over WebSocket every ~30s.
+    # last_heartbeat_at is reset to NULL on every (re)start so the watchdog
+    # only judges islands that have already proven they can heartbeat this boot.
+    last_heartbeat_at = Column(DateTime, nullable=True)
+    last_tps = Column(Float, nullable=True)
+    online_players = Column(Integer, nullable=True)
+
     # Auto-update system
     current_version = Column(String(50), nullable=True)  # last applied update tag, e.g. "v1.3.0"
     skip_auto_updates = Column(Boolean, default=False, nullable=False, server_default='0')  # unique servers are never touched
@@ -86,6 +93,29 @@ class Island(Base):
 
     # Relationships
     team = relationship("Team", back_populates="island")
+
+
+class IslandEvent(Base):
+    """Journal of island lifecycle incidents for the admin.
+
+    Written by the health watchdog and lifecycle handlers so crashes, hangs
+    and silent restarts are visible via the API instead of only in logs.
+
+    event_type values:
+        crashed            — container went down while the island was RUNNING
+        hung               — container up but Minecraft stopped answering
+        stopped_externally — Minecraft announced shutdown not initiated by the API
+        restarted          — /ready arrived for an island already marked ready
+        stopping           — the mod signalled a clean shutdown
+        state_mismatch     — DB status and real LXD state diverged
+    """
+    __tablename__ = "island_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    island_id = Column(Integer, ForeignKey("islands.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type = Column(String(32), nullable=False)
+    details = Column(String(1024), nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), index=True)
 
 
 class IslandQuestProgress(Base):

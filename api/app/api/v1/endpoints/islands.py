@@ -4,7 +4,7 @@ import uuid # For player_uuid
 from sqlalchemy.ext.asyncio import AsyncSession # Added for DB session type hint
 import logging
 
-from app.schemas.island import IslandCreate, IslandResponse, IslandStatusEnum, MessageResponse, QuestProgressUpload, QuestProgressResponse
+from app.schemas.island import IslandCreate, IslandResponse, IslandStatusEnum, MessageResponse, QuestProgressUpload, QuestProgressResponse, IslandEventResponse
 from app.services.island_service import island_service
 from app.db.session import get_db_session # Import the dependency
 
@@ -235,6 +235,23 @@ async def mark_island_ready_endpoint(
     except Exception as e:
         logger.error(f"Endpoint Error: Unexpected error marking island ready for {owner_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while marking the island ready.")
+
+
+@router.get("/{owner_uuid}/events", response_model=list[IslandEventResponse])
+async def list_island_events_endpoint(
+    owner_uuid: str,
+    limit: int = 50,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """Lists the island's incident journal (crashes, hangs, restarts).
+
+    Written by the health watchdog and lifecycle handlers; newest first.
+    """
+    from app.crud.crud_island_event import crud_island_event
+
+    island = await _resolve_island_by_owner(db_session, owner_uuid)
+    return await crud_island_event.list_for_island(
+        db_session, island_id=island.id, limit=max(1, min(limit, 500)))
 
 
 # ── FTB Quests progress sync (island = source of truth, spawn reads) ──────

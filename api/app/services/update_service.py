@@ -4,9 +4,11 @@ Applies one campaign (git tag) to islands: file sync, snapshots, backups,
 in-game reload commands, rollbacks and the template container refresh.
 world/ is NEVER touched — neither on update nor on rollback.
 """
+import asyncio
 import logging
 import os
 import pathlib
+import shutil
 from typing import List, Optional, Tuple
 
 from sqlalchemy import select
@@ -59,6 +61,15 @@ class UpdateService:
     def _backup_dir_for(self, island: IslandModel, version: str) -> str:
         """Host-side backup directory for one island and campaign version."""
         return os.path.join(settings.UPDATES_BACKUP_DIR, island.container_name, version)
+
+    def _snapshot_wanted(self, campaign: UpdateCampaignModel) -> bool:
+        """Decides whether a pre-update LXD snapshot should be taken."""
+        mode = (settings.UPDATE_SNAPSHOT_MODE or "always").lower()
+        if mode == "never":
+            return False
+        if mode == "critical":
+            return campaign.update_type.value == "critical"
+        return True
 
     def _paths_to_back_up(self, campaign: UpdateCampaignModel) -> List[str]:
         """Container paths (modified or deleted by the campaign) that must be saved."""
@@ -233,14 +244,17 @@ class UpdateService:
                         await lxd_service.stop_container(container_name, force=True)
 
                 # Safety snapshot for manual emergency recovery only.
-                snapshot_name = f"pre-update-{campaign.version}"
-                await lxd_service.create_snapshot(container_name, snapshot_name,
-                                                  expiry_days=settings.SNAPSHOT_RETENTION_DAYS)
-                await crud_island_backup_ops.create(
-                    db_session, island_id=island.id, snapshot_name=snapshot_name,
-                    backup_type="snapshot", version=campaign.version, campaign_id=campaign.id,
-                    description=f"Auto snapshot before update {campaign.version}",
-                )
+                # UPDATE_SNAPSHOT_MODE: on a dir storage backend a snapshot is a
+                # full container copy, so "critical"/"never" saves a lot of disk.
+                if self._snapshot_wanted(campaign):
+                    snapshot_name = f"pre-update-{campaign.version}"
+                    await lxd_service.create_snapshot(container_name, snapshot_name,
+                                                      expiry_days=settings.SNAPSHOT_RETENTION_DAYS)
+                    await crud_island_backup_ops.create(
+                        db_session, island_id=island.id, snapshot_name=snapshot_name,
+                        backup_type="snapshot", version=campaign.version, campaign_id=campaign.id,
+                        description=f"Auto snapshot before update {campaign.version}",
+                    )
 
                 backed_up = await lxd_service.backup_files(container_name, paths_to_save, backup_dir)
                 await crud_island_backup_ops.create(
@@ -368,6 +382,42 @@ class UpdateService:
         await crud_update_campaign.set_status(db_session, campaign_id=campaign.id,
                                               status=CampaignStatusEnum.ROLLED_BACK)
         return ok, failed
+
+    # ── backup retention ──────────────────────────────────────────────
+
+    async def prune_file_backups(self, db_session: AsyncSession) -> int:
+        """Deletes old file backups, keeping the newest N versions per island.
+
+        Without this every campaign leaves one more copy of the changed files
+        per island and the backup dir eventually fills the disk. Rollback only
+        ever goes one version back, so keeping UPDATE_BACKUP_KEEP_VERSIONS=2
+        loses nothing. LXD snapshots are not touched here — they expire on
+        their own (SNAPSHOT_RETENTION_DAYS).
+
+        Returns:
+            The number of version directories removed.
+        """
+        keep = settings.UPDATE_BACKUP_KEEP_VERSIONS
+        base = pathlib.Path(settings.UPDATES_BACKUP_DIR)
+        if keep < 1 or not base.is_dir():
+            return 0
+
+        removed = 0
+        for island_dir in sorted(base.iterdir()):
+            if not island_dir.is_dir():
+                continue
+            versions = sorted((d for d in island_dir.iterdir() if d.is_dir()),
+                              key=lambda d: d.stat().st_mtime, reverse=True)
+            for old_dir in versions[keep:]:
+                try:
+                    await asyncio.to_thread(shutil.rmtree, old_dir, ignore_errors=True)
+                    await crud_island_backup_ops.delete_files_backups_by_path(
+                        db_session, backup_path=str(old_dir))
+                    removed += 1
+                    logger.info(f"UpdateService: Pruned old backup {old_dir}.")
+                except Exception as e:
+                    logger.error(f"UpdateService: Failed to prune backup {old_dir}: {e}")
+        return removed
 
     # ── template container ────────────────────────────────────────────
 

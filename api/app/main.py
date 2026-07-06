@@ -201,6 +201,7 @@ from app.services.creation_worker import start_creation_worker
 from app.services.start_worker import start_start_worker
 from app.services.workers.analytics_worker import start_analytics_worker
 from app.services.update_worker import start_update_worker
+from app.services.health_worker import start_health_worker
 
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
@@ -241,6 +242,7 @@ async def lifespan(app: FastAPI):
         await start_start_worker()
         await start_analytics_worker()
         start_update_worker()
+        start_health_worker()
         logger.info("Startup leader has finished initial tasks.")
     else:
         logger.info("This worker is not the startup leader. Skipping initial tasks.")
@@ -346,18 +348,55 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     try:
         while True:
             raw = await websocket.receive_text()
-            # Ack від мода: команда оновлення виконана — прибираємо з pending
             try:
                 import json as _json
                 msg = _json.loads(raw)
-                if isinstance(msg, dict) and msg.get("type") == "command_ack" and msg.get("pending_id"):
+                if not isinstance(msg, dict):
+                    continue
+                msg_type = msg.get("type")
+
+                # Ack від мода: команда оновлення виконана — прибираємо з pending
+                if msg_type == "command_ack" and msg.get("pending_id"):
                     from app.crud.crud_update import crud_island_pending_command
                     async with AsyncSessionLocal() as db:
                         await crud_island_pending_command.mark_delivered(db, command_id=int(msg["pending_id"]))
+
+                # Heartbeat від мода (кожні ~30с з server tick loop): живий MC.
+                elif msg_type == "heartbeat" and client_id.startswith("island_"):
+                    async with AsyncSessionLocal() as db:
+                        island = await _resolve_island_by_owner_uuid(db, client_id[len("island_"):])
+                        if island:
+                            from datetime import datetime as _dt
+                            fields = {"last_heartbeat_at": _dt.utcnow()}
+                            if msg.get("tps") is not None:
+                                fields["last_tps"] = round(float(msg["tps"]), 2)
+                            if msg.get("players") is not None:
+                                fields["online_players"] = int(msg["players"])
+                            await crud_island.update_by_id(db, island_id=island.id, obj_in=fields)
+
+                # MC зупиняється штатно — watchdog не вважатиме тишу крашем.
+                elif msg_type == "shutting_down" and client_id.startswith("island_"):
+                    from app.crud.crud_island_event import crud_island_event
+                    async with AsyncSessionLocal() as db:
+                        island = await _resolve_island_by_owner_uuid(db, client_id[len("island_"):])
+                        if island:
+                            await crud_island_event.add(db, island_id=island.id, event_type="stopping",
+                                                        details="Minecraft signalled a clean shutdown.")
+                            logger.info(f"WebSocket: island {island.id} signalled clean shutdown.")
             except Exception:
                 pass  # не-JSON повідомлення ігноруємо, як і раніше
     except WebSocketDisconnect:
         websocket_manager.disconnect(client_id)
+
+
+async def _resolve_island_by_owner_uuid(db, owner_uuid: str):
+    """Знаходить острів за identity-UUID (player_uuid соло або owner команди)."""
+    from app.crud.crud_team import get_team_by_owner_with_relations
+    island = await crud_island.get_by_player_uuid(db, player_uuid=owner_uuid)
+    if island:
+        return island
+    team = await get_team_by_owner_with_relations(db, owner_uuid=owner_uuid)
+    return team.island if team and team.island else None
 
 @app.get("/")
 async def read_root():

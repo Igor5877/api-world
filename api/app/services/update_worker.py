@@ -58,6 +58,16 @@ async def update_worker_loop():
     except Exception as e:
         logger.error(f"Update worker: Recovery pass failed: {e}", exc_info=True)
 
+    # Disk hygiene on boot: catches backups that piled up while pruning
+    # didn't exist yet or when a campaign never reached finish_campaign.
+    try:
+        async with AsyncSessionLocal() as db_session:
+            pruned = await update_service.prune_file_backups(db_session)
+            if pruned:
+                logger.info(f"Update worker: Startup pruning removed {pruned} old backup version dirs.")
+    except Exception as e:
+        logger.error(f"Update worker: Startup backup pruning failed: {e}", exc_info=True)
+
     while _worker_running:
         try:
             async with AsyncSessionLocal() as db_session:
@@ -211,6 +221,15 @@ async def finish_campaign(db_session: AsyncSession, campaign):
     await crud_update_campaign.set_status(db_session, campaign_id=campaign.id,
                                           status=CampaignStatusEnum.COMPLETED)
     logger.info(f"Update worker: Campaign {campaign.version} COMPLETED. Breakdown: {counts}")
+
+    # Disk hygiene: old file backups are useless once a newer campaign landed
+    # (rollback only goes one version back) — prune to the configured depth.
+    try:
+        pruned = await update_service.prune_file_backups(db_session)
+        if pruned:
+            logger.info(f"Update worker: Pruned {pruned} old backup version dirs.")
+    except Exception as e:
+        logger.error(f"Update worker: Backup pruning failed: {e}", exc_info=True)
 
 
 async def on_player_left_island(db_session: AsyncSession, island_id: int) -> bool:
