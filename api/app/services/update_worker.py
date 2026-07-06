@@ -58,6 +58,16 @@ async def update_worker_loop():
     except Exception as e:
         logger.error(f"Update worker: Recovery pass failed: {e}", exc_info=True)
 
+    # Recovery: islands left in UPDATING mean the same crash — the queue entry
+    # went back to PENDING, but the worker defers transient island states, so
+    # without this reset the campaign deadlocks forever. The real container
+    # state decides what the island becomes.
+    try:
+        async with AsyncSessionLocal() as db_session:
+            await reset_stale_updating_islands(db_session)
+    except Exception as e:
+        logger.error(f"Update worker: UPDATING-recovery pass failed: {e}", exc_info=True)
+
     # Disk hygiene on boot: catches backups that piled up while pruning
     # didn't exist yet or when a campaign never reached finish_campaign.
     try:
@@ -78,6 +88,34 @@ async def update_worker_loop():
         await asyncio.sleep(settings.UPDATE_WORKER_INTERVAL)
 
     logger.info("Update worker loop stopped.")
+
+
+async def reset_stale_updating_islands(db_session: AsyncSession):
+    """Resets islands stuck in UPDATING after a mid-update crash.
+
+    The worker is single-leader, so at startup no island can legitimately be
+    mid-update: any UPDATING status is stale. The island becomes RUNNING or
+    STOPPED depending on the real LXD container state.
+    """
+    from app.services.lxd_service import lxd_service
+
+    stuck = await crud_island.get_islands_by_statuses(
+        db_session, statuses=[IslandStatusEnum.UPDATING], limit=1000)
+    for island in stuck:
+        try:
+            state = await lxd_service.get_container_state(island.container_name)
+            lxd_status = ((state or {}).get("status") or "").lower()
+            new_status = IslandStatusEnum.RUNNING if lxd_status == "running" else IslandStatusEnum.STOPPED
+            fields = {"status": new_status}
+            if new_status == IslandStatusEnum.STOPPED:
+                fields.update({"internal_ip_address": None, "minecraft_ready": False,
+                               "last_heartbeat_at": None})
+            await crud_island.update_by_id(db_session, island_id=island.id, obj_in=fields)
+            logger.warning(f"Update worker: Island {island.id} ('{island.container_name}') was stuck "
+                           f"in UPDATING after a crash — reset to {new_status.value} "
+                           f"(container: {lxd_status or 'missing'}).")
+        except Exception as e:
+            logger.error(f"Update worker: Failed to reset stuck island {island.id}: {e}", exc_info=True)
 
 
 async def process_active_campaign(db_session: AsyncSession):
