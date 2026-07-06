@@ -25,6 +25,13 @@ logger = logging.getLogger(__name__)
 # Directories from the repo that are synced into the container.
 # world/ is NEVER touched.
 SYNC_DIRS = ["mods", "config", "quests", "recipes", "kubejs", "defaultconfigs", "scripts"]
+# Server core (Forge/Arclight + ServerWrapper). Core files are small and are
+# pushed on every hard update (if present in the repo); libraries/ is huge, so
+# it is pushed (with a full wipe) only when the campaign diff touches it.
+# Any core change forces a restart. server.properties and world/ stay island-owned.
+CORE_SYNC_DIRS = ["libraries"]
+CORE_SYNC_FILES = ["run.sh", "start.sh", "user_jvm_args.txt",
+                   "ServerWrapper.jar", "ServerWrapperInline.jar", "ServerWrapperConfig.json"]
 # Fully repo-owned dirs: wiped in the container before the push so files deleted
 # from the repo (old scripts, quest chapters, mod jars) actually disappear.
 CLEAN_SYNC_DIRS = {"mods", "quests", "recipes", "kubejs", "defaultconfigs", "scripts"}
@@ -171,7 +178,10 @@ def determine_actions(changed_paths: List[Tuple[str, str]]) -> Tuple[bool, List[
     reload_commands: List[str] = []
 
     for _status, path in changed_paths:
-        if path.startswith("mods/") and path.endswith(".jar"):
+        top = path.split("/", 1)[0]
+        if top in CORE_SYNC_DIRS or path in CORE_SYNC_FILES:
+            requires_restart = True  # ядро міняється тільки з рестартом
+        elif path.startswith("mods/") and path.endswith(".jar"):
             requires_restart = True
         elif path.startswith("kubejs/startup_scripts/"):
             requires_restart = True

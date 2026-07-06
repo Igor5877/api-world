@@ -206,14 +206,14 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
 async def finish_campaign(db_session: AsyncSession, campaign):
     """Refreshes the template container and closes the campaign."""
     try:
-        await update_service.update_template_container(campaign.version)
+        await update_service.update_template_container(campaign.version, campaign=campaign)
     except Exception as e:
         # The islands are updated; a template failure shouldn't mark the whole
         # campaign failed — log loudly and let the admin republish manually.
         logger.error(f"Update worker: Template update for {campaign.version} failed: {e}", exc_info=True)
 
     try:
-        await update_service.update_spawn_container(campaign.version)
+        await update_service.update_spawn_container(campaign.version, campaign=campaign)
     except Exception as e:
         logger.error(f"Update worker: Spawn update for {campaign.version} failed: {e}", exc_info=True)
 
