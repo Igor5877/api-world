@@ -50,6 +50,38 @@ class Team(Base):
     # One-to-many relationship with TeamMember
     members = relationship("TeamMember", back_populates="team", cascade="all, delete-orphan")
 
+class TeamInvite(Base):
+    """Represents a pending invitation of a player to a team.
+
+    Created by the team owner/moderator; the invited player accepts or
+    declines it from the in-game GUI (nestworld-teams addon).
+
+    Attributes:
+        id: The unique identifier of the invite.
+        team_id: The team the player is invited to.
+        invited_uuid: The UUID of the invited player.
+        invited_name: The name of the invited player (display only).
+        inviter_uuid: The UUID of the owner/moderator who sent the invite.
+        created_at: When the invite was created.
+        expires_at: When the invite stops being valid (default 7 days).
+    """
+    __tablename__ = "team_invites"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
+    invited_uuid = Column(String(36), nullable=False, index=True)
+    invited_name = Column(String(32), nullable=True)
+    inviter_uuid = Column(String(36), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    expires_at = Column(DateTime, nullable=True)
+
+    team = relationship("Team")
+
+    __table_args__ = (
+        UniqueConstraint("team_id", "invited_uuid", name="uq_team_invite"),
+    )
+
+
 class TeamMember(Base):
     """Represents a member of a team.
 

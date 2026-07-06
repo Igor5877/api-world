@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 import uuid
+from datetime import datetime
 from typing import List, Optional
 from app.models.team import RoleEnum # Import the RoleEnum from your models
 
@@ -106,3 +107,33 @@ class TeamInviteAccept(BaseModel):
         team_name: The name of the team to join.
     """
     team_name: str
+
+
+class TeamInviteCreate(BaseModel):
+    """Schema for creating a team invitation (body of POST /teams/{id}/invite).
+
+    Attributes:
+        invited_uuid: The UUID of the player being invited.
+        invited_name: The name of the invited player (display only).
+        inviter_uuid: The UUID of the owner/moderator sending the invite.
+    """
+    invited_uuid: str
+    invited_name: str | None = None
+    inviter_uuid: str
+
+
+class TeamInviteInfo(BaseModel):
+    """Schema for a pending invitation as shown to the invited player.
+
+    Attributes:
+        invite_id: The invite id (used to accept/decline).
+        team_id: The team the player is invited to.
+        team_name: The team's name.
+        inviter_name: The name of the player who sent the invite.
+        created_at: When the invite was created.
+    """
+    invite_id: int
+    team_id: int
+    team_name: str
+    inviter_name: str | None = None
+    created_at: datetime

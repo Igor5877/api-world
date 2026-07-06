@@ -316,3 +316,30 @@ CREATE TABLE IF NOT EXISTS island_pending_commands (
 -- ALTER TABLE island_backups ADD COLUMN version VARCHAR(50) NULL AFTER changed_paths;
 -- ALTER TABLE island_backups ADD COLUMN campaign_id INT NULL AFTER version;
 -- ALTER TABLE island_backups ADD CONSTRAINT fk_island_backups_campaign FOREIGN KEY (campaign_id) REFERENCES update_campaigns(id) ON DELETE SET NULL;
+
+-- FTB Quests progress snapshots (острів = джерело правди, спавн лише читає)
+CREATE TABLE IF NOT EXISTS island_quest_progress (
+    island_id INT NOT NULL,
+    owner_uuid VARCHAR(36) NOT NULL,
+    snbt MEDIUMTEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (island_id),
+    UNIQUE KEY uq_quest_progress_owner (owner_uuid),
+    CONSTRAINT fk_quest_progress_island FOREIGN KEY (island_id)
+        REFERENCES islands (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Запрошення у команди (invite-флоу GUI/nwteam)
+CREATE TABLE IF NOT EXISTS team_invites (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    team_id INT NOT NULL,
+    invited_uuid VARCHAR(36) NOT NULL,
+    invited_name VARCHAR(32) NULL,
+    inviter_uuid VARCHAR(36) NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NULL,
+    UNIQUE KEY uq_team_invite (team_id, invited_uuid),
+    KEY idx_team_invites_invited (invited_uuid),
+    CONSTRAINT fk_team_invites_team FOREIGN KEY (team_id)
+        REFERENCES teams (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

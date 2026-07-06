@@ -3,7 +3,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from uuid import UUID
 
-from app.models.team import Team, TeamMember, RoleEnum
+from app.models.team import Team, TeamMember, TeamInvite, RoleEnum
 from app.schemas.team import TeamCreate
 
 async def get_team_by_name(db: AsyncSession, *, name: str) -> Team | None:
@@ -175,3 +175,83 @@ async def rename_team(db: AsyncSession, *, team: Team, new_name: str) -> Team:
         .options(selectinload(Team.island), selectinload(Team.members))
     )
     return result.scalars().first()
+
+
+# ── team invites ──────────────────────────────────────────────────────
+
+async def create_invite(db: AsyncSession, *, team: Team, invited_uuid: str,
+                        invited_name: str | None, inviter_uuid: str,
+                        ttl_days: int = 7) -> TeamInvite:
+    """Creates (or refreshes) a pending invite of a player to a team.
+
+    If an invite for this (team, player) pair already exists it is refreshed
+    instead of raising on the unique constraint.
+
+    Args:
+        db: The database session.
+        team: The team the player is invited to.
+        invited_uuid: The UUID of the invited player.
+        invited_name: The invited player's name (display only).
+        inviter_uuid: The owner/moderator sending the invite.
+        ttl_days: How many days the invite stays valid.
+
+    Returns:
+        The created or refreshed invite.
+    """
+    from datetime import datetime, timedelta
+
+    existing = await get_invite_for_team_player(db, team_id=team.id, invited_uuid=invited_uuid)
+    expires = datetime.utcnow() + timedelta(days=ttl_days)
+    if existing:
+        existing.inviter_uuid = str(inviter_uuid)
+        existing.invited_name = invited_name or existing.invited_name
+        existing.expires_at = expires
+        db.add(existing)
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
+    invite = TeamInvite(team_id=team.id, invited_uuid=str(invited_uuid),
+                        invited_name=invited_name, inviter_uuid=str(inviter_uuid),
+                        expires_at=expires)
+    db.add(invite)
+    await db.commit()
+    await db.refresh(invite)
+    return invite
+
+
+async def get_invite(db: AsyncSession, *, invite_id: int) -> TeamInvite | None:
+    """Gets an invite by id (with its team eagerly loaded)."""
+    result = await db.execute(
+        select(TeamInvite).where(TeamInvite.id == invite_id).options(selectinload(TeamInvite.team))
+    )
+    return result.scalars().first()
+
+
+async def get_invite_for_team_player(db: AsyncSession, *, team_id: int, invited_uuid: str) -> TeamInvite | None:
+    """Gets the pending invite of a player to a specific team, if any."""
+    result = await db.execute(
+        select(TeamInvite).where(TeamInvite.team_id == team_id,
+                                 TeamInvite.invited_uuid == str(invited_uuid))
+    )
+    return result.scalars().first()
+
+
+async def get_invites_for_player(db: AsyncSession, *, player_uuid: str) -> list[TeamInvite]:
+    """Lists all non-expired invites of a player (teams eagerly loaded)."""
+    from datetime import datetime
+
+    result = await db.execute(
+        select(TeamInvite)
+        .where(TeamInvite.invited_uuid == str(player_uuid))
+        .options(selectinload(TeamInvite.team))
+    )
+    invites = list(result.scalars().all())
+    now = datetime.utcnow()
+    return [i for i in invites if i.expires_at is None or i.expires_at > now]
+
+
+async def delete_invite(db: AsyncSession, *, invite: TeamInvite) -> None:
+    """Deletes an invite (accepted or declined)."""
+    await db.delete(invite)
+    await db.commit()
