@@ -43,6 +43,6 @@ and relays invite/kick GUI actions from the client addon to the API.
 [[dependencies.nestworld_teams]]
     modId="skyblock"
     mandatory=true
-    versionRange="[1.2,)"
+    versionRange="[0.1,)"
     ordering="AFTER"
     side="SERVER"

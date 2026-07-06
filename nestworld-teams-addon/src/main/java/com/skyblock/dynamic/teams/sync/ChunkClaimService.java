@@ -55,6 +55,13 @@ public class ChunkClaimService {
         }
 
         ServerLevel overworld = server.overworld();
+        if (overworld == null) {
+            // Levels aren't loaded yet (e.g. this fired from ServerAboutToStartEvent
+            // via a cached-team-data refresh). onServerStarted/onPlayerLoggedIn will
+            // retry once the world actually exists.
+            LOGGER.info("Auto-claim deferred: overworld not loaded yet.");
+            return;
+        }
         BlockPos spawn = overworld.getSharedSpawnPos();
         ChunkPos center = new ChunkPos(spawn);
         int radius = TeamsAddonConfig.AUTO_CLAIM_RADIUS.get();
