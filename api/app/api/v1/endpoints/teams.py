@@ -7,7 +7,7 @@ from uuid import UUID
 import logging
 
 from app.db.session import get_db_session
-from app.schemas.team import TeamCreate, Team as TeamSchema, TeamMember, TeamCreateResponse
+from app.schemas.team import TeamCreate, Team as TeamSchema, TeamMember, TeamCreateResponse, TeamInviteCreate, TeamInviteInfo
 from app.crud import crud_team
 from app.models.team import Team
 from app.services.island_service import island_service
@@ -173,6 +173,14 @@ async def accept_invite(
     if not team:
         raise HTTPException(status_code=404, detail="Team not found.")
 
+    # Transitional guard (API_TEAMS_TODO.md §1): joining by name is only
+    # allowed when the owner actually invited this player — otherwise anyone
+    # who knew the team name could join without consent.
+    invite = await crud_team.get_invite_for_team_player(db, team_id=team.id, invited_uuid=player_uuid)
+    if not invite:
+        raise HTTPException(status_code=403,
+                            detail="No pending invite to this team. Ask the owner to invite you first.")
+
     try:
         updated_team = await island_service.handle_join_team(
             db_session=db,
@@ -180,6 +188,7 @@ async def accept_invite(
             team_to_join=team,
             background_tasks=background_tasks
         )
+        await crud_team.delete_invite(db, invite=invite)
         await broadcast_team_update(db, updated_team.id)
         return updated_team
     except ValueError as e:
@@ -225,4 +234,170 @@ async def leave_team(
         await crud_team.remove_member(db, team=team, player_uuid=player_uuid)
         await broadcast_team_update(db, team.id)
     
+    return
+
+
+# ── invite system (API_TEAMS_TODO.md §1) ──────────────────────────────
+
+def _is_owner_or_moderator(team: Team, member, requester_uuid: str) -> bool:
+    """True if the requester may manage the team (owner or moderator)."""
+    if str(requester_uuid) == team.owner_uuid:
+        return True
+    from app.models.team import RoleEnum
+    return member is not None and member.role in (RoleEnum.owner, RoleEnum.moderator)
+
+
+@router.post("/{team_id}/invite", response_model=TeamInviteInfo, status_code=201)
+async def invite_player(
+    *,
+    team_id: int,
+    invite_in: TeamInviteCreate,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Invites a player to a team (owner/moderator only).
+
+    Creates a pending invite and pushes a TEAM_INVITE WebSocket event to the
+    invited player if they are online.
+    """
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found.")
+
+    inviter_member = await crud_team.get_member(db, team=team, player_uuid=invite_in.inviter_uuid)
+    if not _is_owner_or_moderator(team, inviter_member, invite_in.inviter_uuid):
+        raise HTTPException(status_code=403, detail="Only the team owner or a moderator can invite players.")
+
+    if await crud_team.get_member(db, team=team, player_uuid=invite_in.invited_uuid):
+        raise HTTPException(status_code=409, detail="Player is already a member of this team.")
+    existing_team = await crud_team.get_team_by_player(db, player_uuid=invite_in.invited_uuid)
+    # Players in their own solo team can still be invited (their solo team is
+    # disbanded on accept); membership in a real multi-player team blocks it.
+    if existing_team and existing_team.id == team.id:
+        raise HTTPException(status_code=409, detail="Player is already a member of this team.")
+
+    invite = await crud_team.create_invite(
+        db, team=team, invited_uuid=invite_in.invited_uuid,
+        invited_name=invite_in.invited_name, inviter_uuid=invite_in.inviter_uuid,
+    )
+
+    inviter_name = inviter_member.player_name if inviter_member else None
+    payload = {
+        "event": "TEAM_INVITE",
+        "payload": {
+            "invite_id": invite.id,
+            "team_id": team.id,
+            "team_name": team.name,
+            "inviter_name": inviter_name,
+        },
+    }
+    await websocket_manager.send_personal_message(payload, str(invite_in.invited_uuid))
+
+    logger.info(f"Teams: Player {invite_in.invited_uuid} invited to team {team.id} by {invite_in.inviter_uuid}.")
+    return TeamInviteInfo(invite_id=invite.id, team_id=team.id, team_name=team.name,
+                          inviter_name=inviter_name, created_at=invite.created_at)
+
+
+@router.get("/invites/{player_uuid}", response_model=list[TeamInviteInfo])
+async def list_invites(
+    *,
+    player_uuid: str,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Lists the player's active (non-expired) team invitations."""
+    invites = await crud_team.get_invites_for_player(db, player_uuid=player_uuid)
+    infos = []
+    for invite in invites:
+        inviter_member = await crud_team.get_member(db, team=invite.team, player_uuid=invite.inviter_uuid)
+        infos.append(TeamInviteInfo(
+            invite_id=invite.id, team_id=invite.team_id, team_name=invite.team.name,
+            inviter_name=inviter_member.player_name if inviter_member else None,
+            created_at=invite.created_at,
+        ))
+    return infos
+
+
+@router.post("/invites/{invite_id}/accept", response_model=TeamSchema)
+async def accept_invite_by_id(
+    *,
+    invite_id: int,
+    player_uuid: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Accepts a team invitation by id.
+
+    Joins the player to the team (their old island is deleted, same flow as
+    the legacy accept_invite) and removes the invite.
+    """
+    from datetime import datetime
+
+    invite = await crud_team.get_invite(db, invite_id=invite_id)
+    if not invite or invite.invited_uuid != str(player_uuid):
+        raise HTTPException(status_code=404, detail="Invite not found.")
+    if invite.expires_at is not None and invite.expires_at <= datetime.utcnow():
+        await crud_team.delete_invite(db, invite=invite)
+        raise HTTPException(status_code=410, detail="Invite has expired.")
+
+    team = invite.team
+    try:
+        updated_team = await island_service.handle_join_team(
+            db_session=db,
+            player_to_join_uuid=player_uuid,
+            team_to_join=team,
+            background_tasks=background_tasks,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    await crud_team.delete_invite(db, invite=invite)
+    await broadcast_team_update(db, updated_team.id)
+    return updated_team
+
+
+@router.delete("/invites/{invite_id}", status_code=204)
+async def decline_invite(
+    *,
+    invite_id: int,
+    player_uuid: str,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Declines (deletes) a team invitation."""
+    invite = await crud_team.get_invite(db, invite_id=invite_id)
+    if not invite or invite.invited_uuid != str(player_uuid):
+        raise HTTPException(status_code=404, detail="Invite not found.")
+    await crud_team.delete_invite(db, invite=invite)
+    return
+
+
+@router.delete("/{team_id}/members/{player_uuid}", status_code=204)
+async def kick_member(
+    *,
+    team_id: int,
+    player_uuid: str,
+    requester_uuid: str,
+    db: AsyncSession = Depends(get_db_session)
+):
+    """Kicks a member from the team (owner/moderator only).
+
+    The owner cannot be kicked; kicking yourself is rejected (use leave).
+    """
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found.")
+
+    requester_member = await crud_team.get_member(db, team=team, player_uuid=requester_uuid)
+    if not _is_owner_or_moderator(team, requester_member, requester_uuid):
+        raise HTTPException(status_code=403, detail="Only the team owner or a moderator can kick players.")
+    if str(player_uuid) == team.owner_uuid:
+        raise HTTPException(status_code=400, detail="The team owner cannot be kicked.")
+    if str(player_uuid) == str(requester_uuid):
+        raise HTTPException(status_code=400, detail="Use leave instead of kicking yourself.")
+
+    member = await crud_team.get_member(db, team=team, player_uuid=player_uuid)
+    if not member:
+        raise HTTPException(status_code=404, detail="Player is not a member of this team.")
+
+    await crud_team.remove_member(db, team=team, player_uuid=player_uuid)
+    await broadcast_team_update(db, team.id)
+    logger.info(f"Teams: Player {player_uuid} kicked from team {team.id} by {requester_uuid}.")
     return
