@@ -495,7 +495,7 @@ class LXDService:
             raise
 
     async def push_directory(self, container_name: str, local_dir: str, container_parent_dir: str,
-                             delete_extra: bool = False):
+                             clean_first: bool = False, clean_subdirs: Optional[List[str]] = None):
         """Recursively pushes a local directory into a container.
 
         Example: push_directory(c, "/repo/mods", "/opt/minecraft") copies the
@@ -506,9 +506,12 @@ class LXDService:
             container_name: The name of the container.
             local_dir: The local directory to push (its basename is kept).
             container_parent_dir: The directory inside the container to push into.
-            delete_extra: If True, files present in the container dir but absent
-                locally are deleted first (used only for mods/ so stale .jar
-                files don't stay loaded).
+            clean_first: If True, the target directory is deleted recursively
+                before the push so stale files (removed from the repo) don't
+                survive. Only for fully repo-owned dirs (mods/, kubejs/, ...).
+            clean_subdirs: Relative subdirs to delete before the push without
+                touching the rest of the target dir (e.g. ["ftbquests"] inside
+                config/, which also holds island-specific files).
 
         Raises:
             LXDServiceError: If the push fails.
@@ -519,12 +522,12 @@ class LXDService:
 
         target_dir = f"{container_parent_dir.rstrip('/')}/{local_path.name}"
 
-        if delete_extra:
-            local_entries = {entry.name for entry in local_path.iterdir()}
-            for name in await self.list_directory(container_name, target_dir):
-                if name not in local_entries:
-                    logger.info(f"LXDService: Deleting stale '{target_dir}/{name}' in '{container_name}'.")
-                    await self.delete_file(container_name, f"{target_dir}/{name}")
+        if clean_first:
+            logger.info(f"LXDService: Clean-sync — deleting '{target_dir}' in '{container_name}' before push.")
+            await self.delete_directory(container_name, target_dir)
+        for sub in (clean_subdirs or []):
+            logger.info(f"LXDService: Clean-sync — deleting '{target_dir}/{sub}' in '{container_name}' before push.")
+            await self.delete_directory(container_name, f"{target_dir}/{sub}")
 
         await self._run_lxc(
             "file", "push", "--recursive", "--create-dirs",
@@ -575,6 +578,35 @@ class LXDService:
             if "not found" in str(e).lower() or "no such file" in str(e).lower():
                 return
             raise
+
+    async def delete_directory(self, container_name: str, container_path: str):
+        """Recursively deletes a directory (or single file) inside a container.
+
+        The LXD file API can only delete files and empty directories, so
+        non-empty directories are walked and emptied bottom-up. Works for both
+        running and stopped containers. Missing paths are ignored.
+
+        Args:
+            container_name: The name of the container.
+            container_path: The absolute path inside the container.
+        """
+        # Cheap path first: a file or an already-empty directory deletes directly.
+        try:
+            await self._run_lxc(
+                "file", "delete",
+                f"{container_name}{container_path}",
+                *self._project_args(),
+            )
+            return
+        except LXDServiceError as e:
+            msg = str(e).lower()
+            if "not found" in msg or "no such file" in msg:
+                return
+            # Most likely a non-empty directory — empty it and retry below.
+
+        for name in await self.list_directory(container_name, container_path):
+            await self.delete_directory(container_name, f"{container_path}/{name}")
+        await self.delete_file(container_name, container_path)
 
     async def backup_files(self, container_name: str, container_paths: List[str], host_backup_dir: str) -> List[str]:
         """Copies specific container files to a host-side backup directory.

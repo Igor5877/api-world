@@ -41,6 +41,16 @@ class CampaignCreateRequest(BaseModel):
     islands: Union[List[str], str] = Field("all", description='List of player UUIDs or "all"')
 
 
+class SpawnSyncRequest(BaseModel):
+    """Direct spawn sync request — bypasses campaigns/islands entirely.
+
+    Attributes:
+        tag: Git tag to check out before pushing. If omitted, pushes whatever
+             is currently checked out locally in the updates repo.
+    """
+    tag: Optional[str] = Field(None, max_length=50)
+
+
 class CampaignResponse(BaseModel):
     """A campaign with rollout progress counters."""
     id: int
