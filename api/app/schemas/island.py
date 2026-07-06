@@ -198,3 +198,27 @@ class MessageResponse(BaseModel):
         message: The message.
     """
     message: str
+
+
+class QuestProgressUpload(BaseModel):
+    """Schema for an island uploading its quest progress snapshot.
+
+    Attributes:
+        snbt: The raw content of world/ftbquests/{uuid}.snbt.
+    """
+    snbt: str
+
+
+class QuestProgressResponse(BaseModel):
+    """Schema for the stored quest progress snapshot.
+
+    Attributes:
+        owner_uuid: The island identity UUID.
+        snbt: The raw SNBT file content.
+        updated_at: When the snapshot was last uploaded.
+    """
+    owner_uuid: str
+    snbt: str
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

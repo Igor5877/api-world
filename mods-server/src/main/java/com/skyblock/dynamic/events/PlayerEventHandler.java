@@ -43,6 +43,11 @@ public class PlayerEventHandler {
             freezeTask.cancel(false);
             LOGGER.info("Player logged in. Canceled scheduled island freeze.");
         }
+        // Hub/spawn only: pull the player's island quest progress for read-only display.
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer serverPlayer
+                && serverPlayer.getServer() != null) {
+            com.skyblock.dynamic.utils.QuestProgressSync.fetchAndApply(serverPlayer.getServer(), serverPlayer);
+        }
     }
 
     /**
@@ -63,17 +68,25 @@ public class PlayerEventHandler {
         if (server != null) {
             try {
                 playerCount = server.getPlayerCount();
-            } catch (NoSuchMethodError e) {
+            } catch (Throwable e) {
+                // NoSuchMethodError — це Error, не Exception: якщо його не
+                // зловити тут, logout гравця валить увесь сервер.
                 try {
                     if (CACHED_GET_PLAYER_COUNT != null) {
                         playerCount = (int) CACHED_GET_PLAYER_COUNT.invoke(server);
                     } else {
                         playerCount = server.getPlayerList().getPlayerCount();
                     }
-                } catch (Exception ex) {
-                    playerCount = server.getPlayerList().getPlayerCount();
+                } catch (Throwable ex) {
+                    LOGGER.warn("Could not determine player count on logout; assuming last player left.", ex);
                 }
             }
+        }
+
+        // Island only: push the freshest quest progress to the API so the spawn
+        // shows it when the player arrives there a few seconds later.
+        if (server != null) {
+            com.skyblock.dynamic.utils.QuestProgressSync.uploadIslandProgress(server, false);
         }
 
         if (server != null && playerCount - 1 <= 0) {

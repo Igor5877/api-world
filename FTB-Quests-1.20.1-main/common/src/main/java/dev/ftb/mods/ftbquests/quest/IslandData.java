@@ -54,6 +54,14 @@ public class IslandData { // RENAMED CLASS
 	private static final Comparator<Long2LongMap.Entry> LONG2LONG_COMPARATOR = (e1, e2) -> Long.compareUnsigned(e1.getLongValue(), e2.getLongValue());
 	private static final Comparator<Object2LongMap.Entry<QuestKey>> OBJECT2LONG_COMPARATOR = (e1, e2) -> Long.compareUnsigned(e1.getLongValue(), e2.getLongValue());
 
+	/**
+	 * Hub/spawn read-only mode: progress and reward claims are silently ignored
+	 * server-side, but the GUI stays fully viewable (unlike the "locked" flag,
+	 * which blocks opening the quest book on the client). Set FTBQUESTS_READONLY=1
+	 * in the hub server's run.sh; island servers never set it.
+	 */
+	public static final boolean HUB_READ_ONLY = "1".equals(System.getenv("FTBQUESTS_READONLY"));
+
 	private final UUID islandId; // RENAMED FIELD
 	private final BaseQuestFile file;
 
@@ -266,7 +274,7 @@ public class IslandData { // RENAMED CLASS
 	}
 
 	public boolean claimReward(UUID player, Reward reward, long date) {
-		if (locked || isRewardBlocked(reward)) {
+		if (locked || isRewardBlocked(reward) || (HUB_READ_ONLY && file.isServerSide())) {
 			return false;
 		}
 
@@ -656,7 +664,7 @@ public class IslandData { // RENAMED CLASS
 	}
 
 	public final void setProgress(Task task, long progress) {
-		if (locked) {
+		if (locked || (HUB_READ_ONLY && file.isServerSide())) {
 			return;
 		}
 

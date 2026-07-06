@@ -88,6 +88,27 @@ class Island(Base):
     team = relationship("Team", back_populates="island")
 
 
+class IslandQuestProgress(Base):
+    """Stores the latest FTB Quests progress snapshot for an island.
+
+    The island server is the source of truth: it uploads its
+    world/ftbquests/{uuid}.snbt after progress changes; the spawn/hub server
+    downloads it on player join for read-only display.
+
+    Attributes:
+        island_id: The island the snapshot belongs to (one row per island).
+        owner_uuid: The island identity UUID (same as the .snbt file name).
+        snbt: The raw SNBT file content.
+        updated_at: When the snapshot was last uploaded.
+    """
+    __tablename__ = "island_quest_progress"
+
+    island_id = Column(Integer, ForeignKey("islands.id", ondelete="CASCADE"), primary_key=True)
+    owner_uuid = Column(String(36), unique=True, nullable=False, index=True)
+    snbt = Column(Text(16 * 1024 * 1024), nullable=False)  # MEDIUMTEXT on MySQL
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class IslandQueue(Base):
     """Represents a queue of players waiting for an island.
 

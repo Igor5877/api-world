@@ -169,6 +169,8 @@ public class SkyBlockMod {
      */
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
+        // Final quest progress upload before the island goes down.
+        com.skyblock.dynamic.utils.QuestProgressSync.uploadIslandProgress(event.getServer(), true);
         if (webSocketClient != null && webSocketClient.isOpen()) {
             LOGGER.info("SkyBlockMod: Closing WebSocket connection.");
             webSocketClient.close();
