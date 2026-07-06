@@ -57,6 +57,46 @@ public class TeamSyncService {
     }
 
     /**
+     * Reconciles ONE PLAYER against their API team state: if the player sits
+     * in an FTB party whose owner is NOT their API-team owner (stale hub copy
+     * after leave/kick made elsewhere), they are removed from that party.
+     * apiState == null means the player has no API team at all.
+     * Must be called on the server thread.
+     */
+    public void reconcilePlayer(MinecraftServer server, UUID playerUuid, TeamState apiState) {
+        if (!FTBTeamsAPI.api().isManagerLoaded()) {
+            return;
+        }
+        reconciling.set(true);
+        try {
+            Team current = FTBTeamsAPI.api().getManager().getTeamForPlayerID(playerUuid).orElse(null);
+            if (current == null || !current.isPartyTeam()) {
+                return;
+            }
+            PartyTeam party = (PartyTeam) current;
+            if (party.getOwner().equals(playerUuid)) {
+                return; // власна паті — нею займається reconcileTeam
+            }
+            UUID apiOwner = (apiState != null && !apiState.isSolo()) ? apiState.ownerUuid() : null;
+            if (apiOwner != null && party.getOwner().equals(apiOwner)) {
+                return; // паті відповідає API-команді
+            }
+            GameProfile profile = server.getProfileCache() != null
+                    ? server.getProfileCache().get(playerUuid).orElse(new GameProfile(playerUuid, ""))
+                    : new GameProfile(playerUuid, "");
+            try {
+                party.kick(server.createCommandSourceStack(), List.of(profile));
+                LOGGER.info("Removed {} from stale FTB party '{}' (API says they are not in that team).",
+                        playerUuid, party.getShortName());
+            } catch (Exception e) {
+                LOGGER.error("Failed to remove {} from stale party '{}'", playerUuid, party.getShortName(), e);
+            }
+        } finally {
+            reconciling.set(false);
+        }
+    }
+
+    /**
      * Reconciles ONE team's FTB party with the given API state. Used both by
      * the island flow (lastState) and by the hub, where many teams coexist
      * and each is reconciled when one of its members logs in.
