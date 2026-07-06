@@ -221,9 +221,16 @@ async def create_invite(db: AsyncSession, *, team: Team, invited_uuid: str,
 
 
 async def get_invite(db: AsyncSession, *, invite_id: int) -> TeamInvite | None:
-    """Gets an invite by id (with its team eagerly loaded)."""
+    """Gets an invite by id (with its team, members and island eagerly loaded).
+
+    handle_join_team iterates team.members/island — without eager loading the
+    lazy load explodes with MissingGreenlet in the async session.
+    """
     result = await db.execute(
-        select(TeamInvite).where(TeamInvite.id == invite_id).options(selectinload(TeamInvite.team))
+        select(TeamInvite).where(TeamInvite.id == invite_id).options(
+            selectinload(TeamInvite.team).selectinload(Team.members),
+            selectinload(TeamInvite.team).selectinload(Team.island),
+        )
     )
     return result.scalars().first()
 
