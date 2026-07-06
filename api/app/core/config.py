@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     GITHUB_WEBHOOK_SECRET: str = os.getenv("GITHUB_WEBHOOK_SECRET", "")  # HMAC-верифікація webhook
     # Шаблонний контейнер + аліас image, який публікується після оновлення шаблону
     TEMPLATE_CONTAINER_NAME: str = os.getenv("TEMPLATE_CONTAINER_NAME", "skyblock-base")
+    # LXD-контейнер спавну/хабу. Порожній рядок = оновлення спавну пропускається.
+    SPAWN_CONTAINER_NAME: str = os.getenv("SPAWN_CONTAINER_NAME", "")
     # Куди в контейнері копіюються файли оновлення
     UPDATES_TARGET_DIR: str = os.getenv("UPDATES_TARGET_DIR", "/opt/minecraft")
     # Host-side директорія для file-level бекапів островів

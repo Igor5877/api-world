@@ -24,8 +24,9 @@ from app.models.update import CampaignStatusEnum
 from app.schemas.island import MessageResponse
 from app.schemas.update import (
     CampaignCreateRequest, CampaignResponse, CampaignDetailResponse,
-    QueueEntryResponse, SnapshotInfo,
+    QueueEntryResponse, SnapshotInfo, SpawnSyncRequest,
 )
+from app.services import git_sync
 from app.services.lxd_service import lxd_service, LXDContainerNotFoundError
 from app.services.update_service import update_service, UpdateServiceError
 
@@ -234,3 +235,22 @@ async def list_island_snapshots(player_uuid: str, db_session: AsyncSession = Dep
     except LXDContainerNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found in LXD.")
     return [SnapshotInfo(**snap) for snap in snapshots]
+
+
+@router.post("/spawn/sync", response_model=MessageResponse)
+async def sync_spawn(body: SpawnSyncRequest):
+    """Pushes content directly to the spawn/hub container and restarts it.
+
+    Bypasses campaigns, islands, and the update queue entirely — for when
+    only the spawn server needs the latest mods/config/quests (e.g. an
+    already-rolled-out tag that islands got but spawn didn't).
+    """
+    try:
+        if body.tag:
+            await git_sync.clone_or_pull(settings.UPDATES_REPO_URL, settings.UPDATES_REPO_LOCAL_PATH)
+            await git_sync.checkout_tag(settings.UPDATES_REPO_LOCAL_PATH, body.tag)
+        await update_service.update_spawn_container(body.tag or "current checkout")
+    except Exception as e:
+        logger.error(f"Updates: Manual spawn sync failed: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    return MessageResponse(message="Spawn sync complete.")

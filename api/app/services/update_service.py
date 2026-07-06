@@ -20,7 +20,7 @@ from app.models.team import Team as TeamModel
 from app.models.update import UpdateCampaign as UpdateCampaignModel, CampaignStatusEnum
 from app.schemas.island import IslandStatusEnum
 from app.services import git_sync
-from app.services.git_sync import SYNC_DIRS, DELETE_EXTRA_DIRS
+from app.services.git_sync import SYNC_DIRS, CLEAN_SYNC_DIRS, CLEAN_SYNC_SUBDIRS
 from app.services.lxd_service import lxd_service
 from app.services.websocket_manager import manager as websocket_manager
 
@@ -86,16 +86,23 @@ class UpdateService:
         """Syncs all whitelisted repo directories into the container.
 
         The full state is always pushed (not just the diff) so islands that
-        missed earlier campaigns converge. Stale files are deleted only in
-        mods/ — config/ may hold island-specific files the repo doesn't know.
+        missed earlier campaigns converge. Repo-owned dirs (mods/, kubejs/,
+        quests/, ...) are wiped before the push so deleted files disappear;
+        config/ is pushed on top (island-specific files survive) except its
+        repo-owned subdirs like config/ftbquests.
         """
         target = settings.UPDATES_TARGET_DIR
         for local_dir in self._repo_sync_dirs():
+            clean_subdirs = [
+                sub for sub in CLEAN_SYNC_SUBDIRS.get(local_dir.name, [])
+                if (local_dir / sub).is_dir()
+            ]
             await lxd_service.push_directory(
                 container_name,
                 str(local_dir),
                 target,
-                delete_extra=(local_dir.name in DELETE_EXTRA_DIRS),
+                clean_first=(local_dir.name in CLEAN_SYNC_DIRS),
+                clean_subdirs=clean_subdirs,
             )
 
     async def _queue_reload_commands(self, db_session: AsyncSession, island: IslandModel,
@@ -385,6 +392,38 @@ class UpdateService:
         await lxd_service.publish_container_image(template, settings.LXD_BASE_IMAGE)
         logger.info(f"UpdateService: Template '{template}' updated to {campaign_version} and image "
                     f"'{settings.LXD_BASE_IMAGE}' republished.")
+
+    async def update_spawn_container(self, campaign_version: str):
+        """Pushes the update into the spawn/hub container and brings it back up.
+
+        Unlike the template, the spawn server is live and must end the update
+        running again — it is not republished as an image.
+        """
+        spawn = settings.SPAWN_CONTAINER_NAME
+        if not spawn:
+            logger.info("UpdateService: SPAWN_CONTAINER_NAME not set — skipping spawn update.")
+            return
+
+        state = await lxd_service.get_container_state(spawn)
+        if state is None:
+            logger.warning(f"UpdateService: Spawn container '{spawn}' not found — skipping spawn update.")
+            return
+
+        was_running = (state.get("status") or "").lower() == "running"
+        if was_running:
+            try:
+                await lxd_service.stop_container(spawn, force=False)
+            except Exception:
+                logger.warning(f"UpdateService: Graceful stop of spawn '{spawn}' failed, forcing.")
+                await lxd_service.stop_container(spawn, force=True)
+
+        await self._push_repo_to_container(spawn)
+
+        if was_running:
+            await lxd_service.start_container(spawn)
+
+        logger.info(f"UpdateService: Spawn '{spawn}' updated to {campaign_version}"
+                    f"{' and restarted' if was_running else ''}.")
 
 
 update_service = UpdateService()

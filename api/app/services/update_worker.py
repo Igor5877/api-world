@@ -202,6 +202,11 @@ async def finish_campaign(db_session: AsyncSession, campaign):
         # campaign failed — log loudly and let the admin republish manually.
         logger.error(f"Update worker: Template update for {campaign.version} failed: {e}", exc_info=True)
 
+    try:
+        await update_service.update_spawn_container(campaign.version)
+    except Exception as e:
+        logger.error(f"Update worker: Spawn update for {campaign.version} failed: {e}", exc_info=True)
+
     counts = await crud_update_queue.count_by_status(db_session, campaign_id=campaign.id)
     await crud_update_campaign.set_status(db_session, campaign_id=campaign.id,
                                           status=CampaignStatusEnum.COMPLETED)

@@ -23,9 +23,14 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # Directories from the repo that are synced into the container.
-# world/ is NEVER touched. mods/ is the only dir where stale files are deleted.
+# world/ is NEVER touched.
 SYNC_DIRS = ["mods", "config", "quests", "recipes", "kubejs", "defaultconfigs", "scripts"]
-DELETE_EXTRA_DIRS = {"mods"}
+# Fully repo-owned dirs: wiped in the container before the push so files deleted
+# from the repo (old scripts, quest chapters, mod jars) actually disappear.
+CLEAN_SYNC_DIRS = {"mods", "quests", "recipes", "kubejs", "defaultconfigs", "scripts"}
+# Repo-owned subdirs inside dirs that also hold island-specific files:
+# config/ itself is never wiped, but config/ftbquests is.
+CLEAN_SYNC_SUBDIRS = {"config": ["ftbquests"]}
 
 _TAG_RE = re.compile(r"^(?P<version>v?\d+[\w.]*?)(?:-(?P<suffix>both|critical))?$")
 
