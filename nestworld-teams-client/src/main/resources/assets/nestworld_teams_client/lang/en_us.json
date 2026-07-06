@@ -28,5 +28,6 @@
     "nestworld_teams.gui.player_name": "Player name",
     "nestworld_teams.gui.invite_button": "Invite",
     "nestworld_teams.gui.kick_title": "Kick from team?",
-    "nestworld_teams.gui.kick_question": "Kick %s from the team? They will be detached from the island."
+    "nestworld_teams.gui.kick_question": "Kick %s from the team? They will be detached from the island.",
+    "nestworld_teams.msg.invite_stale": "This invite is no longer valid (already accepted, declined or revoked). Run /nwteam invites to see current ones."
 }

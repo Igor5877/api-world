@@ -28,5 +28,6 @@
     "nestworld_teams.gui.player_name": "Нік гравця",
     "nestworld_teams.gui.invite_button": "Запросити",
     "nestworld_teams.gui.kick_title": "Вигнати з команди?",
-    "nestworld_teams.gui.kick_question": "Вигнати гравця %s з команди? Його буде відʼєднано від острова."
+    "nestworld_teams.gui.kick_question": "Вигнати гравця %s з команди? Його буде відʼєднано від острова.",
+    "nestworld_teams.msg.invite_stale": "Це запрошення вже недійсне (прийняте, відхилене або скасоване). Напиши /nwteam invites, щоб побачити актуальні."
 }
