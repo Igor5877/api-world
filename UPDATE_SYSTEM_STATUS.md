@@ -3,7 +3,59 @@
 Дизайн і початковий план — `UPDATE_SYSTEM_PLAN.md`. Цей файл — те, що реально
 зроблено, перевірено на dev, і як цим користуватись.
 
-Останнє оновлення: 2026-07-04.
+Останнє оновлення: 2026-07-06.
+
+---
+
+## Нове 2026-07-06: моніторинг здоров'я + економні бекапи + мод
+
+**1. Health-моніторинг (закрито сліпу зону "контейнер живий / MC мертвий"):**
+- Мод (v1.3.0) шле heartbeat кожні ~30с по WS **з server tick loop** — якщо
+  server thread завис, heartbeat зникає сам собою. Поля: `tps`, `players`.
+- Мод шле `shutting_down` при штатній зупинці — watchdog відрізняє її від крашу.
+- WS-з'єднання мода тепер **перепідключається** (раніше reconnect не існував).
+- Новий watchdog-воркер в API (`services/health_worker.py`): RUNNING-острови
+  без heartbeat > `HEARTBEAT_TIMEOUT_SECONDS` → перевірка реального стану LXD:
+  контейнер впав → подія `crashed` + STOPPED; контейнер живий, MC мовчить →
+  подія `hung`/`stopped_externally`, контейнер зупиняється, острів STOPPED
+  (гравець перезаходить — острів стартує заново; жодних рестарт-циклів).
+- Повторний `/ready` без старту з боку API = подія `restarted` (MC перезапустив
+  systemd), більше не ігнорується.
+- Журнал інцидентів: таблиця `island_events`, перегляд
+  `GET /api/v1/islands/{uuid}/events` (crashed/hung/restarted/stopping/…).
+- **Острови зі старим модом (без heartbeat) watchdog не чіпає** — безпечний
+  rollout: спочатку задеплой мод кампанією, watchdog підхопить нові сесії.
+- Міграція: `api/sql/migration_2026-07_health_monitoring.sql` (виконати на dev і prod!).
+
+**2. Економія диска (SSD був забитий на 100%):**
+- Retention file-бекапів: тримаються останні `UPDATE_BACKUP_KEEP_VERSIONS=2`
+  версії на острів; чистка при завершенні кампанії і при старті воркера
+  (rollback і так уміє лише на попередню версію — нічого не втрачаємо).
+- `UPDATE_SNAPSHOT_MODE=always|critical|never` — на dir-бекенді LXD снапшот =
+  повна копія контейнера; `critical` робить снапшоти лише для critical-тегів.
+- Разова ручна чистка старого сміття на сервері (виконати руками):
+  ```bash
+  du -sh /opt/skyblock/island-backups/*            # подивитись, що зжерло місце
+  lxc list --project <проєкт> -c n | tail -n +3 | awk '{print $2}' | while read c; do
+    lxc info "$c" --project <проєкт> | sed -n '/Snapshots/,$p'; done   # старі снапшоти
+  lxc delete <container>/<snapshot> --project <проєкт>                 # видалення
+  ```
+
+**3. Мод тепер обробляє команди оновлень (пункт 1 зі "Що лишилось" — ЗАКРИТО):**
+- `execute_command` → виконується на server thread → `command_ack` в API;
+- `pending_update` → повідомлення в чат (золотим) або кік усіх (`kick:true`).
+
+**Нові змінні `.env`:**
+```bash
+UPDATE_BACKUP_KEEP_VERSIONS=2      # скільки версій file-бекапів тримати на острів
+UPDATE_SNAPSHOT_MODE=always        # always | critical | never
+HEARTBEAT_TIMEOUT_SECONDS=90       # тиша від MC довше цього = перевірка watchdog
+HEALTH_WORKER_INTERVAL=30          # частота проходів watchdog
+```
+
+**Деплой цього пакета:** 1) SQL-міграція health_monitoring; 2) новий код API;
+3) мод `nestworld-mods-server-1.3.0.jar` на острови кампанією оновлень
+(або руками в шаблон + спавн). Порядок неважливий — усе backward-сумісне.
 
 ---
 
@@ -52,19 +104,15 @@
 
 ## Що лишилось
 
-1. **Forge мод (`mods-server`)** — обробка WS-подій:
-   - `execute_command` → виконати команду, відповісти `{"type":"command_ack","pending_id":N}`
-   - `pending_update` → повідомлення в чат (+ kick, якщо `kick: true`)
-
-   Без цього: RUNNING-острови з `update_type=server_only|both` застрягають у
-   `WAITING` до виходу гравця (це коректна поведінка, просто не автоматична);
-   `-critical` теги вже працюють без мода (API сам зупиняє контейнер).
+1. ~~**Forge мод — обробка WS-подій**~~ — ✅ зроблено 2026-07-06 (мод v1.3.0).
 
 2. **Токен GitHub** — переконайся, що ротував той, що засвітився в логах і
    чаті 2026-07-03 (`github_pat_11A45LP3Y...`).
 
-3. **Коміт** — уся ця робота (13+ файлів, 5 фіксів) досі не закомічена
-   локально на гілці `RealMarket`.
+3. **Оновлення ядра сервера** (частина Б) — чекає на вивід з сервера:
+   `lxc exec <контейнер> --project <проєкт> -- ls -la /opt/minecraft` — щоб
+   знати реальний layout (libraries/, run.sh, user_jvm_args.txt) і додати
+   core-набір до синхронізації (тільки коли diff його торкається).
 
 4. **Прибрати сміттєві тестові острови на dev** — `Chaos1924` (id=3) і `Igor`
    (id=7) не мають реальних LXD-контейнерів, кожна кампанія їх намарно
@@ -73,7 +121,8 @@
    UPDATE islands SET status='STOPPED', skip_auto_updates=1 WHERE id IN (3, 7);
    ```
 
-5. **Тестів на нову логіку немає.**
+5. ~~**Тестів на нову логіку немає.**~~ — ✅ 2026-07-06: 7 тестів на watchdog і
+   retention (`app/tests/test_health_worker.py`), разом 50 проходять.
 
 6. **Продакшн-деплой:**
    - Виконати SQL-міграцію на прод-базі (так само, як на dev)

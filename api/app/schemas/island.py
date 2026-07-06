@@ -96,6 +96,11 @@ class IslandResponse(IslandBase):
     minecraft_ready: bool = Field(False, description="Indicates if the Minecraft server itself is fully loaded and ready for players")
     message: Optional[str] = None
 
+    # Health monitoring (mod heartbeat)
+    last_heartbeat_at: Optional[datetime] = None
+    last_tps: Optional[float] = None
+    online_players: Optional[int] = None
+
     # FIX: model_config is now a direct attribute of the class
     model_config = ConfigDict(from_attributes=True)
 
@@ -220,5 +225,23 @@ class QuestProgressResponse(BaseModel):
     owner_uuid: str
     snbt: str
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IslandEventResponse(BaseModel):
+    """Schema for one island lifecycle event (crash/hang/restart journal).
+
+    Attributes:
+        id: The event id.
+        event_type: crashed | hung | stopped_externally | restarted |
+            stopping | state_mismatch.
+        details: Human-readable explanation.
+        created_at: When the event was recorded.
+    """
+    id: int
+    event_type: str
+    details: Optional[str] = None
+    created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)

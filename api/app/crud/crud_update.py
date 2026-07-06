@@ -154,6 +154,21 @@ class CRUDIslandBackupOps:
         result = await db_session.execute(stmt)
         return result.scalars().first()
 
+    async def delete_files_backups_by_path(self, db_session: AsyncSession, *, backup_path: str) -> int:
+        """Deletes bookkeeping rows of file backups whose host directory was pruned.
+
+        Returns:
+            The number of rows deleted.
+        """
+        from sqlalchemy import delete as sqlalchemy_delete
+        result = await db_session.execute(
+            sqlalchemy_delete(IslandBackupModel)
+            .where(IslandBackupModel.backup_type == "files",
+                   IslandBackupModel.backup_path == backup_path)
+        )
+        await db_session.commit()
+        return result.rowcount or 0
+
     async def get_files_backups_for_campaign(self, db_session: AsyncSession, *, campaign_id: int) -> List[IslandBackupModel]:
         """Gets all file-level backups of a campaign (campaign rollback)."""
         result = await db_session.execute(

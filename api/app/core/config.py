@@ -90,6 +90,19 @@ class Settings(BaseSettings):
     UPDATE_WORKER_INTERVAL: int = int(os.getenv("UPDATE_WORKER_INTERVAL", "10"))  # секунд між перевірками черги
     UPDATE_MAX_RETRIES: int = int(os.getenv("UPDATE_MAX_RETRIES", "3"))
     LXC_BIN: str = os.getenv("LXC_BIN", "lxc")  # шлях до lxc CLI (для рекурсивних file-операцій)
+    # Скільки останніх версій file-бекапів тримати на острів (решта видаляється
+    # після завершення кампанії — інакше бекапи з часом забивають диск)
+    UPDATE_BACKUP_KEEP_VERSIONS: int = int(os.getenv("UPDATE_BACKUP_KEEP_VERSIONS", "2"))
+    # Коли робити LXD-снапшот перед hard-оновленням: always | critical | never.
+    # На dir-бекенді снапшот = повна копія контейнера, тож "critical" суттєво
+    # економить диск ціною відсутності аварійного відкату для звичайних оновлень.
+    UPDATE_SNAPSHOT_MODE: str = os.getenv("UPDATE_SNAPSHOT_MODE", "always")
+
+    # ── Health monitoring (watchdog) ────────────────────────────────
+    # Мод шле heartbeat по WS кожні ~30с; якщо тиші більше за таймаут —
+    # watchdog перевіряє реальний стан контейнера і реагує.
+    HEARTBEAT_TIMEOUT_SECONDS: int = int(os.getenv("HEARTBEAT_TIMEOUT_SECONDS", "90"))
+    HEALTH_WORKER_INTERVAL: int = int(os.getenv("HEALTH_WORKER_INTERVAL", "30"))
 
 
     class Config:

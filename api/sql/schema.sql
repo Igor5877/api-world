@@ -343,3 +343,25 @@ CREATE TABLE IF NOT EXISTS team_invites (
     CONSTRAINT fk_team_invites_team FOREIGN KEY (team_id)
         REFERENCES teams (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ─────────────────────────────────────────────────────────────────
+-- Health monitoring (2026-07: heartbeat + watchdog)
+-- ─────────────────────────────────────────────────────────────────
+
+-- Журнал інцидентів островів: crashed | hung | stopped_externally |
+-- restarted | stopping | state_mismatch (пише watchdog і lifecycle-обробники)
+CREATE TABLE IF NOT EXISTS island_events (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    island_id INT NOT NULL,
+    event_type VARCHAR(32) NOT NULL,
+    details VARCHAR(1024) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_island_events_island
+        FOREIGN KEY (island_id) REFERENCES islands(id) ON DELETE CASCADE,
+    INDEX idx_island_events_island_created (island_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Migration: heartbeat-колонки islands — див. migration_2026-07_health_monitoring.sql
+-- ALTER TABLE islands ADD COLUMN last_heartbeat_at DATETIME NULL AFTER minecraft_ready;
+-- ALTER TABLE islands ADD COLUMN last_tps FLOAT NULL AFTER last_heartbeat_at;
+-- ALTER TABLE islands ADD COLUMN online_players INT NULL AFTER last_tps;

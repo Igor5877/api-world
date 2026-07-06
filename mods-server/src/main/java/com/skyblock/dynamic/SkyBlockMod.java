@@ -53,6 +53,11 @@ public class SkyBlockMod {
     private static boolean playerJoinedWithinFirstHour = false;
     private static com.skyblock.dynamic.utils.IslandWebSocketClient webSocketClient;
 
+    /** Heartbeat для API-watchdog: шлеться з server tick loop, тож зависання
+     *  server thread автоматично означає тишу і реакцію watchdog. */
+    private static final long HEARTBEAT_INTERVAL_MS = 30_000L;
+    private long lastHeartbeatAtMs = 0L;
+
     /**
      * The constructor for the SkyBlock mod.
      */
@@ -172,9 +177,44 @@ public class SkyBlockMod {
         // Final quest progress upload before the island goes down.
         com.skyblock.dynamic.utils.QuestProgressSync.uploadIslandProgress(event.getServer(), true);
         if (webSocketClient != null && webSocketClient.isOpen()) {
-            LOGGER.info("SkyBlockMod: Closing WebSocket connection.");
+            // Кажемо API, що це штатна зупинка — watchdog не запише її як краш.
+            com.google.gson.JsonObject bye = new com.google.gson.JsonObject();
+            bye.addProperty("type", "shutting_down");
+            webSocketClient.sendJsonBlocking(bye, 2000L);
+            LOGGER.info("SkyBlockMod: Sent shutting_down signal, closing WebSocket connection.");
             webSocketClient.close();
         }
+    }
+
+    /**
+     * Heartbeat до API кожні ~30с прямо з server tick loop. Якщо WS-з'єднання
+     * розірване — перепідключаємось (раніше reconnect не існував узагалі).
+     */
+    @SubscribeEvent
+    public void onServerTick(net.minecraftforge.event.TickEvent.ServerTickEvent event) {
+        if (event.phase != net.minecraftforge.event.TickEvent.Phase.END) return;
+        if (!islandContext.isIslandServer()) return;
+
+        long now = System.currentTimeMillis();
+        if (now - lastHeartbeatAtMs < HEARTBEAT_INTERVAL_MS) return;
+        lastHeartbeatAtMs = now;
+
+        if (webSocketClient == null || !webSocketClient.isOpen()) {
+            LOGGER.warn("SkyBlockMod: WebSocket is not open — attempting to reconnect.");
+            initializeWebSocket();
+            return;
+        }
+
+        var server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server == null) return;
+        double avgTickMs = server.getAverageTickTime();
+        double tps = Math.min(20.0, 1000.0 / Math.max(avgTickMs, 0.001));
+
+        com.google.gson.JsonObject heartbeat = new com.google.gson.JsonObject();
+        heartbeat.addProperty("type", "heartbeat");
+        heartbeat.addProperty("tps", Math.round(tps * 100.0) / 100.0);
+        heartbeat.addProperty("players", server.getPlayerCount());
+        webSocketClient.sendJson(heartbeat);
     }
 
     /**
