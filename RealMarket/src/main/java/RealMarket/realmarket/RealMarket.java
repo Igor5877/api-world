@@ -113,7 +113,7 @@ public class RealMarket {
     }
 
     public static void removeActiveMarketLink(MarketLinkBlockEntity link) {
-        ACTIVE_LINKS.remove(link.getBlockPos());
+        ACTIVE_LINKS.remove(link.getBlockPos(), link);
     }
 
     public RealMarket(FMLJavaModLoadingContext context) {
