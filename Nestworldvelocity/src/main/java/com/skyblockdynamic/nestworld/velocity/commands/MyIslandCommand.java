@@ -67,11 +67,35 @@ public class MyIslandCommand implements SimpleCommand {
         String lang = player.getPlayerSettings().getLocale().getLanguage();
         String islandServerName = "island-" + player.getUniqueId().toString();
 
-        if (player.getCurrentServer().isPresent() && player.getCurrentServer().get().getServerInfo().getName().equals(islandServerName)) {
-            player.sendMessage(localeManager.getComponent(lang, "myisland.already_on_island", NamedTextColor.YELLOW));
+        if (player.getCurrentServer().isPresent()
+                && player.getCurrentServer().get().getServerInfo().getName().equals(islandServerName)) {
+            // The registered pseudo-server slot is always named after the
+            // connecting player, regardless of which physical island it
+            // points at — so a name match alone doesn't prove the player is
+            // still on their CURRENT island (e.g. after a team change or
+            // island swap the address behind this name can be stale). Verify
+            // against a fresh API lookup before trusting it.
+            ServerInfo currentInfo = player.getCurrentServer().get().getServerInfo();
+            apiClient.getIslandDetails(player.getUniqueId()).thenAccept(apiResponse -> {
+                if (apiResponse.isSuccess()) {
+                    try {
+                        JsonObject islandData = JsonParser.parseString(apiResponse.body()).getAsJsonObject();
+                        String ip = islandData.get("internal_ip_address").getAsString();
+                        int port = islandData.get("internal_port").getAsInt();
+                        InetSocketAddress currentAddress = currentInfo.getAddress();
+                        if (ip.equals(currentAddress.getHostString()) && port == currentAddress.getPort()) {
+                            player.sendMessage(localeManager.getComponent(lang, "myisland.already_on_island", NamedTextColor.YELLOW));
+                            return;
+                        }
+                    } catch (Exception ignored) {
+                        // Fall through and just try to (re)connect.
+                    }
+                }
+                initiateIslandConnection(player);
+            });
             return;
         }
-        
+
         initiateIslandConnection(player);
     }
 

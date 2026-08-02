@@ -133,11 +133,24 @@ class LXDService:
             logger.error(f"Error cloning container '{new_container_name}': {e}", exc_info=True)
             raise LXDServiceError(f"Failed to clone container: {e}")
 
-    async def start_container(self, container_name: str):
-        """Starts a container.
+    async def start_container(self, container_name: str) -> bool:
+        """Starts a container, resuming it if it turns out to already be frozen.
+
+        The caller's belief about the container's state (derived from our DB)
+        can be stale — e.g. a leftover container from an earlier flow may
+        still be FROZEN even though the DB thinks it needs a cold boot.
+        Blindly issuing a "start" action to a frozen container silently
+        resumes the old process instead of booting a fresh one, which the
+        Minecraft server-ready handshake (mod signals ready once per JVM
+        boot) doesn't expect and never recovers from.
 
         Args:
             container_name: The name of the container to start.
+
+        Returns:
+            True if the container was actually frozen and got resumed
+            (no fresh JVM boot will happen); False if it was cold-started
+            (or was already running).
 
         Raises:
             LXDContainerNotFoundError: If the container is not found.
@@ -146,8 +159,13 @@ class LXDService:
         client = await self._get_client()
         try:
             container = await self._run_sync(client.containers.get, container_name)
-            if container.status.lower() != 'running':
+            status = container.status.lower()
+            if status == 'frozen':
+                await self._run_sync(container.unfreeze, wait=True, timeout=settings.LXD_OPERATION_TIMEOUT)
+                return True
+            if status != 'running':
                 await self._run_sync(container.start, wait=True, timeout=settings.LXD_OPERATION_TIMEOUT)
+            return False
         except NotFound:
             raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
         except Exception as e:

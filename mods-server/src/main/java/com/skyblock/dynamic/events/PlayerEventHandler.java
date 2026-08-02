@@ -2,7 +2,11 @@ package com.skyblock.dynamic.events;
 
 import com.skyblock.dynamic.SkyBlockMod;
 import com.skyblock.dynamic.nestworld.mods.NestworldModsServer;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.slf4j.Logger;
@@ -96,6 +100,27 @@ public class PlayerEventHandler {
             } else if (SkyBlockMod.isIslandServer()) {
                 LOGGER.info("Last player logged out, but no player joined within the first hour. Auto-freeze is disabled.");
             }
+        }
+    }
+
+    /**
+     * The hub/spawn server is a safe zone: no PvP, no fall damage, no mob
+     * damage, nothing. Islands are unaffected — players can still die there.
+     *
+     * @param event The living-hurt event.
+     */
+    @SubscribeEvent
+    public void onLivingHurt(LivingHurtEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player) || SkyBlockMod.isIslandServer()) {
+            return;
+        }
+        event.setCanceled(true);
+        if (event.getSource().is(DamageTypes.FELL_OUT_OF_WORLD)) {
+            // Cancelling the damage alone leaves them falling forever —
+            // put them back on solid ground instead.
+            BlockPos spawn = player.level().getSharedSpawnPos();
+            player.teleportTo(spawn.getX() + 0.5, spawn.getY(), spawn.getZ() + 0.5);
+            player.fallDistance = 0f;
         }
     }
 

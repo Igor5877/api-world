@@ -19,6 +19,7 @@ import dev.ftb.mods.ftbquests.item.MissingItem;
 import dev.ftb.mods.ftbquests.net.FTBQuestsNetHandler;
 import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
+import dev.ftb.mods.ftbquests.quest.TeamData;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
 import dev.ftb.mods.ftbquests.util.NBTUtils;
 import net.fabricmc.api.EnvType;
@@ -370,6 +371,13 @@ public class ItemTask extends Task implements Predicate<ItemStack> {
 				player.containerMenu.broadcastChanges();
 			}
 		}
+	}
+
+	/** @deprecated compatibility overload for addons/mixins still targeting the pre-fork TeamData signature. */
+	@Deprecated
+	@Override
+	public void submitTask(TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
+		submitTask(teamData.islandData, player, craftedItem);
 	}
 
 	public boolean isTaskScreenOnly() {

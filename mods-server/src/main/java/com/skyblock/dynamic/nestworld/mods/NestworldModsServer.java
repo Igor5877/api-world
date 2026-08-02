@@ -21,8 +21,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -40,7 +42,16 @@ public class NestworldModsServer {
      * Provides island-related functionality.
      */
     public static class IslandProvider {
+        /**
+         * How long a cached player→team-owner mapping is trusted before we
+         * re-fetch it. Without a TTL, a player's team was cached forever
+         * (until this JVM restarts) — so once cached, joining/leaving a team
+         * later never took effect for this island's session: FTB Quests kept
+         * treating them as their old team indefinitely.
+         */
+        private static final long TEAM_CACHE_TTL_MS = 60_000L;
         private final Map<UUID, UUID> islandCache = new ConcurrentHashMap<>();
+        private final Map<UUID, Long> islandCacheTimestamps = new ConcurrentHashMap<>();
         private final HttpClient httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(10))
@@ -64,8 +75,9 @@ public class NestworldModsServer {
          * @return The team ID, or null if not found.
          */
         public UUID getCachedTeamId(UUID playerUuid) {
-            // If the team ID is in the cache, return it.
-            if (islandCache.containsKey(playerUuid)) {
+            // If the team ID is cached and still fresh, return it.
+            Long cachedAt = islandCacheTimestamps.get(playerUuid);
+            if (cachedAt != null && (System.currentTimeMillis() - cachedAt) < TEAM_CACHE_TTL_MS) {
                 return islandCache.get(playerUuid);
             }
             // If not, fetch it synchronously. This will block, but it's necessary for FTB Quests.
@@ -187,23 +199,24 @@ public class NestworldModsServer {
         public UUID processTeamData(JsonObject teamJson) {
             if (teamJson != null && teamJson.has("owner_uuid")) {
                 UUID ownerUuid = UUID.fromString(teamJson.get("owner_uuid").getAsString());
-                List<UUID> memberUuids = new ArrayList<>();
-                memberUuids.add(ownerUuid);
+                Set<UUID> memberUuidSet = new LinkedHashSet<>();
+                memberUuidSet.add(ownerUuid);
 
                 if (teamJson.has("members") && teamJson.get("members").isJsonArray()) {
                     teamJson.get("members").getAsJsonArray().forEach(memberElement -> {
                         JsonObject memberObj = memberElement.getAsJsonObject();
                         if (memberObj.has("player_uuid")) {
                             UUID memberUuid = UUID.fromString(memberObj.get("player_uuid").getAsString());
-                            if (!memberUuids.contains(memberUuid)) {
-                                memberUuids.add(memberUuid);
-                            }
+                            memberUuidSet.add(memberUuid);
                         }
                     });
                 }
+                List<UUID> memberUuids = new ArrayList<>(memberUuidSet);
 
+                long now = System.currentTimeMillis();
                 for (UUID memberUuid : memberUuids) {
                     islandCache.put(memberUuid, ownerUuid);
+                    islandCacheTimestamps.put(memberUuid, now);
                 }
 
                 com.skyblock.dynamic.utils.QuestTeamBridge.getInstance().syncTeamData(ownerUuid, memberUuids);

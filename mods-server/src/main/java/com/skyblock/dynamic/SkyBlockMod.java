@@ -28,13 +28,8 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import org.slf4j.Logger;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.UUID;
-import net.minecraftforge.event.server.ServerStoppingEvent;
 import java.net.URI;
 import java.net.URISyntaxException;
 

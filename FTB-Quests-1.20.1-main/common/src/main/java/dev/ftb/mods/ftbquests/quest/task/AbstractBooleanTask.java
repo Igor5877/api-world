@@ -2,6 +2,7 @@ package dev.ftb.mods.ftbquests.quest.task;
 
 import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
+import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
@@ -27,5 +28,12 @@ public abstract class AbstractBooleanTask extends Task {
 		if (!islandData.isCompleted(this) && checkTaskSequence(islandData) && canSubmit(islandData, player)) {
 			islandData.setProgress(this, 1L);
 		}
+	}
+
+	/** @deprecated compatibility overload for addons/mixins still targeting the pre-fork TeamData signature. */
+	@Deprecated
+	@Override
+	public void submitTask(TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
+		submitTask(teamData.islandData, player, craftedItem);
 	}
 }

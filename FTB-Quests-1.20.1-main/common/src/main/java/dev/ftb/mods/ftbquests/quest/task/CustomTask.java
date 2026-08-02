@@ -5,6 +5,7 @@ import dev.ftb.mods.ftbquests.net.SubmitTaskMessage;
 import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
 import dev.ftb.mods.ftbquests.quest.QuestObjectBase;
+import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.network.FriendlyByteBuf;
@@ -91,6 +92,13 @@ public class CustomTask extends Task {
 		if (check != null && checkTaskSequence(islandData) && !islandData.isCompleted(this)) {
 			check.check(new Data(this, islandData), player);
 		}
+	}
+
+	/** @deprecated compatibility overload for addons/mixins still targeting the pre-fork TeamData signature. */
+	@Deprecated
+	@Override
+	public void submitTask(TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
+		submitTask(teamData.islandData, player, craftedItem);
 	}
 
 	@Override

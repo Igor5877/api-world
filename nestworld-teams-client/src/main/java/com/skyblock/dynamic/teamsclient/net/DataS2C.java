@@ -83,13 +83,20 @@ public class DataS2C {
             MutableComponent line = Component.literal("  » ")
                     .append(Component.translatable("nestworld_teams.msg.invite_line", teamName, inviter));
             line.append(" ");
+            // SUGGEST_COMMAND, not RUN_COMMAND: a clicked RUN_COMMAND link is sent via
+            // ClientPacketListener#sendUnsignedCommand, which always goes straight to
+            // the (real, backend) server and never passes through Forge's client-command
+            // dispatcher (ClientCommandHandler#runCommand only hooks typed-and-entered
+            // chat input). /nwteam is a client-only command, so a RUN_COMMAND click hits
+            // the server as an unknown command. Suggesting it and letting the player
+            // press Enter routes through the path that actually checks client commands.
             line.append(Component.translatable("nestworld_teams.msg.accept_button")
                     .withStyle(Style.EMPTY.withColor(ChatFormatting.GREEN)
-                            .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/nwteam accept " + id))));
+                            .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/nwteam accept " + id))));
             line.append(" ");
             line.append(Component.translatable("nestworld_teams.msg.decline_button")
                     .withStyle(Style.EMPTY.withColor(ChatFormatting.RED)
-                            .withClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/nwteam decline " + id))));
+                            .withClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/nwteam decline " + id))));
             chat(mc, line);
         }
     }

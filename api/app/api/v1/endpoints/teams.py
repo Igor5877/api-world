@@ -26,7 +26,7 @@ async def broadcast_team_update(db: AsyncSession, team_id: int):
             "event": "TEAM_UPDATED",
             "payload": schema.model_dump(mode='json')
         }
-        await websocket_manager.send_personal_message(payload, f"island_{team_with_members.owner_uuid}")
+        await websocket_manager.send_personal_message(payload, str(team_with_members.owner_uuid))
 
 @router.post("/create_solo", response_model=TeamSchema, status_code=201)
 async def create_solo_island_and_team(

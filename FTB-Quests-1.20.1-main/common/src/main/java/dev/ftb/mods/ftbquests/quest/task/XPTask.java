@@ -3,6 +3,7 @@ package dev.ftb.mods.ftbquests.quest.task;
 import dev.ftb.mods.ftblibrary.config.ConfigGroup;
 import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
+import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.ChatFormatting;
@@ -173,5 +174,12 @@ public class XPTask extends Task implements ISingleLongValueTask {
 		}
 
 		islandData.addProgress(this, add);
+	}
+
+	/** @deprecated compatibility overload for addons/mixins still targeting the pre-fork TeamData signature. */
+	@Deprecated
+	@Override
+	public void submitTask(TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
+		submitTask(teamData.islandData, player, craftedItem);
 	}
 }

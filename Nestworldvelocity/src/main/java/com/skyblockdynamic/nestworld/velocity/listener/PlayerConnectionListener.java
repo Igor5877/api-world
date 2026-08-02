@@ -13,6 +13,7 @@ import com.skyblockdynamic.nestworld.velocity.network.ApiResponse;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.player.PlayerChooseInitialServerEvent;
+import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
@@ -75,29 +76,7 @@ public class PlayerConnectionListener {
     @Subscribe
     public void onPlayerChooseInitialServer(PlayerChooseInitialServerEvent event) {
         Player player = event.getPlayer();
-        
-        apiClient.getTeam(player.getUniqueId()).thenAcceptAsync(apiResponse -> {
-            if (apiResponse.isSuccess() && !apiResponse.body().isEmpty()) {
-                try {
-                    JsonObject teamData = JsonParser.parseString(apiResponse.body()).getAsJsonObject();
-                    if (teamData.has("owner_uuid")) {
-                        UUID ownerUuid = UUID.fromString(teamData.get("owner_uuid").getAsString());
-                        
-                        ScheduledTask pendingTask = pendingStopTasks.remove(ownerUuid);
-                        if (pendingTask != null) {
-                            pendingTask.cancel();
-                            logger.info("Player {} (team member of {}) reconnected. Cancelled pending island stop for owner {}.", 
-                                        player.getUsername(), ownerUuid, ownerUuid);
-                        }
-                    }
-                } catch (JsonSyntaxException e) {
-                    logger.error("Error parsing team data for player {} on connect: {}", player.getUsername(), e.getMessage());
-                }
-            } else if (!apiResponse.isSuccess()) {
-                logger.warn("Could not retrieve team data for {} on connect to cancel stop task. Status: {}, Body: {}",
-                            player.getUsername(), apiResponse.statusCode(), apiResponse.body());
-            }
-        }, plugin.getExecutorService());
+        cancelPendingStopForPlayersTeam(player);
 
         Optional<RegisteredServer> fallbackServer = proxyServer.getServer(config.getFallbackServerName());
         if (fallbackServer.isEmpty()) {
@@ -247,95 +226,152 @@ public class PlayerConnectionListener {
             return; 
         }
 
-        player.getCurrentServer().ifPresent(serverConnection -> {
-            String serverName = serverConnection.getServerInfo().getName();
-            if (!serverName.startsWith("island-")) {
-                logger.info("Player {} disconnected from a non-island server ({}). No action taken.", player.getUsername(), serverName);
+        player.getCurrentServer().ifPresent(serverConnection ->
+                handleLeftIslandServer(player, disconnectedPlayerUuid, serverConnection.getServer(),
+                        serverConnection.getServerInfo().getName()));
+    }
+
+    /**
+     * Switching to a different backend server (e.g. /myisland, /spawn) while
+     * staying connected to the proxy must NEVER schedule a full stop — only
+     * a genuine {@link DisconnectEvent} (actually leaving the network) does
+     * that. Sitting on the hub for a while is allowed to leave the island
+     * FROZEN at most; that already happens on its own, server-side, when the
+     * island's last player logs out (mod-side PlayerLoggedOutEvent) — no
+     * Velocity involvement needed. This handler only cancels a pending stop
+     * if the player comes back to an island before it fires.
+     *
+     * @param event The server-connected event.
+     */
+    @Subscribe
+    public void onServerConnected(ServerConnectedEvent event) {
+        if (event.getServer().getServerInfo().getName().startsWith("island-")) {
+            // Coming back to (any) island before the scheduled stop fired —
+            // cancel it, same as a fresh proxy login already does.
+            cancelPendingStopForPlayersTeam(event.getPlayer());
+        }
+    }
+
+    /** Cancels any pending scheduled stop for the team {@code player} belongs to. */
+    private void cancelPendingStopForPlayersTeam(Player player) {
+        apiClient.getTeam(player.getUniqueId()).thenAcceptAsync(apiResponse -> {
+            if (apiResponse.isSuccess() && !apiResponse.body().isEmpty()) {
+                try {
+                    JsonObject teamData = JsonParser.parseString(apiResponse.body()).getAsJsonObject();
+                    if (teamData.has("owner_uuid")) {
+                        UUID ownerUuid = UUID.fromString(teamData.get("owner_uuid").getAsString());
+
+                        ScheduledTask pendingTask = pendingStopTasks.remove(ownerUuid);
+                        if (pendingTask != null) {
+                            pendingTask.cancel();
+                            logger.info("Player {} (team member of {}) is back. Cancelled pending island stop for owner {}.",
+                                        player.getUsername(), ownerUuid, ownerUuid);
+                        }
+                    }
+                } catch (JsonSyntaxException e) {
+                    logger.error("Error parsing team data for player {} on connect: {}", player.getUsername(), e.getMessage());
+                }
+            } else if (!apiResponse.isSuccess()) {
+                logger.warn("Could not retrieve team data for {} on connect to cancel stop task. Status: {}, Body: {}",
+                            player.getUsername(), apiResponse.statusCode(), apiResponse.body());
+            }
+        }, plugin.getExecutorService());
+    }
+
+    /**
+     * Schedules a smart stop for {@code islandServer} if the player who just
+     * left it (via disconnect or server switch) was the last team member
+     * still on it — checking the WHOLE team's presence there, not just the
+     * island owner. If any other team member remains, stopping is skipped;
+     * a lone remaining teammate is enough to keep the island up.
+     */
+    private void handleLeftIslandServer(Player player, UUID leftPlayerUuid, RegisteredServer islandServer, String serverName) {
+        if (!serverName.startsWith("island-")) {
+            logger.info("Player {} left a non-island server ({}). No action taken.", player.getUsername(), serverName);
+            return;
+        }
+
+        apiClient.getTeam(leftPlayerUuid).thenAcceptAsync(apiResponse -> {
+            if (!apiResponse.isSuccess()) {
+                logger.warn("Failed to get team data for {} leaving {}: {}. Unable to perform smart stop.", player.getUsername(), serverName, apiResponse.body());
                 return;
             }
 
-            apiClient.getTeam(disconnectedPlayerUuid).thenAcceptAsync(apiResponse -> {
-                if (!apiResponse.isSuccess()) {
-                    logger.warn("Failed to get team data for disconnected player {}: {}. Unable to perform smart stop.", player.getUsername(), apiResponse.body());
+            if (apiResponse.body() == null || apiResponse.body().isEmpty()) {
+                logger.debug("Player {} is not in a team (empty response body). No stop action taken.", player.getUsername());
+                return;
+            }
+
+            try {
+                JsonObject teamData = JsonParser.parseString(apiResponse.body()).getAsJsonObject();
+                if (!teamData.has("owner_uuid") || !teamData.has("members")) {
+                    logger.debug("Player {} is not in a team (missing team data). No stop action taken.", player.getUsername());
                     return;
                 }
+                UUID ownerUuid = UUID.fromString(teamData.get("owner_uuid").getAsString());
+                JsonArray membersArray = teamData.getAsJsonArray("members");
 
-                if (apiResponse.body() == null || apiResponse.body().isEmpty()) {
-                    logger.debug("Player {} is not in a team (empty response body). No stop action taken.", player.getUsername());
-                    return;
+                Set<UUID> teamMemberUuids = new HashSet<>();
+                for (JsonElement memberElement : membersArray) {
+                    teamMemberUuids.add(UUID.fromString(memberElement.getAsJsonObject().get("player_uuid").getAsString()));
                 }
 
-                try {
-                    JsonObject teamData = JsonParser.parseString(apiResponse.body()).getAsJsonObject();
-                    if (!teamData.has("owner_uuid") || !teamData.has("members")) {
-                        logger.debug("Player {} is not in a team (missing team data). No stop action taken.", player.getUsername());
-                        return;
-                    }
-                    UUID ownerUuid = UUID.fromString(teamData.get("owner_uuid").getAsString());
-                    JsonArray membersArray = teamData.getAsJsonArray("members");
+                // Один прохід — розбиваємо на teamMembers і guests одразу
+                List<Player> teamMembers = new ArrayList<>();
+                List<Player> guests = new ArrayList<>();
+                for (Player p : islandServer.getPlayersConnected()) {
+                    if (p.getUniqueId().equals(leftPlayerUuid)) continue;
+                    (teamMemberUuids.contains(p.getUniqueId()) ? teamMembers : guests).add(p);
+                }
+                boolean otherTeamMembersOnline = !teamMembers.isEmpty();
 
-                    Set<UUID> teamMemberUuids = new HashSet<>();
-                    for (JsonElement memberElement : membersArray) {
-                        teamMemberUuids.add(UUID.fromString(memberElement.getAsJsonObject().get("player_uuid").getAsString()));
-                    }
-
-                    // Один прохід — розбиваємо на teamMembers і guests одразу
-                    List<Player> teamMembers = new ArrayList<>();
-                    List<Player> guests = new ArrayList<>();
-                    for (Player p : serverConnection.getServer().getPlayersConnected()) {
-                        if (p.getUniqueId().equals(disconnectedPlayerUuid)) continue;
-                        (teamMemberUuids.contains(p.getUniqueId()) ? teamMembers : guests).add(p);
-                    }
-                    boolean otherTeamMembersOnline = !teamMembers.isEmpty();
-
-                    if (!otherTeamMembersOnline) {
-                        Optional<RegisteredServer> fallbackServerOpt = proxyServer.getServer(config.getFallbackServerName());
-                        if (fallbackServerOpt.isEmpty()) {
-                            logger.error("Fallback server '{}' not found. Cannot move guest players.", config.getFallbackServerName());
-                        } else {
-                            RegisteredServer fallbackServer = fallbackServerOpt.get();
-
-                            if (!guests.isEmpty()) {
-                                logger.info("Moving {} guests from island {} to fallback server.", guests.size(), serverName);
-                                guests.forEach(guest -> {
-                                    guest.sendMessage(Component.text("The island is closing. You have been returned to the spawn.", NamedTextColor.YELLOW));
-                                    guest.createConnectionRequest(fallbackServer).connect();
-                                });
-                            }
-                        }
-
-                        logger.info("Last team member {} disconnected from island {}. Scheduling stop for owner {}.",
-                                player.getUsername(), serverName, ownerUuid);
-
-                        // Повідомити API про вихід останнього гравця — тригер для update worker
-                        // (якщо острів чекає оновлення, воно застосується після зупинки).
-                        apiClient.notifyPlayerLeft(ownerUuid);
-
-                        Runnable stopTaskRunnable = () -> {
-                            logger.info("Executing scheduled stop for island of owner {}", ownerUuid);
-                            apiClient.requestIslandStop(ownerUuid);
-                            pendingStopTasks.remove(ownerUuid);
-                        };
-
-                        ScheduledTask existingTask = pendingStopTasks.remove(ownerUuid);
-                        if (existingTask != null) {
-                            existingTask.cancel();
-                        }
-
-                        ScheduledTask newScheduledTask = proxyServer.getScheduler()
-                                .buildTask(plugin, stopTaskRunnable)
-                                .delay(5, TimeUnit.MINUTES)
-                                .schedule();
-                        pendingStopTasks.put(ownerUuid, newScheduledTask);
+                if (!otherTeamMembersOnline) {
+                    Optional<RegisteredServer> fallbackServerOpt = proxyServer.getServer(config.getFallbackServerName());
+                    if (fallbackServerOpt.isEmpty()) {
+                        logger.error("Fallback server '{}' not found. Cannot move guest players.", config.getFallbackServerName());
                     } else {
-                        logger.info("Player {} disconnected, but other team members remain on island {}. Not scheduling stop.",
-                                player.getUsername(), serverName);
+                        RegisteredServer fallbackServer = fallbackServerOpt.get();
+
+                        if (!guests.isEmpty()) {
+                            logger.info("Moving {} guests from island {} to fallback server.", guests.size(), serverName);
+                            guests.forEach(guest -> {
+                                guest.sendMessage(Component.text("The island is closing. You have been returned to the spawn.", NamedTextColor.YELLOW));
+                                guest.createConnectionRequest(fallbackServer).connect();
+                            });
+                        }
                     }
 
-                } catch (JsonSyntaxException | NullPointerException e) {
-                    logger.error("Error parsing team data for player {}: {}", player.getUsername(), e.getMessage(), e);
+                    logger.info("Last team member {} left island {}. Scheduling stop for owner {}.",
+                            player.getUsername(), serverName, ownerUuid);
+
+                    // Повідомити API про вихід останнього гравця — тригер для update worker
+                    // (якщо острів чекає оновлення, воно застосується після зупинки).
+                    apiClient.notifyPlayerLeft(ownerUuid);
+
+                    Runnable stopTaskRunnable = () -> {
+                        logger.info("Executing scheduled stop for island of owner {}", ownerUuid);
+                        apiClient.requestIslandStop(ownerUuid);
+                        pendingStopTasks.remove(ownerUuid);
+                    };
+
+                    ScheduledTask existingTask = pendingStopTasks.remove(ownerUuid);
+                    if (existingTask != null) {
+                        existingTask.cancel();
+                    }
+
+                    ScheduledTask newScheduledTask = proxyServer.getScheduler()
+                            .buildTask(plugin, stopTaskRunnable)
+                            .delay(config.getStopDelaySeconds(), TimeUnit.SECONDS)
+                            .schedule();
+                    pendingStopTasks.put(ownerUuid, newScheduledTask);
+                } else {
+                    logger.info("Player {} left island {}, but other team members remain there. Not scheduling stop.",
+                            player.getUsername(), serverName);
                 }
-            }, plugin.getExecutorService());
-        });
+
+            } catch (JsonSyntaxException | NullPointerException e) {
+                logger.error("Error parsing team data for player {}: {}", player.getUsername(), e.getMessage(), e);
+            }
+        }, plugin.getExecutorService());
     }
 }

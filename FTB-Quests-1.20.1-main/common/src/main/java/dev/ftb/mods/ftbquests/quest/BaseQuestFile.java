@@ -646,7 +646,7 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 					}
 				});
 			} catch (IOException e) {
-				e.printStackTrace();
+				FTBQuests.LOGGER.error("Failed to read chapters", e);
 			}
 		}
 
@@ -667,7 +667,7 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 					}
 				});
 			} catch (Exception ex) {
-				ex.printStackTrace();
+				FTBQuests.LOGGER.error("Failed to read reward tables", ex);
 			}
 		}
 

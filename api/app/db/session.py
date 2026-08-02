@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
@@ -77,6 +78,12 @@ async def get_db_session() -> AsyncSession:
         try:
             yield session
             await session.commit()
+        except HTTPException:
+            # Expected, endpoint-raised client errors (404 "not in a team",
+            # 409 conflicts, etc.) — not a real failure, just noisy at ERROR
+            # level. Any partial writes still need rolling back, just quietly.
+            await session.rollback()
+            raise
         except Exception as e:
             logger.error(f"Exception during database session, rolling back: {e}")
             await session.rollback()

@@ -39,4 +39,12 @@ public class TeamData {
     public BaseQuestFile getFile() {
         return islandData.getFile();
     }
+
+    public UUID getTeamId() {
+        return islandData.getTeamId();
+    }
+
+    public void markDirty() {
+        islandData.markDirty();
+    }
 }

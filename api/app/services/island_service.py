@@ -170,6 +170,12 @@ class IslandService:
                 await self._send_update_notification(team, updated_island)
                 logger.info(f"Clone task: Island for team {team_id} successfully created and set to STOPPED.")
 
+                # A freshly cloned island was never actually started — without
+                # this, a player's first-ever /myisland only got them as far as
+                # STOPPED and they'd sit waiting on a "ready" signal that would
+                # never come; they'd have to run /myisland a second time.
+                await self._perform_lxd_start_and_update_status(team_id=team.id, container_name=container_name)
+
             except Exception as e:
                 logger.error(f"Clone task for team {team_id} failed: {e}", exc_info=True)
                 async with AsyncSessionLocal() as error_db:
@@ -290,10 +296,10 @@ class IslandService:
             await self._send_update_notification(team, updated_island)
             
             if team:
-                background_tasks.add_task(self._perform_lxd_start_and_update_status, team_id=team.id, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN))
+                background_tasks.add_task(self._perform_lxd_start_and_update_status, team_id=team.id, container_name=container_name)
             else:
                 player_uuid_str = str(island.player_uuid)
-                background_tasks.add_task(self._perform_solo_lxd_start_and_update_status, player_uuid_str=player_uuid_str, container_name=container_name, was_frozen=(current_status == IslandStatusEnum.FROZEN))
+                background_tasks.add_task(self._perform_solo_lxd_start_and_update_status, player_uuid_str=player_uuid_str, container_name=container_name)
             
             return IslandResponse.model_validate(updated_island)
         elif current_status == IslandStatusEnum.PENDING_START:
@@ -302,13 +308,12 @@ class IslandService:
             raise ValueError(f"Island cannot be started from its current state: {current_status.value}")
         return IslandResponse.model_validate(island)
 
-    async def _perform_solo_lxd_start_and_update_status(self, player_uuid_str: str, container_name: str, was_frozen: bool):
+    async def _perform_solo_lxd_start_and_update_status(self, player_uuid_str: str, container_name: str):
         """Performs the LXD start and updates the status for a solo island.
 
         Args:
             player_uuid_str: The UUID of the player.
             container_name: The name of the container.
-            was_frozen: Whether the island was frozen.
         """
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
@@ -316,13 +321,21 @@ class IslandService:
             if not island: return
 
             try:
-                if was_frozen: await lxd_service.unfreeze_container(container_name)
-                await lxd_service.start_container(container_name)
+                # start_container checks the container's actual LXD state and
+                # resumes it if it's frozen, regardless of what `was_frozen`
+                # (derived from possibly-stale DB status) claims — a leftover
+                # container can be frozen even when the DB expects a cold boot.
+                resumed = await lxd_service.start_container(container_name)
                 ip = await lxd_service.get_container_ip(container_name)
                 if not ip: raise LXDServiceError("Failed to get IP for solo island.")
-                
+
                 update_data = {"status": IslandStatusEnum.RUNNING, "internal_ip_address": ip,
                                "last_heartbeat_at": None}
+                if resumed:
+                    # Resuming a frozen JVM does not fire a fresh server-started
+                    # event, so the mod will never re-send its one-time ready
+                    # signal — the server was already ready before it froze.
+                    update_data["minecraft_ready"] = True
                 updated_island = await crud_island.update(db, db_obj=island, obj_in=update_data)
                 await db.commit()
                 await db.refresh(updated_island)
@@ -334,13 +347,12 @@ class IslandService:
                 await db.refresh(updated_island)
                 await self._send_update_notification(None, updated_island)
 
-    async def _perform_lxd_start_and_update_status(self, team_id: int, container_name: str, was_frozen: bool):
+    async def _perform_lxd_start_and_update_status(self, team_id: int, container_name: str):
         """Performs the LXD start and updates the status for a team island.
 
         Args:
             team_id: The ID of the team.
             container_name: The name of the container.
-            was_frozen: Whether the island was frozen.
         """
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as db_session_bg:
@@ -353,18 +365,25 @@ class IslandService:
                     return
 
                 logger.info(f"Service (background): Starting LXD ops for team {team_id}, container {container_name}")
-                if was_frozen:
-                    await lxd_service.unfreeze_container(container_name)
-                
+                # start_container checks the container's actual LXD state and
+                # resumes it if it's frozen, regardless of what `was_frozen`
+                # (derived from possibly-stale DB status) claims — a leftover
+                # container can be frozen even when the DB expects a cold boot.
                 current_state = await lxd_service.get_container_state(container_name)
+                resumed = False
                 if current_state.get('status', '').lower() != 'running':
-                    await lxd_service.start_container(container_name)
+                    resumed = await lxd_service.start_container(container_name)
 
                 ip_address = await lxd_service.get_container_ip(container_name)
                 if not ip_address:
                     raise LXDServiceError("Failed to get IP address for container.")
 
                 update_fields = {"internal_ip_address": ip_address, "internal_port": settings.DEFAULT_MC_PORT_INTERNAL, "status": IslandStatusEnum.RUNNING, "last_seen_at": datetime.now(timezone.utc), "last_heartbeat_at": None}
+                if resumed:
+                    # Resuming a frozen JVM does not fire a fresh server-started
+                    # event, so the mod will never re-send its one-time ready
+                    # signal — the server was already ready before it froze.
+                    update_fields["minecraft_ready"] = True
                 updated_island = await crud_island.update(db_session_bg, db_obj=team.island, obj_in=update_fields)
                 await db_session_bg.commit()
                 await db_session_bg.refresh(updated_island)
@@ -674,9 +693,17 @@ class IslandService:
 
         # 2. Find the player's current team
         current_team = await crud_team.get_team_by_player(db=db_session, player_uuid=player_to_join_uuid)
-        
+
         old_island_to_delete = None
-        
+        # Carry the player's known nickname over from their old (solo) team,
+        # since callers of this method don't always have it on hand.
+        player_name = None
+        if current_team:
+            for member in current_team.members:
+                if member.player_uuid == player_to_join_uuid:
+                    player_name = member.player_name
+                    break
+
         # 3. If the player is in a team, validate if they can leave
         if current_team:
             # It's the same team, which should have been caught by the first check, but as a safeguard.
@@ -696,7 +723,8 @@ class IslandService:
             await db_session.delete(current_team)
 
         # 4. Add player to the new team
-        await crud_team.add_member(db=db_session, team=team_to_join, player_uuid=player_to_join_uuid)
+        await crud_team.add_member(db=db_session, team=team_to_join, player_uuid=player_to_join_uuid,
+                                    player_name=player_name)
         
         # The service layer should not commit. The endpoint dependency will handle it.
         # This ensures all operations (delete old team, add new member) are in one transaction.

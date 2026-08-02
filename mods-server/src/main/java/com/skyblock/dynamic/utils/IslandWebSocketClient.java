@@ -91,6 +91,13 @@ public class IslandWebSocketClient {
                 return;
             }
 
+            if (json.has("event") && json.get("event").getAsString().equals("TEAM_INVITE")) {
+                if (json.has("payload")) {
+                    handleTeamInvite(json.getAsJsonObject("payload"));
+                }
+                return;
+            }
+
             String type = json.has("type") ? json.get("type").getAsString() : "";
             switch (type) {
                 case "execute_command" -> handleExecuteCommand(json);
@@ -102,6 +109,33 @@ public class IslandWebSocketClient {
         } catch (Exception e) {
             LOGGER.error("Failed to handle WebSocket message: {}", message, e);
         }
+    }
+
+    /**
+     * The API pushes this when someone invites this connection's owner to a
+     * team. Previously it was received (logged) and silently dropped — the
+     * invited player only ever found out by manually running
+     * {@code /nwteam invites}. Surface it in chat if they're online here.
+     */
+    private void handleTeamInvite(JsonObject payload) {
+        String teamName = payload.has("team_name") ? payload.get("team_name").getAsString() : "?";
+        String inviterName = payload.has("inviter_name") && !payload.get("inviter_name").isJsonNull()
+                ? payload.get("inviter_name").getAsString() : "?";
+
+        MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server == null) {
+            return;
+        }
+        server.execute(() -> {
+            ServerPlayer player = server.getPlayerList().getPlayer(java.util.UUID.fromString(ownerUuid));
+            if (player == null) {
+                return; // they'll see it via /nwteam invites on next check
+            }
+            player.sendSystemMessage(Component.literal(inviterName + " запросив(-ла) тебе до команди '" + teamName + "'.")
+                    .withStyle(ChatFormatting.GOLD));
+            player.sendSystemMessage(Component.literal("Введи /nwteam invites, щоб прийняти або відхилити.")
+                    .withStyle(ChatFormatting.YELLOW));
+        });
     }
 
     /**

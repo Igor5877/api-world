@@ -4,6 +4,7 @@ import dev.ftb.mods.ftblibrary.config.ConfigGroup;
 import dev.ftb.mods.ftblibrary.config.NameMap;
 import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.Quest;
+import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -120,5 +121,12 @@ public class StatTask extends Task {
 				islandData.setProgress(this, set);
 			}
 		}
+	}
+
+	/** @deprecated compatibility overload for addons/mixins still targeting the pre-fork TeamData signature. */
+	@Deprecated
+	@Override
+	public void submitTask(TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
+		submitTask(teamData.islandData, player, craftedItem);
 	}
 }

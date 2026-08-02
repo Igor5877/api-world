@@ -21,6 +21,7 @@ public class PluginConfig {
     private final int maxPollingAttempts;
     private final boolean autoRedirectToIslandEnabled;
     private final int tpaTimeoutSeconds;
+    private final int stopDelaySeconds;
 
     /**
      * Constructs a new PluginConfig.
@@ -32,8 +33,11 @@ public class PluginConfig {
      * @param maxPollingAttempts          The maximum number of polling attempts.
      * @param autoRedirectToIslandEnabled Whether to automatically redirect players to their island on login.
      * @param tpaTimeoutSeconds           The timeout for TPA requests in seconds.
+     * @param stopDelaySeconds            How long to wait after the last team member fully disconnects
+     *                                    before actually stopping their island (a dropped connection or
+     *                                    brief network hiccup shouldn't force a full island restart).
      */
-    private PluginConfig(String apiUrl, String apiKey, String fallbackServerName, int apiRequestTimeoutSeconds, int pollingIntervalMillis, int maxPollingAttempts, boolean autoRedirectToIslandEnabled, int tpaTimeoutSeconds) {
+    private PluginConfig(String apiUrl, String apiKey, String fallbackServerName, int apiRequestTimeoutSeconds, int pollingIntervalMillis, int maxPollingAttempts, boolean autoRedirectToIslandEnabled, int tpaTimeoutSeconds, int stopDelaySeconds) {
         this.apiUrl = apiUrl;
         this.apiKey = apiKey;
         this.fallbackServerName = fallbackServerName;
@@ -42,6 +46,7 @@ public class PluginConfig {
         this.maxPollingAttempts = maxPollingAttempts;
         this.autoRedirectToIslandEnabled = autoRedirectToIslandEnabled;
         this.tpaTimeoutSeconds = tpaTimeoutSeconds;
+        this.stopDelaySeconds = stopDelaySeconds;
     }
 
     /**
@@ -96,6 +101,14 @@ public class PluginConfig {
     public int getTpaTimeoutSeconds() { return tpaTimeoutSeconds; }
 
     /**
+     * Gets the delay, in seconds, between the last team member fully
+     * disconnecting and the island actually being stopped.
+     *
+     * @return The stop delay in seconds.
+     */
+    public int getStopDelaySeconds() { return stopDelaySeconds; }
+
+    /**
      * Loads the plugin configuration.
      *
      * @param dataDirectory The data directory for the plugin.
@@ -131,6 +144,7 @@ public class PluginConfig {
             long interval = toml.getLong("api.polling_interval_millis", 2000L);
             long attempts = toml.getLong("api.max_polling_attempts", 15L);
             long tpaTimeout = toml.getLong("api.tpa_timeout_seconds", 60L);
+            long stopDelay = toml.getLong("general.stop_delay_seconds", 900L); // 15 min
 
             logger.info("Successfully loaded configuration from " + configPath);
             logger.info("API URL: {}", apiUrl);
@@ -139,8 +153,9 @@ public class PluginConfig {
             logger.info("API Request Timeout: {}s", timeout);
             logger.info("Polling Interval: {}ms, Max Attempts: {}", interval, attempts);
             logger.info("TPA Timeout: {}s", tpaTimeout);
+            logger.info("Stop Delay: {}s", stopDelay);
 
-            return new PluginConfig(apiUrl, apiKey, fallbackServer, (int)timeout, (int)interval, (int)attempts, autoRedirect, (int)tpaTimeout);
+            return new PluginConfig(apiUrl, apiKey, fallbackServer, (int)timeout, (int)interval, (int)attempts, autoRedirect, (int)tpaTimeout, (int)stopDelay);
 
         } catch (Exception e) {
             logger.error("Error loading NestworldVelocityPlugin configuration: ", e);
@@ -165,12 +180,14 @@ public class PluginConfig {
         int defaultInterval = 2000;
         int defaultAttempts = 15;
         int defaultTpaTimeout = 60;
+        int defaultStopDelay = 900; // 15 min
 
         try {
             String content = String.format(
                 "[general]\n" +
                 "fallback_server = \"%s\"\n" +
-                "auto_redirect_to_island_on_login = %b\n\n" +
+                "auto_redirect_to_island_on_login = %b\n" +
+                "stop_delay_seconds = %d\n\n" +
                 "[api]\n" +
                 "base_url = \"%s\"\n" +
                 "api_key = \"\"\n" +
@@ -178,14 +195,14 @@ public class PluginConfig {
                 "polling_interval_millis = %d\n" +
                 "max_polling_attempts = %d\n" +
                 "tpa_timeout_seconds = %d\n",
-                defaultFallback, defaultAutoRedirect, defaultApiUrl, defaultTimeout, defaultInterval, defaultAttempts, defaultTpaTimeout
+                defaultFallback, defaultAutoRedirect, defaultStopDelay, defaultApiUrl, defaultTimeout, defaultInterval, defaultAttempts, defaultTpaTimeout
             );
             Files.writeString(configPath, content);
             logger.info("Created a minimal configuration file at: " + configPath);
         } catch (IOException ex) {
             logger.error("Failed to write minimal configuration file: ", ex);
         }
-        return new PluginConfig(defaultApiUrl, defaultApiKey, defaultFallback, defaultTimeout, defaultInterval, defaultAttempts, defaultAutoRedirect, defaultTpaTimeout);
+        return new PluginConfig(defaultApiUrl, defaultApiKey, defaultFallback, defaultTimeout, defaultInterval, defaultAttempts, defaultAutoRedirect, defaultTpaTimeout, defaultStopDelay);
     }
 
     /**
@@ -196,6 +213,6 @@ public class PluginConfig {
      */
     private static PluginConfig createMinimalHardcodedConfig(Logger logger) {
         logger.warn("Creating a minimal hardcoded config due to previous errors.");
-        return new PluginConfig("http://127.0.0.1:8000/api/v1", "", "hub", 10, 2000, 15, false, 60);
+        return new PluginConfig("http://127.0.0.1:8000/api/v1", "", "hub", 10, 2000, 15, false, 60, 900);
     }
 }

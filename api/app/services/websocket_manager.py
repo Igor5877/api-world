@@ -125,10 +125,13 @@ class ConnectionManager:
                     payload = json.loads(message["data"])
                     data = payload["data"]
                     client_ids = payload["client_ids"]
-                    for client_id in client_ids:
-                        if client_id in self.active_connections:
-                            logger.debug(f"Redis Listener: Sending message from channel to local client: {client_id}")
-                            await self._send_direct_personal_message(data, client_id)
+                    local_client_ids = [c for c in client_ids if c in self.active_connections]
+                    if local_client_ids:
+                        logger.debug(f"Redis Listener: Sending message from channel to local clients: {local_client_ids}")
+                        await asyncio.gather(*(
+                            self._send_direct_personal_message(data, client_id)
+                            for client_id in local_client_ids
+                        ))
                 # get_message already yields for up to timeout seconds — no extra sleep needed
             except asyncio.CancelledError:
                 raise

@@ -278,6 +278,16 @@ public abstract class Task extends QuestObject {
 		submitTask(islandData, player, ItemStack.EMPTY);
 	}
 
+	/**
+	 * @deprecated Compatibility overload for addons/mixins still targeting the pre-fork
+	 * {@code submitTask(TeamData, ServerPlayer, ItemStack)} signature (e.g. ae2_ftbquest_detector).
+	 * Delegates to {@link #submitTask(IslandData, ServerPlayer, ItemStack)}.
+	 */
+	@Deprecated
+	public void submitTask(TeamData teamData, ServerPlayer player, ItemStack craftedItem) {
+		submitTask(teamData.islandData, player, craftedItem);
+	}
+
 	protected final boolean checkTaskSequence(IslandData islandData) { // MODIFIED
 		if (quest.getRequireSequentialTasks()) {
 			List<Task> tasks = quest.getTasksAsList();
