@@ -53,6 +53,14 @@ public class SkyBlockMod {
     private static final long HEARTBEAT_INTERVAL_MS = 30_000L;
     private long lastHeartbeatAtMs = 0L;
 
+    /** Скільки тіків чекати після ServerStartedEvent, перш ніж слати ready-сигнал.
+     *  Forge на важких модпаках ще кілька секунд після цієї події виконує фонову
+     *  ініціалізацію моду і сам ще не відкрив прийом гравців ("Server is still
+     *  starting!") — тому шлемо сигнал трохи пізніше, а не миттєво в onServerStarted. */
+    private static final int READY_SIGNAL_DELAY_TICKS = 40; // ~2с при 20 тіках/с
+    private boolean readySignalPending = false;
+    private int ticksSinceServerStarted = 0;
+
     /**
      * The constructor for the SkyBlock mod.
      */
@@ -155,7 +163,8 @@ public class SkyBlockMod {
     public void onServerStarted(ServerStartedEvent event) {
         if (islandContext.isIslandServer()) {
             LOGGER.info("SkyBlockMod: Server started. Running as an ISLAND SERVER. Owner UUID: {}", islandContext.getOwnerUuid());
-            sendIslandReadyForPlayersSignal();
+            ticksSinceServerStarted = 0;
+            readySignalPending = true;
             initializeWebSocket();
         } else {
             LOGGER.info("SkyBlockMod: Server started. Running as a HUB SERVER.");
@@ -190,6 +199,14 @@ public class SkyBlockMod {
         if (event.phase != net.minecraftforge.event.TickEvent.Phase.END) return;
         if (!islandContext.isIslandServer()) return;
 
+        if (readySignalPending) {
+            ticksSinceServerStarted++;
+            if (ticksSinceServerStarted >= READY_SIGNAL_DELAY_TICKS) {
+                readySignalPending = false;
+                sendIslandReadyForPlayersSignal();
+            }
+        }
+
         long now = System.currentTimeMillis();
         if (now - lastHeartbeatAtMs < HEARTBEAT_INTERVAL_MS) return;
         lastHeartbeatAtMs = now;
@@ -220,7 +237,12 @@ public class SkyBlockMod {
             return;
         }
         try {
-            String wsUrl = Config.getApiBaseUrl().replaceFirst("http", "ws") + "ws/" + islandContext.getOwnerUuid();
+            // "core_" — щоб не ділити client_id ні з голим-uuid конектом Velocity
+            // (/myisland), ні з "island_"-конектом RealMarket (MarketSyncManager).
+            // Спільний client_id призводить до того, що ConnectionManager на
+            // API вибиває старе з'єднання при новому — TEAM_UPDATED/heartbeat/
+            // shutting_down губляться без ретраю.
+            String wsUrl = Config.getApiBaseUrl().replaceFirst("http", "ws") + "ws/core_" + islandContext.getOwnerUuid();
             webSocketClient = new com.skyblock.dynamic.utils.IslandWebSocketClient(new URI(wsUrl), islandContext.getOwnerUuid());
             LOGGER.info("SkyBlockMod: Attempting to connect to WebSocket at {}", wsUrl);
             webSocketClient.connect();

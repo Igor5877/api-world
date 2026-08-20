@@ -26,7 +26,7 @@ async def broadcast_team_update(db: AsyncSession, team_id: int):
             "event": "TEAM_UPDATED",
             "payload": schema.model_dump(mode='json')
         }
-        await websocket_manager.send_personal_message(payload, str(team_with_members.owner_uuid))
+        await websocket_manager.send_personal_message(payload, f"core_{team_with_members.owner_uuid}")
 
 @router.post("/create_solo", response_model=TeamSchema, status_code=201)
 async def create_solo_island_and_team(
@@ -328,7 +328,7 @@ async def invite_player(
             "inviter_name": inviter_name,
         },
     }
-    await websocket_manager.send_personal_message(payload, str(invite_in.invited_uuid))
+    await websocket_manager.send_personal_message(payload, f"core_{invite_in.invited_uuid}")
 
     logger.info(f"Teams: Player {invite_in.invited_uuid} invited to team {team.id} by {invite_in.inviter_uuid}.")
     return TeamInviteInfo(invite_id=invite.id, team_id=team.id, team_name=team.name,

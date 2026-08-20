@@ -204,14 +204,14 @@ class UpdateService:
             )
             await websocket_manager.send_personal_message(
                 {"type": "execute_command", "command": command, "pending_id": pending.id},
-                f"island_{owner_uuid}",
+                f"core_{owner_uuid}",
             )
 
     async def notify_island(self, owner_uuid: str, message: str, kick: bool = False):
         """Sends a PENDING_UPDATE chat message (optionally a kick) to an island server."""
         await websocket_manager.send_personal_message(
             {"type": "pending_update", "message": message, "kick": kick},
-            f"island_{owner_uuid}",
+            f"core_{owner_uuid}",
         )
 
     # ── campaign creation ─────────────────────────────────────────────

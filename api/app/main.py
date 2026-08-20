@@ -288,7 +288,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
     await websocket_manager.connect(websocket, client_id)
 
-    # Якщо це острів — одразу надсилаємо всі pending extractions
+    # RealMarket's MarketWebSocketClient (ws/island_{uuid}) — одразу надсилаємо
+    # всі pending extractions.
     if client_id.startswith("island_"):
         island_uuid = client_id[len("island_"):]
         try:
@@ -317,13 +318,17 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
         except Exception as e:
             logger.error(f"Failed to send pending extractions to {client_id}: {e}")
 
-        # Закриваємо reload-команди оновлень, що лишилися з минулої сесії:
-        # сервер щойно перезапустився і вже завантажив нові файли, тож
-        # повторний reload не потрібен (і мод може його не підтримувати).
+    # mods-server's IslandWebSocketClient (ws/core_{uuid}) — джерело heartbeat/
+    # shutting_down нижче в receive-циклі. Тут закриваємо reload-команди
+    # оновлень, що лишилися з минулої сесії: сервер щойно перезапустився і вже
+    # завантажив нові файли, тож повторний reload не потрібен (і мод може його
+    # не підтримувати).
+    if client_id.startswith("core_"):
+        owner_uuid = client_id[len("core_"):]
         try:
             from app.crud.crud_update import crud_island_pending_command
             async with AsyncSessionLocal() as db:
-                closed = await crud_island_pending_command.mark_all_delivered_for_player(db, player_uuid=island_uuid)
+                closed = await crud_island_pending_command.mark_all_delivered_for_player(db, player_uuid=owner_uuid)
                 if closed:
                     logger.info(f"Closed {closed} stale update commands for {client_id} (server restarted with fresh files)")
         except Exception as e:
@@ -362,9 +367,9 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                         await crud_island_pending_command.mark_delivered(db, command_id=int(msg["pending_id"]))
 
                 # Heartbeat від мода (кожні ~30с з server tick loop): живий MC.
-                elif msg_type == "heartbeat" and client_id.startswith("island_"):
+                elif msg_type == "heartbeat" and client_id.startswith("core_"):
                     async with AsyncSessionLocal() as db:
-                        island = await _resolve_island_by_owner_uuid(db, client_id[len("island_"):])
+                        island = await _resolve_island_by_owner_uuid(db, client_id[len("core_"):])
                         if island:
                             from datetime import datetime as _dt
                             fields = {"last_heartbeat_at": _dt.utcnow()}
@@ -375,10 +380,10 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                             await crud_island.update_by_id(db, island_id=island.id, obj_in=fields)
 
                 # MC зупиняється штатно — watchdog не вважатиме тишу крашем.
-                elif msg_type == "shutting_down" and client_id.startswith("island_"):
+                elif msg_type == "shutting_down" and client_id.startswith("core_"):
                     from app.crud.crud_island_event import crud_island_event
                     async with AsyncSessionLocal() as db:
-                        island = await _resolve_island_by_owner_uuid(db, client_id[len("island_"):])
+                        island = await _resolve_island_by_owner_uuid(db, client_id[len("core_"):])
                         if island:
                             await crud_island_event.add(db, island_id=island.id, event_type="stopping",
                                                         details="Minecraft signalled a clean shutdown.")
