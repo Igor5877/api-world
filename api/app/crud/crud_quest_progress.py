@@ -27,9 +27,22 @@ class CRUDQuestProgress:
         )
         return result.scalars().first()
 
+    async def get_by_island_id(self, db_session: AsyncSession, *, island_id: int) -> Optional[IslandQuestProgress]:
+        """Gets the quest progress snapshot for an island by its stable DB id."""
+        result = await db_session.execute(
+            select(IslandQuestProgress).where(IslandQuestProgress.island_id == island_id)
+        )
+        return result.scalars().first()
+
     async def upsert(self, db_session: AsyncSession, *, island_id: int, owner_uuid: str,
                      snbt: str) -> IslandQuestProgress:
         """Creates or replaces the quest progress snapshot for an island.
+
+        Keyed on island_id (the table's primary key and the actually stable
+        identity — one row per island) rather than owner_uuid: owner_uuid can
+        change for the same island (team membership/leadership changes), and
+        matching on it let a stale row block the insert with a PRIMARY KEY
+        collision on island_id instead of updating it.
 
         Args:
             db_session: The database session.
@@ -40,8 +53,9 @@ class CRUDQuestProgress:
         Returns:
             The stored snapshot.
         """
-        existing = await self.get_by_owner_uuid(db_session, owner_uuid=owner_uuid)
+        existing = await self.get_by_island_id(db_session, island_id=island_id)
         if existing:
+            existing.owner_uuid = str(owner_uuid)
             existing.snbt = snbt
             db_session.add(existing)
             await db_session.commit()
