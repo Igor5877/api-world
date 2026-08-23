@@ -30,6 +30,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.leader_election import LeaderElection
 from app.db.session import AsyncSessionLocal
 from app.crud.crud_island import crud_island
 from app.crud.crud_island_event import crud_island_event
@@ -46,15 +47,28 @@ _CLEAN_STOP_WINDOW_SECONDS = 300
 
 
 async def health_worker_loop():
-    """The main loop for the health watchdog."""
+    """The main loop for the health watchdog.
+
+    Runs on every gunicorn worker process; persistent Redis leader election
+    (see `app.core.leader_election`) decides which one actually acts each
+    tick, and re-elects automatically if the current leader dies or the
+    process restarts — no more "only the process that won the one-shot
+    startup lock ever runs this" gap.
+    """
     global _worker_running
     _worker_running = True
     logger.info("Health watchdog loop started.")
 
+    # TTL must outlive one full tick (work + sleep), not just the sleep —
+    # renewal only happens at the top of the next tick() call.
+    leader = LeaderElection("health_worker_leader_lock",
+                             max(settings.WORKER_LEADER_LOCK_TTL_SECONDS, settings.HEALTH_WORKER_INTERVAL * 4))
+
     while _worker_running:
         try:
-            async with AsyncSessionLocal() as db_session:
-                await check_running_islands(db_session)
+            if await leader.tick():
+                async with AsyncSessionLocal() as db_session:
+                    await check_running_islands(db_session)
         except Exception as e:
             logger.error(f"Health watchdog: unhandled exception: {e}", exc_info=True)
 

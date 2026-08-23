@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select, func, text
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 
+from app.core.leader_election import LeaderElection
 from app.db.session import AsyncSessionLocal
 from app.models.market import MarketTransaction
 from app.models.analytics import MarketStatsHourly, EconomySnapshot, MarketAnomaly
@@ -151,9 +152,19 @@ async def start_analytics_worker() -> None:
 
 
 async def _analytics_loop() -> None:
+    """Runs on every gunicorn process; persistent Redis leader election picks
+    which one actually aggregates each tick (see app.core.leader_election) —
+    a dead leader no longer silently stops analytics forever."""
+    from app.core.config import settings
+    # TTL must outlive one full tick (work + sleep), not just the sleep —
+    # renewal only happens at the top of the next tick() call.
+    leader = LeaderElection("analytics_worker_leader_lock",
+                             max(settings.WORKER_LEADER_LOCK_TTL_SECONDS, AGGREGATE_INTERVAL * 2))
     while True:
         await asyncio.sleep(AGGREGATE_INTERVAL)
         try:
+            if not await leader.tick():
+                continue
             # Агрегуємо попередню повну годину
             now = datetime.utcnow()
             prev_hour = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)

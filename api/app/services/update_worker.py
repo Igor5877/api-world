@@ -20,6 +20,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.leader_election import LeaderElection
 from app.db.session import AsyncSessionLocal
 from app.crud.crud_island import crud_island
 from app.crud.crud_update import crud_update_campaign
@@ -43,13 +44,59 @@ _TRANSIENT = {IslandStatusEnum.PENDING_START, IslandStatusEnum.PENDING_STOP,
 
 
 async def update_worker_loop():
-    """The main loop for the update worker."""
+    """The main loop for the update worker.
+
+    Runs on EVERY gunicorn worker process — persistent Redis leader election
+    (`LeaderElection.tick()`) decides which one actually does the work each
+    iteration, and keeps retrying/re-electing forever rather than the old
+    "won the SETNX once at process startup or never runs again" gate in
+    `main.py`. A double restart landing within the old lock's 60s TTL used
+    to leave the whole cluster with zero active leaders (2026-08-22
+    incident, stalled the v0.0.20 campaign) — this loop self-heals instead.
+    """
     global _worker_running
     _worker_running = True
     logger.info("Update worker loop started.")
 
-    # Recovery: entries stuck in PROCESSING mean the previous process died
-    # mid-update — return them to PENDING so the campaign resumes.
+    # TTL must outlive one full tick — and a tick here is one island's LXD
+    # backup+push, which can take well over UPDATE_WORKER_INTERVAL (10s).
+    # Renewal only happens at the top of the next tick(), so a short TTL
+    # made the lock expire mid-push, handing leadership to the other
+    # gunicorn worker, which then saw the island still UPDATING and treated
+    # it as a crash — restarting the same island's update from scratch.
+    leader = LeaderElection("update_worker_leader_lock", max(settings.WORKER_LEADER_LOCK_TTL_SECONDS, 300))
+    ran_startup_recovery = False
+
+    while _worker_running:
+        try:
+            is_leader = await leader.tick()
+            if is_leader:
+                if not ran_startup_recovery:
+                    await _run_startup_recovery()
+                    ran_startup_recovery = True
+                async with AsyncSessionLocal() as db_session:
+                    await process_active_campaign(db_session)
+            else:
+                # Not leader (yet, or anymore) — if we WERE the one who ran
+                # recovery and later lost leadership, a future re-election
+                # should re-run it too (the new leader might be a fresh
+                # process that never did), so only skip once per instance.
+                pass
+        except Exception as e:
+            logger.error(f"Update worker loop encountered an unhandled exception: {e}", exc_info=True)
+
+        await asyncio.sleep(settings.UPDATE_WORKER_INTERVAL)
+
+    logger.info("Update worker loop stopped.")
+
+
+async def _run_startup_recovery():
+    """One-time recovery pass, run by whichever process first becomes leader.
+
+    Entries stuck in PROCESSING or islands stuck in UPDATING mean a previous
+    leader process died mid-update; both need resetting before the campaign
+    can resume. Also prunes stale file backups left over from crashes.
+    """
     try:
         async with AsyncSessionLocal() as db_session:
             reset = await crud_update_queue.reset_stale_processing(db_session)
@@ -58,18 +105,12 @@ async def update_worker_loop():
     except Exception as e:
         logger.error(f"Update worker: Recovery pass failed: {e}", exc_info=True)
 
-    # Recovery: islands left in UPDATING mean the same crash — the queue entry
-    # went back to PENDING, but the worker defers transient island states, so
-    # without this reset the campaign deadlocks forever. The real container
-    # state decides what the island becomes.
     try:
         async with AsyncSessionLocal() as db_session:
             await reset_stale_updating_islands(db_session)
     except Exception as e:
         logger.error(f"Update worker: UPDATING-recovery pass failed: {e}", exc_info=True)
 
-    # Disk hygiene on boot: catches backups that piled up while pruning
-    # didn't exist yet or when a campaign never reached finish_campaign.
     try:
         async with AsyncSessionLocal() as db_session:
             pruned = await update_service.prune_file_backups(db_session)
@@ -77,17 +118,6 @@ async def update_worker_loop():
                 logger.info(f"Update worker: Startup pruning removed {pruned} old backup version dirs.")
     except Exception as e:
         logger.error(f"Update worker: Startup backup pruning failed: {e}", exc_info=True)
-
-    while _worker_running:
-        try:
-            async with AsyncSessionLocal() as db_session:
-                await process_active_campaign(db_session)
-        except Exception as e:
-            logger.error(f"Update worker loop encountered an unhandled exception: {e}", exc_info=True)
-
-        await asyncio.sleep(settings.UPDATE_WORKER_INTERVAL)
-
-    logger.info("Update worker loop stopped.")
 
 
 async def reset_stale_updating_islands(db_session: AsyncSession):
