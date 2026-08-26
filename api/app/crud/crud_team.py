@@ -177,6 +177,46 @@ async def rename_team(db: AsyncSession, *, team: Team, new_name: str) -> Team:
     return result.scalars().first()
 
 
+async def transfer_ownership(db: AsyncSession, *, team: Team, new_owner_uuid: str) -> Team:
+    """Transfers team ownership to an existing member (admin operation).
+
+    The new owner must already be a TeamMember — the caller is responsible
+    for that check (a non-member should be added via add_member first, not
+    silently force-joined here). The previous owner is demoted to
+    moderator, not removed from the team.
+
+    Args:
+        db: The database session.
+        team: The team to transfer.
+        new_owner_uuid: The UUID of the existing member to promote.
+
+    Returns:
+        The updated team.
+    """
+    team_id = team.id
+    old_owner_uuid = team.owner_uuid
+
+    old_owner_member = await get_member(db, team=team, player_uuid=old_owner_uuid)
+    if old_owner_member:
+        old_owner_member.role = RoleEnum.moderator
+        db.add(old_owner_member)
+
+    new_owner_member = await get_member(db, team=team, player_uuid=new_owner_uuid)
+    new_owner_member.role = RoleEnum.owner
+    db.add(new_owner_member)
+
+    team.owner_uuid = new_owner_uuid
+    db.add(team)
+    await db.commit()
+
+    result = await db.execute(
+        select(Team)
+        .where(Team.id == team_id)
+        .options(selectinload(Team.island), selectinload(Team.members))
+    )
+    return result.scalars().first()
+
+
 # ── team invites ──────────────────────────────────────────────────────
 
 async def create_invite(db: AsyncSession, *, team: Team, invited_uuid: str,

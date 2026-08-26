@@ -191,6 +191,24 @@ public class PlayerConnectionListener {
         String serverName = "island-" + player.getUniqueId();
         ServerInfo serverInfo = new ServerInfo(serverName, new InetSocketAddress(ip, port));
         RegisteredServer serverToConnect = proxyServer.getServer(serverName).orElseGet(() -> proxyServer.registerServer(serverInfo));
+
+        // Silent Server List Ping before showing the island as reachable —
+        // catches a resumed-but-actually-dead JVM (DB already says
+        // RUNNING/minecraft_ready) before the player experiences a failed
+        // real connection with no record of why (lifecycle_stability_plan.md §1).
+        serverToConnect.ping()
+            .thenAccept(ping -> doConnect(player, serverToConnect))
+            .exceptionally(ex -> {
+                logger.warn("Silent ping failed for {}'s island ({}:{}) before connect: {}",
+                        player.getUsername(), ip, port, ex.getMessage());
+                apiClient.notifyConnectionFailed(player.getUniqueId());
+                pendingStartPlayers.remove(player.getUniqueId());
+                player.sendMessage(Component.text("Your island isn't responding yet. Please wait a moment and try /myisland again.", NamedTextColor.YELLOW));
+                return null;
+            });
+    }
+
+    private void doConnect(Player player, RegisteredServer serverToConnect) {
         player.createConnectionRequest(serverToConnect).connect()
             .thenAccept(result -> {
                 if (result.isSuccessful()) {

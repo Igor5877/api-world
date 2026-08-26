@@ -80,7 +80,22 @@ class Island(Base):
     # only judges islands that have already proven they can heartbeat this boot.
     last_heartbeat_at = Column(DateTime, nullable=True)
     last_tps = Column(Float, nullable=True)
+    last_mspt = Column(Float, nullable=True)
     online_players = Column(Integer, nullable=True)
+
+    # Idle reaper: set to now() the moment a heartbeat first reports
+    # online_players=0 (cleared back to NULL the moment it goes >0 again).
+    # Distinct from updated_at, which a heartbeat also touches every ~30s
+    # regardless of player count and so can never reflect "how long has it
+    # actually been empty".
+    idle_since = Column(DateTime, nullable=True)
+
+    # Set by POST /{uuid}/player_left — the proxy-sourced moment the last
+    # team member fully disconnected from the network. Independent of the
+    # mod's heartbeat WS; informational/audit only (visible in
+    # /islandadmin status), not a second timer alongside idle_reaper's live
+    # proxy check before stop.
+    proxy_left_at = Column(DateTime, nullable=True)
 
     # Auto-update system
     current_version = Column(String(50), nullable=True)  # last applied update tag, e.g. "v1.3.0"

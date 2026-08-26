@@ -99,7 +99,9 @@ class IslandResponse(IslandBase):
     # Health monitoring (mod heartbeat)
     last_heartbeat_at: Optional[datetime] = None
     last_tps: Optional[float] = None
+    last_mspt: Optional[float] = None
     online_players: Optional[int] = None
+    proxy_left_at: Optional[datetime] = None
 
     # FIX: model_config is now a direct attribute of the class
     model_config = ConfigDict(from_attributes=True)
@@ -245,3 +247,43 @@ class IslandEventResponse(BaseModel):
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class LauncherStartRequest(BaseModel):
+    """Schema for an island auto-start request from the launcher.
+
+    Attributes:
+        uuid: The UUID of the player.
+        username: The username of the player.
+    """
+    uuid: uuid.UUID
+    username: str
+
+
+class IslandOwnerChangeRequest(BaseModel):
+    """Body for POST /{owner_uuid}/admin/owner (IslandAdminCommand /set owner).
+
+    Attributes:
+        new_owner_uuid: UUID of the player to promote to team owner. Must
+            already be a member of the team — the endpoint does not
+            force-join a non-member.
+        admin_name: Name of the admin performing the change, for the
+            island_events audit trail.
+    """
+    new_owner_uuid: str
+    admin_name: str
+
+
+class IslandDiagnosticsResponse(BaseModel):
+    """Live DB-vs-LXD consistency check for IslandAdminCommand status.
+
+    Attributes:
+        db_status: The island's status as stored in the database.
+        live_container_status: The container's actual state, queried from
+            LXD at request time (RUNNING/FROZEN/STOPPED/NOT_FOUND).
+        consistent: False when the live state doesn't match what the DB
+            status would imply.
+    """
+    db_status: str
+    live_container_status: str
+    consistent: bool

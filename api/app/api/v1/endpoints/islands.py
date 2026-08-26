@@ -4,12 +4,19 @@ import uuid # For player_uuid
 from sqlalchemy.ext.asyncio import AsyncSession # Added for DB session type hint
 import logging
 
-from app.schemas.island import IslandCreate, IslandResponse, IslandStatusEnum, MessageResponse, QuestProgressUpload, QuestProgressResponse, IslandEventResponse
+from app.core.auth import require_launcher_token
+from app.schemas.island import IslandCreate, IslandResponse, IslandStatusEnum, MessageResponse, QuestProgressUpload, QuestProgressResponse, IslandEventResponse, LauncherStartRequest, IslandOwnerChangeRequest, IslandDiagnosticsResponse
 from app.services.island_service import island_service
 from app.db.session import get_db_session # Import the dependency
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Separate router: POST /launcher/start is mounted in main.py WITHOUT the
+# shared X-Api-Key dependency, using require_launcher_token instead — so
+# LAUNCHER_API_KEY only ever authorizes this one action, never the rest of
+# the islands router below.
+launcher_router = APIRouter()
 
 @router.get("/{player_uuid}", response_model=IslandResponse)
 async def get_island_status_endpoint(
@@ -81,6 +88,65 @@ async def start_island_endpoint(
     except Exception as e:
         logger.error(f"Endpoint Error: Unexpected error during island start for player {player_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while marking the island ready.")
+
+@launcher_router.post("/launcher/start", response_model=MessageResponse, status_code=status.HTTP_202_ACCEPTED,
+                      dependencies=[Depends(require_launcher_token)])
+async def launcher_start_island_endpoint(
+    request: LauncherStartRequest,
+    background_tasks: BackgroundTasks,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """Starts a player's island, called by the launcher on game boot.
+
+    Auth: X-Launcher-Token header, checked against LAUNCHER_API_KEY by
+    require_launcher_token — deliberately separate from the shared X-Api-Key
+    dependency the rest of the islands router uses, so this key can never be
+    used to stop/freeze/create islands for arbitrary players. Unlike
+    /start/{player_uuid}, this does not create a new island — if the player
+    has none yet, it returns 404 so the launcher can silently skip auto-start.
+
+    Args:
+        request: The player UUID and username reported by the launcher.
+        background_tasks: The background tasks to run.
+        db_session: The database session.
+
+    Returns:
+        A status message.
+
+    Raises:
+        HTTPException: If the island does not exist or cannot be started.
+    """
+    player_uuid_str = str(request.uuid)
+    logger.info(f"Launcher Endpoint: Start request for {request.username} ({player_uuid_str})")
+
+    island = await island_service.get_island_by_player_uuid(db_session=db_session, player_uuid=player_uuid_str)
+    if not island:
+        logger.info(f"Launcher Endpoint: Island not found for {request.username} ({player_uuid_str}). Ignoring.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Island does not exist.")
+
+    try:
+        await island_service.start_island_instance(
+            db_session=db_session,
+            player_uuid=player_uuid_str,
+            player_name=request.username,
+            background_tasks=background_tasks
+        )
+        return MessageResponse(message="Island start requested")
+    except ValueError as e:
+        error_message = str(e).lower()
+        if "already running" in error_message or "pending_start" in error_message:
+            logger.info(f"Launcher Endpoint: Island for {request.username} is already running/starting.")
+            return MessageResponse(message="Island already running")
+        elif "pending_stop" in error_message or "pending_freeze" in error_message:
+            logger.info(f"Launcher Endpoint: Island for {request.username} is stopping/freezing. Cannot start immediately.")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Island is currently stopping or freezing.")
+        else:
+            logger.warning(f"Launcher Endpoint: ValueError starting island for {request.username}: {e}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Launcher Endpoint: Unexpected error starting island for {request.username}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+
 
 @router.post("/stop/{player_uuid}", response_model=IslandResponse, status_code=status.HTTP_202_ACCEPTED)
 async def stop_island_endpoint(
@@ -185,16 +251,56 @@ async def player_left_island_endpoint(
     Returns:
         A message stating whether a pending update was re-queued.
     """
+    from datetime import datetime
     from app.services.update_worker import on_player_left_island
+    from app.crud.crud_island import crud_island
 
     island = await island_service.get_island_by_player_uuid(db_session=db_session, player_uuid=str(player_uuid))
     if not island or island.id is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Island not found for this player.")
 
+    await crud_island.update_by_id(db_session, island_id=island.id, obj_in={"proxy_left_at": datetime.utcnow()})
+
     requeued = await on_player_left_island(db_session, island.id)
     if requeued:
         return MessageResponse(message="Pending update re-queued for this island.")
     return MessageResponse(message="No pending update for this island.")
+
+
+@router.post("/{player_uuid}/connection_failed", response_model=MessageResponse, status_code=status.HTTP_200_OK)
+async def connection_failed_endpoint(
+    player_uuid: uuid.UUID,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """Called by Velocity when a silent Server List Ping fails right before
+    connecting a player to an island DB/heartbeat already call RUNNING and
+    minecraft_ready — a resumed-but-actually-dead JVM (lifecycle_stability_plan.md
+    §1) would otherwise only surface as a failed real connection attempt,
+    with no record of it and no faster path to detection than
+    health_worker's normal HEARTBEAT_TIMEOUT_SECONDS silence check.
+
+    Deliberately logs only — does not stop/restart the container on a single
+    failed ping (a transient network blip would then wrongly interrupt a
+    genuinely healthy, busy server). health_worker's heartbeat-timeout check
+    remains the actual authority on "is this island really dead".
+
+    Args:
+        player_uuid: The UUID of the island owner.
+        db_session: The database session.
+
+    Returns:
+        A confirmation message.
+    """
+    from app.crud.crud_island_event import crud_island_event
+
+    island = await island_service.get_island_by_player_uuid(db_session=db_session, player_uuid=str(player_uuid))
+    if not island or island.id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Island not found for this player.")
+
+    await crud_island_event.add(
+        db_session, island_id=island.id, event_type="connection_failed",
+        details="Velocity's Server List Ping failed while the island was reported RUNNING/minecraft_ready.")
+    return MessageResponse(message="Logged.")
 
 
 @router.post("/{owner_uuid}/ready", response_model=MessageResponse, status_code=status.HTTP_200_OK)
@@ -276,6 +382,105 @@ async def _resolve_island_by_owner(db_session: AsyncSession, owner_uuid: str):
         return island
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                         detail=f"No island found for owner {owner_uuid}.")
+
+
+# ── IslandAdminCommand (/islandadmin) support ──────────────────────────
+
+@router.get("/{owner_uuid}/admin/diagnostics", response_model=IslandDiagnosticsResponse)
+async def get_island_diagnostics_endpoint(
+    owner_uuid: str,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """Live DB-vs-LXD consistency check for /islandadmin status.
+
+    A separate endpoint from GET /{player_uuid} (which Velocity/the mod poll
+    every few seconds) because it makes a live LXD call — deliberately kept
+    off the hot polling path.
+    """
+    from app.services.lxd_service import lxd_service
+
+    island = await _resolve_island_by_owner(db_session, owner_uuid)
+    db_status = island.status.value
+
+    live_state = await lxd_service.get_container_state(island.container_name)
+    if live_state is None:
+        live_status = "NOT_FOUND"
+        # Absence is expected while (being) created/deleted; anything else
+        # means the DB thinks a container exists that LXD doesn't have.
+        consistent = db_status in ("DELETING", "ARCHIVED", "CREATING", "PENDING_CREATION")
+    else:
+        live_status = str(live_state.get("status", "UNKNOWN")).upper()
+        expected_live = {"RUNNING": "RUNNING", "FROZEN": "FROZEN", "STOPPED": "STOPPED"}.get(db_status)
+        # Transient states (PENDING_*, CREATING, UPDATING, ERROR*) have no
+        # single expected live status — don't flag them as inconsistent.
+        consistent = expected_live is None or live_status == expected_live
+
+    return IslandDiagnosticsResponse(db_status=db_status, live_container_status=live_status, consistent=consistent)
+
+
+@router.post("/{owner_uuid}/admin/owner", response_model=IslandResponse)
+async def change_island_owner_endpoint(
+    owner_uuid: str,
+    body: IslandOwnerChangeRequest,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """Transfers island ownership to an existing team member (/islandadmin set owner).
+
+    The new owner must already be a team member (added via
+    /islandadmin member add first) — this endpoint never force-joins a
+    non-member. Writes an island_events row so the change shows up in
+    /islandadmin status's recent-events block, doubling as the audit trail.
+    """
+    from app.crud.crud_island_event import crud_island_event
+    from app.crud import crud_team
+    from app.api.v1.endpoints.teams import broadcast_team_update
+
+    team = await crud_team.get_team_by_owner_with_relations(db_session, owner_uuid=owner_uuid)
+    if not team or not team.island:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail=f"No team island found for owner {owner_uuid}.")
+
+    new_owner_member = await crud_team.get_member(db_session, team=team, player_uuid=body.new_owner_uuid)
+    if not new_owner_member:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail="Player must be a team member first — use /islandadmin member add.")
+
+    old_owner_uuid = team.owner_uuid
+    updated_team = await crud_team.transfer_ownership(db_session, team=team, new_owner_uuid=body.new_owner_uuid)
+    await broadcast_team_update(db_session, updated_team.id)
+
+    await crud_island_event.add(
+        db_session, island_id=updated_team.island.id, event_type="admin_owner_change",
+        details=f"admin={body.admin_name} old={old_owner_uuid} new={body.new_owner_uuid} result=SUCCESS")
+
+    return IslandResponse.model_validate(updated_team.island)
+
+
+@router.post("/{owner_uuid}/admin/restart", response_model=IslandResponse, status_code=status.HTTP_202_ACCEPTED)
+async def restart_island_endpoint(
+    owner_uuid: str,
+    background_tasks: BackgroundTasks,
+    admin_name: str,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """Restarts a running island's container (/islandadmin restart, lifecycle op)."""
+    from app.crud.crud_island_event import crud_island_event
+
+    try:
+        island = await _resolve_island_by_owner(db_session, owner_uuid)
+        updated_island = await island_service.restart_island_instance(
+            db_session=db_session, owner_uuid=owner_uuid, background_tasks=background_tasks)
+        await crud_island_event.add(
+            db_session, island_id=island.id, event_type="admin_restart",
+            details=f"admin={admin_name} result=ACCEPTED")
+        return updated_island
+    except ValueError as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except Exception as e:
+        logger.error(f"Endpoint Error: Unexpected error during admin restart for {owner_uuid}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while restarting the island.")
 
 
 @router.put("/{owner_uuid}/quest-progress", response_model=MessageResponse)

@@ -22,6 +22,7 @@ public class PluginConfig {
     private final boolean autoRedirectToIslandEnabled;
     private final int tpaTimeoutSeconds;
     private final int stopDelaySeconds;
+    private final int islandAdminHeartbeatStaleSeconds;
 
     /**
      * Constructs a new PluginConfig.
@@ -36,8 +37,11 @@ public class PluginConfig {
      * @param stopDelaySeconds            How long to wait after the last team member fully disconnects
      *                                    before actually stopping their island (a dropped connection or
      *                                    brief network hiccup shouldn't force a full island restart).
+     * @param islandAdminHeartbeatStaleSeconds How old last_heartbeat_at may be before /islandadmin
+     *                                    status treats the island as STALE instead of HEALTHY (with
+     *                                    margin over the mod's ~30s heartbeat interval).
      */
-    private PluginConfig(String apiUrl, String apiKey, String fallbackServerName, int apiRequestTimeoutSeconds, int pollingIntervalMillis, int maxPollingAttempts, boolean autoRedirectToIslandEnabled, int tpaTimeoutSeconds, int stopDelaySeconds) {
+    private PluginConfig(String apiUrl, String apiKey, String fallbackServerName, int apiRequestTimeoutSeconds, int pollingIntervalMillis, int maxPollingAttempts, boolean autoRedirectToIslandEnabled, int tpaTimeoutSeconds, int stopDelaySeconds, int islandAdminHeartbeatStaleSeconds) {
         this.apiUrl = apiUrl;
         this.apiKey = apiKey;
         this.fallbackServerName = fallbackServerName;
@@ -47,6 +51,7 @@ public class PluginConfig {
         this.autoRedirectToIslandEnabled = autoRedirectToIslandEnabled;
         this.tpaTimeoutSeconds = tpaTimeoutSeconds;
         this.stopDelaySeconds = stopDelaySeconds;
+        this.islandAdminHeartbeatStaleSeconds = islandAdminHeartbeatStaleSeconds;
     }
 
     /**
@@ -109,6 +114,14 @@ public class PluginConfig {
     public int getStopDelaySeconds() { return stopDelaySeconds; }
 
     /**
+     * Gets the heartbeat-freshness threshold used by /islandadmin status to
+     * tell HEALTHY apart from STALE.
+     *
+     * @return The threshold in seconds.
+     */
+    public int getIslandAdminHeartbeatStaleSeconds() { return islandAdminHeartbeatStaleSeconds; }
+
+    /**
      * Loads the plugin configuration.
      *
      * @param dataDirectory The data directory for the plugin.
@@ -145,6 +158,7 @@ public class PluginConfig {
             long attempts = toml.getLong("api.max_polling_attempts", 15L);
             long tpaTimeout = toml.getLong("api.tpa_timeout_seconds", 60L);
             long stopDelay = toml.getLong("general.stop_delay_seconds", 900L); // 15 min
+            long adminHeartbeatStale = toml.getLong("general.island_admin_heartbeat_stale_seconds", 45L);
 
             logger.info("Successfully loaded configuration from " + configPath);
             logger.info("API URL: {}", apiUrl);
@@ -155,7 +169,7 @@ public class PluginConfig {
             logger.info("TPA Timeout: {}s", tpaTimeout);
             logger.info("Stop Delay: {}s", stopDelay);
 
-            return new PluginConfig(apiUrl, apiKey, fallbackServer, (int)timeout, (int)interval, (int)attempts, autoRedirect, (int)tpaTimeout, (int)stopDelay);
+            return new PluginConfig(apiUrl, apiKey, fallbackServer, (int)timeout, (int)interval, (int)attempts, autoRedirect, (int)tpaTimeout, (int)stopDelay, (int)adminHeartbeatStale);
 
         } catch (Exception e) {
             logger.error("Error loading NestworldVelocityPlugin configuration: ", e);
@@ -181,13 +195,15 @@ public class PluginConfig {
         int defaultAttempts = 15;
         int defaultTpaTimeout = 60;
         int defaultStopDelay = 900; // 15 min
+        int defaultAdminHeartbeatStale = 45;
 
         try {
             String content = String.format(
                 "[general]\n" +
                 "fallback_server = \"%s\"\n" +
                 "auto_redirect_to_island_on_login = %b\n" +
-                "stop_delay_seconds = %d\n\n" +
+                "stop_delay_seconds = %d\n" +
+                "island_admin_heartbeat_stale_seconds = %d\n\n" +
                 "[api]\n" +
                 "base_url = \"%s\"\n" +
                 "api_key = \"\"\n" +
@@ -195,14 +211,14 @@ public class PluginConfig {
                 "polling_interval_millis = %d\n" +
                 "max_polling_attempts = %d\n" +
                 "tpa_timeout_seconds = %d\n",
-                defaultFallback, defaultAutoRedirect, defaultStopDelay, defaultApiUrl, defaultTimeout, defaultInterval, defaultAttempts, defaultTpaTimeout
+                defaultFallback, defaultAutoRedirect, defaultStopDelay, defaultAdminHeartbeatStale, defaultApiUrl, defaultTimeout, defaultInterval, defaultAttempts, defaultTpaTimeout
             );
             Files.writeString(configPath, content);
             logger.info("Created a minimal configuration file at: " + configPath);
         } catch (IOException ex) {
             logger.error("Failed to write minimal configuration file: ", ex);
         }
-        return new PluginConfig(defaultApiUrl, defaultApiKey, defaultFallback, defaultTimeout, defaultInterval, defaultAttempts, defaultAutoRedirect, defaultTpaTimeout, defaultStopDelay);
+        return new PluginConfig(defaultApiUrl, defaultApiKey, defaultFallback, defaultTimeout, defaultInterval, defaultAttempts, defaultAutoRedirect, defaultTpaTimeout, defaultStopDelay, defaultAdminHeartbeatStale);
     }
 
     /**
@@ -213,6 +229,6 @@ public class PluginConfig {
      */
     private static PluginConfig createMinimalHardcodedConfig(Logger logger) {
         logger.warn("Creating a minimal hardcoded config due to previous errors.");
-        return new PluginConfig("http://127.0.0.1:8000/api/v1", "", "hub", 10, 2000, 15, false, 60, 900);
+        return new PluginConfig("http://127.0.0.1:8000/api/v1", "", "hub", 10, 2000, 15, false, 60, 900, 45);
     }
 }

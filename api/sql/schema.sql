@@ -365,3 +365,12 @@ CREATE TABLE IF NOT EXISTS island_events (
 -- ALTER TABLE islands ADD COLUMN last_heartbeat_at DATETIME NULL AFTER minecraft_ready;
 -- ALTER TABLE islands ADD COLUMN last_tps FLOAT NULL AFTER last_heartbeat_at;
 -- ALTER TABLE islands ADD COLUMN online_players INT NULL AFTER last_tps;
+
+-- Migration: idle reaper — див. migration_2026-08_idle_reaper.sql
+-- ALTER TABLE islands ADD COLUMN idle_since DATETIME NULL AFTER online_players;
+
+-- Migration: admin diagnostics (MSPT) — див. migration_2026-08_admin_diagnostics.sql
+-- ALTER TABLE islands ADD COLUMN last_mspt FLOAT NULL AFTER last_tps;
+
+-- Migration: proxy_left_at (idle reaper stop-backstop) — див. migration_2026-08_proxy_left_at.sql
+-- ALTER TABLE islands ADD COLUMN proxy_left_at DATETIME NULL AFTER idle_since;

@@ -60,9 +60,15 @@ public class SpawnCommand implements SimpleCommand {
             return;
         }
         
-        // Перевірка, чи гравець вже на цьому сервері
+        // Гравець вже підключений до spawn-сервера — це НЕ означає, що він
+        // фізично у точці спавну в Overworld (напр. пройшов у портал Енду,
+        // що стоїть прямо на спавні, і той самий backend-сервер обслуговує
+        // й той вимір). Раніше тут був тихий no-op; тепер шлемо команду
+        // /hubspawn від імені гравця (mods-server, PlayerEventHandler) —
+        // вона телепортує в Overworld-спавн незалежно від поточного виміру.
         if (player.getCurrentServer().isPresent() && player.getCurrentServer().get().getServerInfo().getName().equals(spawnServerName)) {
-            player.sendMessage(Component.text("You are already connected to the spawn server.", NamedTextColor.YELLOW));
+            player.sendMessage(Component.text("Teleporting you to spawn...", NamedTextColor.AQUA));
+            player.spoofChatInput("/hubspawn");
             return;
         }
 

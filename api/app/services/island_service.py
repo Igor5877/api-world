@@ -336,6 +336,13 @@ class IslandService:
                     # event, so the mod will never re-send its one-time ready
                     # signal — the server was already ready before it froze.
                     update_data["minecraft_ready"] = True
+                    # Give health_worker a starting point instead of None —
+                    # None means "never judge this boot", so a resumed JVM
+                    # that's actually dead would otherwise never be caught
+                    # (lifecycle_stability_plan.md §1). now() bounds it to a
+                    # normal HEARTBEAT_TIMEOUT_SECONDS window like any other
+                    # RUNNING island.
+                    update_data["last_heartbeat_at"] = datetime.now(timezone.utc)
                 updated_island = await crud_island.update(db, db_obj=island, obj_in=update_data)
                 await db.commit()
                 await db.refresh(updated_island)
@@ -384,6 +391,9 @@ class IslandService:
                     # event, so the mod will never re-send its one-time ready
                     # signal — the server was already ready before it froze.
                     update_fields["minecraft_ready"] = True
+                    # Bound a dead-but-resumed JVM to a normal watchdog
+                    # timeout instead of "never judged" (lifecycle_stability_plan.md §1).
+                    update_fields["last_heartbeat_at"] = datetime.now(timezone.utc)
                 updated_island = await crud_island.update(db_session_bg, db_obj=team.island, obj_in=update_fields)
                 await db_session_bg.commit()
                 await db_session_bg.refresh(updated_island)
@@ -503,6 +513,101 @@ class IslandService:
                 await self._send_update_notification(None, updated_island)
             except Exception as e:
                 logger.error(f"Error stopping solo island for {player_uuid_str}: {e}")
+
+    async def restart_island_instance(self, db_session: AsyncSession, *, owner_uuid: str,
+                                       background_tasks: BackgroundTasks) -> IslandResponse:
+        """Restarts an already-running island's container (admin lifecycle op).
+
+        Does not reinvent the start state machine: bounces the LXD container
+        (stop then start) and lets the existing /ready callback from the mod
+        re-establish RUNNING + minecraft_ready, exactly like a normal cold
+        boot. Only valid from RUNNING — use start/stop for other states.
+
+        Args:
+            db_session: The database session.
+            owner_uuid: The team owner (or legacy solo player) UUID.
+            background_tasks: The background tasks to run.
+
+        Returns:
+            The island response (PENDING_START — the caller should poll or
+            wait for the /ready-driven WS push for the final RUNNING state).
+
+        Raises:
+            ValueError: If no island is found, or it isn't currently RUNNING.
+        """
+        team = await crud_team.get_team_by_player(db=db_session, player_uuid=owner_uuid)
+        island = team.island if team and team.island else await crud_island.get_by_player_uuid(
+            db_session, player_uuid=owner_uuid)
+        if not island:
+            raise ValueError("No island found for this owner to restart.")
+        if island.status != IslandStatusEnum.RUNNING:
+            raise ValueError(f"Island cannot be restarted from its current state: {island.status.value}")
+
+        container_name = island.container_name
+        updated_island = await crud_island.update(db_session, db_obj=island, obj_in={"status": IslandStatusEnum.PENDING_START})
+        await db_session.commit()
+        await db_session.refresh(updated_island)
+        if team:
+            await db_session.refresh(team, attribute_names=['island', 'members'])
+            background_tasks.add_task(self._perform_lxd_restart_and_update_status, team_id=team.id, container_name=container_name)
+        else:
+            background_tasks.add_task(self._perform_solo_lxd_restart_and_update_status,
+                                       player_uuid_str=owner_uuid, container_name=container_name)
+        await self._send_update_notification(team, updated_island)
+        return IslandResponse.model_validate(updated_island)
+
+    async def _perform_lxd_restart_and_update_status(self, team_id: int, container_name: str):
+        """Bounces the LXD container for a team island and updates its status."""
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(TeamModel).where(TeamModel.id == team_id).options(selectinload(TeamModel.island), selectinload(TeamModel.members)))
+            team = result.scalars().first()
+            if not team or not team.island: return
+            try:
+                await lxd_service.stop_container(container_name, force=True)
+                await lxd_service.start_container(container_name)
+                ip_address = await lxd_service.get_container_ip(container_name)
+                if not ip_address:
+                    raise LXDServiceError("Failed to get IP address for container after restart.")
+                update_fields = {"internal_ip_address": ip_address, "status": IslandStatusEnum.RUNNING,
+                                  "minecraft_ready": False, "last_heartbeat_at": None}
+                updated_island = await crud_island.update(db, db_obj=team.island, obj_in=update_fields)
+                await db.commit()
+                await db.refresh(updated_island)
+                await db.refresh(team, attribute_names=['island', 'members'])
+                await self._send_update_notification(team, updated_island)
+            except Exception as e:
+                logger.error(f"Error restarting team island for team {team_id}: {e}")
+                updated_island = await crud_island.update(db, db_obj=team.island, obj_in={"status": IslandStatusEnum.ERROR_START})
+                await db.commit()
+                await db.refresh(updated_island)
+                await db.refresh(team, attribute_names=['island', 'members'])
+                await self._send_update_notification(team, updated_island)
+
+    async def _perform_solo_lxd_restart_and_update_status(self, player_uuid_str: str, container_name: str):
+        """Bounces the LXD container for a legacy solo island and updates its status."""
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            island = await crud_island.get_by_player_uuid(db, player_uuid=player_uuid_str)
+            if not island: return
+            try:
+                await lxd_service.stop_container(container_name, force=True)
+                await lxd_service.start_container(container_name)
+                ip_address = await lxd_service.get_container_ip(container_name)
+                if not ip_address:
+                    raise LXDServiceError("Failed to get IP address for container after restart.")
+                update_fields = {"internal_ip_address": ip_address, "status": IslandStatusEnum.RUNNING,
+                                  "minecraft_ready": False, "last_heartbeat_at": None}
+                updated_island = await crud_island.update(db, db_obj=island, obj_in=update_fields)
+                await db.commit()
+                await db.refresh(updated_island)
+                await self._send_update_notification(None, updated_island)
+            except Exception as e:
+                logger.error(f"Error restarting solo island for {player_uuid_str}: {e}")
+                updated_island = await crud_island.update(db, db_obj=island, obj_in={"status": IslandStatusEnum.ERROR_START})
+                await db.commit()
+                await db.refresh(updated_island)
+                await self._send_update_notification(None, updated_island)
 
     async def freeze_island_instance(self, db_session: AsyncSession, *, player_uuid: str, background_tasks: BackgroundTasks) -> IslandResponse:
         """Freezes an island instance for a player.

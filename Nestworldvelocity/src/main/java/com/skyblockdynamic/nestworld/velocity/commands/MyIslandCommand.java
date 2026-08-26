@@ -124,7 +124,7 @@ public class MyIslandCommand implements SimpleCommand {
                         player.sendMessage(localeManager.getComponent(lang, "myisland.status.ready", NamedTextColor.GREEN));
                         String ip = islandData.get("internal_ip_address").getAsString();
                         int port = islandData.get("internal_port").getAsInt();
-                        attemptSingleConnection(player, ip, port);
+                        attemptSingleConnection(player, player.getUniqueId(), ip, port);
                         return;
                     }
                 } catch (Exception e) {
@@ -182,7 +182,7 @@ public class MyIslandCommand implements SimpleCommand {
             WebSocketManager client = new WebSocketManager(new URI(wsUrl), logger, player, proxyServer, (islandData) -> {
                 String ip = islandData.get("internal_ip_address").getAsString();
                 int port = islandData.get("internal_port").getAsInt();
-                proxyServer.getScheduler().buildTask(plugin, () -> attemptSingleConnection(player, ip, port)).schedule();
+                proxyServer.getScheduler().buildTask(plugin, () -> attemptSingleConnection(player, player.getUniqueId(), ip, port)).schedule();
             }, plugin);
             client.connect();
             plugin.getWebSocketManagers().put(playerUuid, client);
@@ -194,26 +194,43 @@ public class MyIslandCommand implements SimpleCommand {
     }
     
     /**
-     * Attempts to connect the player to their island.
+     * Attempts to connect the player to an island (their own, or — via TPA —
+     * someone else's).
      *
-     * @param player The player.
-     * @param ip     The IP address of the island server.
-     * @param port   The port of the island server.
+     * @param player    The player being connected.
+     * @param ownerUuid The UUID of the island's owner, for connection_failed
+     *                  reporting (not always {@code player} — TPA connects a
+     *                  visitor to someone else's island).
+     * @param ip        The IP address of the island server.
+     * @param port      The port of the island server.
      */
-    private void attemptSingleConnection(Player player, String ip, int port) {
+    private void attemptSingleConnection(Player player, UUID ownerUuid, String ip, int port) {
         String serverName = "island-" + player.getUniqueId();
         ServerInfo serverInfo = new ServerInfo(serverName, new InetSocketAddress(ip, port));
         String lang = player.getPlayerSettings().getLocale().getLanguage();
 
         proxyServer.getServer(serverName).ifPresent(s -> proxyServer.unregisterServer(s.getServerInfo()));
         RegisteredServer serverToConnect = proxyServer.registerServer(serverInfo);
-        
-        player.createConnectionRequest(serverToConnect).connect()
-            .thenAccept(result -> {
-                if (!result.isSuccessful()) {
-                    player.sendMessage(localeManager.getComponent(lang, "myisland.connect.fail", NamedTextColor.RED));
-                    proxyServer.unregisterServer(serverInfo);
-                }
+
+        // Silent Server List Ping first — catches a resumed-but-actually-dead
+        // JVM (DB already says RUNNING/minecraft_ready) before the player
+        // hits a failed real connection with no record of why
+        // (lifecycle_stability_plan.md §1).
+        serverToConnect.ping()
+            .thenAccept(ping -> player.createConnectionRequest(serverToConnect).connect()
+                .thenAccept(result -> {
+                    if (!result.isSuccessful()) {
+                        player.sendMessage(localeManager.getComponent(lang, "myisland.connect.fail", NamedTextColor.RED));
+                        proxyServer.unregisterServer(serverInfo);
+                    }
+                }))
+            .exceptionally(ex -> {
+                logger.warn("Silent ping failed for island of {} ({}:{}) before connecting {}: {}",
+                        ownerUuid, ip, port, player.getUsername(), ex.getMessage());
+                apiClient.notifyConnectionFailed(ownerUuid);
+                player.sendMessage(localeManager.getComponent(lang, "myisland.connect.fail", NamedTextColor.RED));
+                proxyServer.unregisterServer(serverInfo);
+                return null;
             });
     }
     
@@ -248,7 +265,7 @@ public class MyIslandCommand implements SimpleCommand {
                             player.sendMessage(Component.text(localeManager.getMessage(lang, "tpa.teleporting").replace("{player_name}", targetPlayerName), NamedTextColor.GREEN));
                             String ip = islandData.get("internal_ip_address").getAsString();
                             int port = islandData.get("internal_port").getAsInt();
-                            attemptSingleConnection(player, ip, port);
+                            attemptSingleConnection(player, targetPlayer.getUniqueId(), ip, port);
                         } else {
                             player.sendMessage(Component.text(localeManager.getMessage(lang, "tpa.island_not_available").replace("{player_name}", targetPlayerName), NamedTextColor.RED));
                         }

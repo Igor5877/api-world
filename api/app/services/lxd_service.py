@@ -323,6 +323,59 @@ class LXDService:
             logger.error(f"Error executing command in '{container_name}': {e}", exc_info=True)
             raise LXDServiceError(f"Failed to execute command: {e}")
 
+    async def get_java_process_info(self, container_name: str) -> Optional[Dict[str, Any]]:
+        """Checks for a live Java/Minecraft process inside a RUNNING container.
+
+        Goes through the local LXD API/socket (`container.execute`, same
+        mechanism as `lxc exec`) — this never touches the container's own
+        network stack, so it still works when the container's network is
+        down, unreachable, or the Forge mod inside never got a chance to
+        send anything over HTTP. This is the "ground truth" check the
+        idle reaper / startup supervisor use instead of trusting heartbeat
+        silence to mean the process died.
+
+        Must only be called for a container LXD itself reports as RUNNING —
+        a FROZEN container's process is suspended, not queryable via exec
+        (the call would hang until it's resumed), and a STOPPED container
+        obviously has nothing to exec into.
+
+        Args:
+            container_name: The name of the container.
+
+        Returns:
+            {"alive": True, "pids": [123, ...], "raw": "<pgrep -af output>"}
+            if at least one java process is found; {"alive": False, ...} if
+            the container is reachable via LXD but no java process is
+            running; None if the exec itself failed (container not found,
+            LXD-level error) — a genuinely unknown result, distinct from a
+            confirmed-dead process.
+        """
+        try:
+            exit_code, stdout, stderr = await self.execute_command_in_container(
+                container_name, ["pgrep", "-af", "java"])
+        except (LXDContainerNotFoundError, LXDServiceError) as e:
+            logger.warning(f"LXDService: could not exec into '{container_name}' to check for a "
+                           f"java process (treating as UNKNOWN, not dead): {e}")
+            return None
+
+        # pgrep exit code: 0 = matches found, 1 = no matches, other = real error.
+        if exit_code == 0:
+            pids = []
+            for line in stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    pids.append(int(line.split(None, 1)[0]))
+                except (ValueError, IndexError):
+                    continue
+            return {"alive": True, "pids": pids, "raw": stdout.strip()}
+        if exit_code == 1:
+            return {"alive": False, "pids": [], "raw": ""}
+        logger.warning(f"LXDService: pgrep inside '{container_name}' exited {exit_code} "
+                       f"(stderr: {stderr.strip()}) — treating as UNKNOWN.")
+        return None
+
     async def freeze_container(self, container_name: str):
         """Freezes a container.
 

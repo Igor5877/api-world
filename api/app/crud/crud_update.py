@@ -104,24 +104,6 @@ class CRUDIslandPendingCommand:
         )
         await db_session.commit()
 
-    async def mark_all_delivered_for_player(self, db_session: AsyncSession, *, player_uuid: str) -> int:
-        """Closes all undelivered commands of an island.
-
-        Called when the island reconnects after a restart: the fresh server
-        already loaded the updated files, so queued reload commands are moot.
-
-        Returns:
-            The number of commands closed.
-        """
-        result = await db_session.execute(
-            sqlalchemy_update(IslandPendingCommandModel)
-            .where(IslandPendingCommandModel.player_uuid == player_uuid,
-                   IslandPendingCommandModel.delivered.is_(False))
-            .values(delivered=True)
-        )
-        await db_session.commit()
-        return result.rowcount or 0
-
 
 class CRUDIslandBackupOps:
     """Backup bookkeeping for the update system."""

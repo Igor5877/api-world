@@ -15,10 +15,9 @@ class Settings(BaseSettings):
         LXD_IP_RETRY_DELAY: The delay in seconds between IP fetch attempts.
         LXD_DEFAULT_PROFILES: A list of default LXD profiles to apply to islands.
         MAX_RUNNING_SERVERS: The maximum number of concurrent running islands.
-        FREEZE_TIMER_SECONDS: The number of seconds of inactivity before freezing an
-            island.
-        STOP_TIMER_SECONDS: The number of seconds of inactivity before stopping an
-            island.
+        STOP_TIMER_SECONDS: The number of seconds a FROZEN island may sit idle
+            before idle_reaper stops it as a backstop (freezing itself is never
+            done by the API — only the mod/plugin ever freeze an island).
         CLEANUP_INTERVAL_HOURS: The interval in hours to check for old islands.
         MAX_ISLAND_INACTIVITY_DAYS: The maximum number of days an island can be
             inactive before being deleted.
@@ -48,8 +47,9 @@ class Settings(BaseSettings):
     LXD_DEFAULT_PROFILES: list[str] = os.getenv("LXD_DEFAULT_PROFILES", "default,skyblock").split(',') # Comma-separated list e.g., "default,skyblock"
     # Server resource management
     MAX_RUNNING_SERVERS: int = int(os.getenv("MAX_RUNNING_SERVERS", "10")) # Max concurrent running island
-    # Timers (in seconds)
-    FREEZE_TIMER_SECONDS: int = int(os.getenv("FREEZE_TIMER_SECONDS", str(5 * 60)))      # 5 minutes
+    # Timers (in seconds). Freezing is never autonomous in the API — only
+    # the mod/plugin decide to freeze; idle_reaper only stops a FROZEN
+    # island as a backstop. See lifecycle_stability_plan.md §3.
     STOP_TIMER_SECONDS: int = int(os.getenv("STOP_TIMER_SECONDS", str(15 * 60)))    # 15 minutes
     CLEANUP_INTERVAL_HOURS: int = int(os.getenv("CLEANUP_INTERVAL_HOURS", "24")) # Check for old islands once a day
     MAX_ISLAND_INACTIVITY_DAYS: int = int(os.getenv("MAX_ISLAND_INACTIVITY_DAYS", "30")) # Delete islands inactive for this many days
@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     # Static API keys for machine-to-machine auth
     PROXY_API_KEY: str = os.getenv("PROXY_API_KEY", "")   # Velocity proxy plugin
     SPAWN_API_KEY: str = os.getenv("SPAWN_API_KEY", "")   # mods-server on spawn/hub
+    LAUNCHER_API_KEY: str = os.getenv("LAUNCHER_API_KEY", "")   # авто-старт острова з лаунчера
 
     # CORS — конкретні домени через кому; "*" лише для розробки
     CORS_ORIGINS: list[str] = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
@@ -103,6 +104,29 @@ class Settings(BaseSettings):
     # watchdog перевіряє реальний стан контейнера і реагує.
     HEARTBEAT_TIMEOUT_SECONDS: int = int(os.getenv("HEARTBEAT_TIMEOUT_SECONDS", "90"))
     HEALTH_WORKER_INTERVAL: int = int(os.getenv("HEALTH_WORKER_INTERVAL", "30"))
+
+    # ── Idle reaper (DB/LXD/player-activity reconciliation) ─────────
+    # STOP_TIMER_SECONDS (above) is consumed here, as a backstop for when
+    # the proxy's own stop_delay_seconds never fires (proxy restart/crash)
+    # — the proxy's in-memory scheduler is otherwise the primary mechanism
+    # (2026-08-22/23 incident). Freezing is deliberately NOT reaped here —
+    # see idle_reaper_worker.py and lifecycle_stability_plan.md §3.
+    IDLE_REAPER_INTERVAL_SECONDS: int = int(os.getenv("IDLE_REAPER_INTERVAL_SECONDS", "60"))
+    # Скільки секунд острів може висіти в PENDING_START/PENDING_STOP/
+    # PENDING_FREEZE, перш ніж вважатись "застряглим" і піти на reconciliation.
+    STARTUP_STUCK_TIMEOUT_SECONDS: int = int(os.getenv("STARTUP_STUCK_TIMEOUT_SECONDS", "180"))
+    # TTL redis-локи персистентного leader election (update/health/idle-reaper
+    # воркери) — невеликий, щоб мертвий лідер звільняв місце швидко.
+    WORKER_LEADER_LOCK_TTL_SECONDS: int = int(os.getenv("WORKER_LEADER_LOCK_TTL_SECONDS", "30"))
+
+    # ── Prometheus service discovery ────────────────────────────────
+    # Порт, на якому metrics-exporter мод острова піднімає /metrics
+    # (nestworld.metrics.port у конфізі мода, дефолт 9219 з обох боків).
+    METRICS_EXPORTER_PORT: int = int(os.getenv("METRICS_EXPORTER_PORT", "9219"))
+    # Токен для /api/v1/prometheus/sd (query-параметр token=...), окремо від
+    # X-Api-Key — Prometheus http_sd_configs не вміє довільні заголовки.
+    # Порожній рядок = ендпоінт відкритий (обмежуй мережево в такому разі).
+    PROMETHEUS_SD_TOKEN: str = os.getenv("PROMETHEUS_SD_TOKEN", "")
 
 
     class Config:

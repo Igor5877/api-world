@@ -114,6 +114,137 @@ public class ApiClient {
     }
 
     /**
+     * Gets the island's incident journal (crashes, hangs, auto-freeze/stop,
+     * state mismatches — written by the API's health watchdog and idle
+     * reaper). Used by /islandadmin so staff can see what happened without
+     * opening the database.
+     *
+     * @param ownerUuid The UUID of the island owner (team owner or solo player).
+     * @param limit Max number of events, newest first.
+     * @return A CompletableFuture that completes with the API response (a JSON array).
+     */
+    public CompletableFuture<ApiResponse> getIslandEvents(UUID ownerUuid, int limit) {
+        String path = "/islands/" + ownerUuid.toString() + "/events?limit=" + limit;
+        HttpRequest request = baseRequest(apiUrlBase + path).GET().build();
+
+        logger.debug("Requesting island events for {}: GET {}", ownerUuid, request.uri());
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
+                .exceptionally(ex -> {
+                    logger.error("API request failed for getIslandEvents for {}: {}", ownerUuid, ex.getMessage(), ex);
+                    return new ApiResponse(ex.getMessage());
+                });
+    }
+
+    /**
+     * Live DB-vs-LXD consistency check for /islandadmin status.
+     *
+     * @param ownerUuid The UUID of the island owner (team owner or solo player).
+     * @return A CompletableFuture that completes with the API response.
+     */
+    public CompletableFuture<ApiResponse> getIslandDiagnostics(UUID ownerUuid) {
+        String path = "/islands/" + ownerUuid.toString() + "/admin/diagnostics";
+        HttpRequest request = baseRequest(apiUrlBase + path).GET().build();
+
+        logger.debug("Requesting island diagnostics for {}: GET {}", ownerUuid, request.uri());
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
+                .exceptionally(ex -> {
+                    logger.error("API request failed for getIslandDiagnostics for {}: {}", ownerUuid, ex.getMessage(), ex);
+                    return new ApiResponse(ex.getMessage());
+                });
+    }
+
+    /**
+     * Transfers island ownership to an existing team member (/islandadmin set owner).
+     *
+     * @param ownerUuid    The current owner's UUID (path — identifies the island).
+     * @param newOwnerUuid The UUID of the member to promote to owner.
+     * @param adminName    Name of the admin performing the change, for the audit trail.
+     * @return A CompletableFuture that completes with the API response.
+     */
+    public CompletableFuture<ApiResponse> setIslandOwner(UUID ownerUuid, UUID newOwnerUuid, String adminName) {
+        String path = "/islands/" + ownerUuid.toString() + "/admin/owner";
+        String jsonPayload = gson.toJson(Map.of("new_owner_uuid", newOwnerUuid.toString(), "admin_name", adminName));
+        HttpRequest request = baseRequest(apiUrlBase + path).POST(HttpRequest.BodyPublishers.ofString(jsonPayload)).build();
+
+        logger.info("Requesting owner change for island {} -> {}: POST {}", ownerUuid, newOwnerUuid, request.uri());
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
+                .exceptionally(ex -> {
+                    logger.error("API request failed for setIslandOwner for {}: {}", ownerUuid, ex.getMessage(), ex);
+                    return new ApiResponse(ex.getMessage());
+                });
+    }
+
+    /**
+     * Restarts a running island's container (/islandadmin restart).
+     *
+     * @param ownerUuid The UUID of the island owner.
+     * @param adminName Name of the admin performing the restart, for the audit trail.
+     * @return A CompletableFuture that completes with the API response.
+     */
+    public CompletableFuture<ApiResponse> restartIsland(UUID ownerUuid, String adminName) {
+        String path = "/islands/" + ownerUuid.toString() + "/admin/restart?admin_name="
+                + URLEncoder.encode(adminName, StandardCharsets.UTF_8);
+        HttpRequest request = baseRequest(apiUrlBase + path).POST(HttpRequest.BodyPublishers.noBody()).build();
+
+        logger.info("Requesting island restart for {}: POST {}", ownerUuid, request.uri());
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
+                .exceptionally(ex -> {
+                    logger.error("API request failed for restartIsland for {}: {}", ownerUuid, ex.getMessage(), ex);
+                    return new ApiResponse(ex.getMessage());
+                });
+    }
+
+    /**
+     * Adds a player to a team without a pending invite (/islandadmin member add).
+     *
+     * @param teamId     The team to add the player to.
+     * @param playerUuid The UUID of the player to add.
+     * @return A CompletableFuture that completes with the API response.
+     */
+    public CompletableFuture<ApiResponse> addTeamMember(int teamId, UUID playerUuid) {
+        String path = "/teams/" + teamId + "/members?player_uuid=" + playerUuid;
+        HttpRequest request = baseRequest(apiUrlBase + path).POST(HttpRequest.BodyPublishers.noBody()).build();
+
+        logger.info("Requesting member add for team {}: POST {}", teamId, request.uri());
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
+                .exceptionally(ex -> {
+                    logger.error("API request failed for addTeamMember for team {}: {}", teamId, ex.getMessage(), ex);
+                    return new ApiResponse(ex.getMessage());
+                });
+    }
+
+    /**
+     * Removes a player from a team (/islandadmin member remove).
+     *
+     * @param teamId     The team to remove the player from.
+     * @param playerUuid The UUID of the player to remove.
+     * @return A CompletableFuture that completes with the API response.
+     */
+    public CompletableFuture<ApiResponse> removeTeamMember(int teamId, UUID playerUuid) {
+        String path = "/teams/" + teamId + "/members/" + playerUuid;
+        HttpRequest request = baseRequest(apiUrlBase + path).DELETE().build();
+
+        logger.info("Requesting member remove for team {}: DELETE {}", teamId, request.uri());
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
+                .exceptionally(ex -> {
+                    logger.error("API request failed for removeTeamMember for team {}: {}", teamId, ex.getMessage(), ex);
+                    return new ApiResponse(ex.getMessage());
+                });
+    }
+
+    /**
      * Requests to stop a player's island.
      *
      * @param playerUuid The UUID of the player.
@@ -163,72 +294,25 @@ public class ApiClient {
     }
 
     /**
-     * Creates a solo island for a player.
+     * Повідомляє API, що silent Server List Ping не вдався перед підключенням
+     * гравця, хоча острів звітував RUNNING/minecraft_ready — сигнал
+     * потенційно мертвого resumed-процесу (lifecycle_stability_plan.md §1).
      *
-     * @param playerUuid The UUID of the player.
-     * @param playerName The name of the player.
+     * @param ownerUuid The UUID of the island owner.
      * @return A CompletableFuture that completes with the API response.
      */
-    public CompletableFuture<ApiResponse> createSoloIsland(UUID playerUuid, String playerName) {
-        String path = "/teams/create_solo";
-        String jsonPayload = gson.toJson(Map.of("player_uuid", playerUuid.toString(), "player_name", playerName));
-        
-        HttpRequest request = baseRequest(apiUrlBase + path).POST(HttpRequest.BodyPublishers.ofString(jsonPayload)).build();
-
-        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
-                .exceptionally(ex -> new ApiResponse(ex.getMessage()));
-    }
-
-    /**
-     * Creates a team.
-     *
-     * @param teamName  The name of the team.
-     * @param ownerUuid The UUID of the team owner.
-     * @param ownerName The name of the team owner.
-     * @return A CompletableFuture that completes with the API response.
-     */
-    public CompletableFuture<ApiResponse> createTeam(String teamName, UUID ownerUuid, String ownerName) {
-        String path = "/teams/create_solo";
-        // The API endpoint expects the player_info to be a nested dictionary.
-        String jsonPayload = gson.toJson(Map.of("player_info", Map.of("player_uuid", ownerUuid.toString(), "player_name", ownerName)));
-        
-        HttpRequest request = baseRequest(apiUrlBase + path).POST(HttpRequest.BodyPublishers.ofString(jsonPayload)).build();
-
-        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
-                .exceptionally(ex -> new ApiResponse(ex.getMessage()));
-    }
-
-    /**
-     * Accepts a team invitation.
-     *
-     * @param teamName   The name of the team.
-     * @param playerUuid The UUID of the player.
-     * @return A CompletableFuture that completes with the API response.
-     */
-    public CompletableFuture<ApiResponse> acceptInvite(String teamName, UUID playerUuid) {
-        String path = "/teams/accept_invite?player_uuid=" + playerUuid.toString();
-        String jsonPayload = gson.toJson(Map.of("team_name", teamName));
-        HttpRequest request = baseRequest(apiUrlBase + path).POST(HttpRequest.BodyPublishers.ofString(jsonPayload)).build();
-        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
-                .exceptionally(ex -> new ApiResponse(ex.getMessage()));
-    }
-
-    /**
-     * Leaves a team.
-     *
-     * @param teamId     The ID of the team.
-     * @param playerUuid The UUID of the player.
-     * @return A CompletableFuture that completes with the API response.
-     */
-    public CompletableFuture<ApiResponse> leaveTeam(int teamId, UUID playerUuid) {
-        String path = "/teams/" + teamId + "/leave?player_uuid=" + playerUuid.toString();
+    public CompletableFuture<ApiResponse> notifyConnectionFailed(UUID ownerUuid) {
+        String path = "/islands/" + ownerUuid.toString() + "/connection_failed";
         HttpRequest request = baseRequest(apiUrlBase + path).POST(HttpRequest.BodyPublishers.noBody()).build();
+
+        logger.warn("Notifying API that connection ping failed for island of {}: POST {}", ownerUuid, request.uri());
+
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
-                .exceptionally(ex -> new ApiResponse(ex.getMessage()));
+                .exceptionally(ex -> {
+                    logger.warn("API request failed for notifyConnectionFailed for {}: {}", ownerUuid, ex.getMessage());
+                    return new ApiResponse(ex.getMessage());
+                });
     }
 
     /**
@@ -290,22 +374,5 @@ public class ApiClient {
                     logger.error("[WarpAdmin] {} request failed: {}", action, ex.getMessage());
                     return new ApiResponse(ex.getMessage());
                 });
-    }
-
-    /**
-     * Renames a team.
-     *
-     * @param teamId     The ID of the team.
-     * @param newName    The new name for the team.
-     * @param playerUuid The UUID of the player.
-     * @return A CompletableFuture that completes with the API response.
-     */
-    public CompletableFuture<ApiResponse> renameTeam(int teamId, String newName, UUID playerUuid) {
-        String path = "/teams/" + teamId + "/rename?player_uuid=" + playerUuid.toString();
-        String jsonPayload = gson.toJson(Map.of("name", newName));
-        HttpRequest request = baseRequest(apiUrlBase + path).method("PATCH", HttpRequest.BodyPublishers.ofString(jsonPayload)).build();
-        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
-                .exceptionally(ex -> new ApiResponse(ex.getMessage()));
     }
 }

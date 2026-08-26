@@ -18,6 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import com.skyblockdynamic.nestworld.velocity.network.WebSocketManager;
+import com.skyblockdynamic.nestworld.velocity.network.ProxyControlConnection;
 
 import java.nio.file.Path;
 import com.skyblockdynamic.nestworld.velocity.network.ApiClient;
@@ -25,10 +26,9 @@ import com.skyblockdynamic.nestworld.velocity.config.PluginConfig;
 import com.skyblockdynamic.nestworld.velocity.listener.PlayerConnectionListener;
 import com.skyblockdynamic.nestworld.velocity.commands.MyIslandCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.SpawnCommand;
-import com.skyblockdynamic.nestworld.velocity.commands.TeamCommand;
-import com.skyblockdynamic.nestworld.velocity.commands.IslandCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.TpaCommand;
 import com.skyblockdynamic.nestworld.velocity.commands.WarpAdminCommand;
+import com.skyblockdynamic.nestworld.velocity.commands.IslandAdminCommand;
 import com.skyblockdynamic.nestworld.velocity.locale.LocaleManager;
 
 /**
@@ -53,6 +53,7 @@ public class NestworldVelocityPlugin {
     private ExecutorService executorService;
     private final Map<UUID, WebSocketManager> webSocketManagers = new ConcurrentHashMap<>();
     private final Set<UUID> awaitingConnection = ConcurrentHashMap.newKeySet();
+    private ProxyControlConnection proxyControlConnection;
 
 
     /**
@@ -102,20 +103,6 @@ public class NestworldVelocityPlugin {
             
         commandManager.register(spawnCommandMeta, new SpawnCommand(server, logger, this.pluginConfig));
         logger.info("Registered /spawn command.");
-        
-        CommandMeta teamCommandMeta = commandManager.metaBuilder("team")
-            .plugin(this)
-            .build();
-            
-        commandManager.register(teamCommandMeta, new TeamCommand(this, this.apiClient, logger, this.localeManager));
-        logger.info("Registered /team command.");
-
-        CommandMeta islandCommandMeta = commandManager.metaBuilder("island")
-            .plugin(this)
-            .build();
-        
-        commandManager.register(islandCommandMeta, new IslandCommand(this, this.apiClient, logger, this.localeManager));
-        logger.info("Registered /island command.");
 
         TpaCommand tpaCommand = new TpaCommand(this, server, logger, pluginConfig, myIslandCommandInstance, this.localeManager);
         commandManager.register(tpaCommand.createTpaCommand());
@@ -128,7 +115,17 @@ public class NestworldVelocityPlugin {
                 .build();
         commandManager.register(warpAdminMeta, new WarpAdminCommand(this.apiClient, server, logger));
         logger.info("Registered /warp-admin command.");
-        
+
+        CommandMeta islandAdminMeta = commandManager.metaBuilder("islandadmin")
+                .plugin(this)
+                .build();
+        commandManager.register(islandAdminMeta, new IslandAdminCommand(this.apiClient, server, logger, this.pluginConfig));
+        logger.info("Registered /islandadmin command.");
+
+        this.proxyControlConnection = new ProxyControlConnection(this, server, logger, this.pluginConfig);
+        this.proxyControlConnection.start();
+        logger.info("Started persistent proxy_control connection for idle_reaper's live stop check.");
+
         logger.info("NestworldVelocityPlugin initialized successfully with listeners, config, and commands!");
         logger.info("API URL configured to: {}", pluginConfig.getApiUrl());
         logger.info("Fallback server configured to: {}", pluginConfig.getFallbackServerName());

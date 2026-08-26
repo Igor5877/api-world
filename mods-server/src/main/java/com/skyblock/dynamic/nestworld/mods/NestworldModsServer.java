@@ -28,6 +28,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Provides server-side functionality for Nestworld mods.
@@ -52,6 +53,10 @@ public class NestworldModsServer {
         private static final long TEAM_CACHE_TTL_MS = 60_000L;
         private final Map<UUID, UUID> islandCache = new ConcurrentHashMap<>();
         private final Map<UUID, Long> islandCacheTimestamps = new ConcurrentHashMap<>();
+        /** Players with a refresh already in flight — avoids piling up
+         *  duplicate background HTTP calls if getCachedTeamId is hit
+         *  repeatedly (e.g. quest checks) while the cache is stale. */
+        private final Set<UUID> refreshInFlight = ConcurrentHashMap.newKeySet();
         private final HttpClient httpClient = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(10))
@@ -75,48 +80,102 @@ public class NestworldModsServer {
          * @return The team ID, or null if not found.
          */
         public UUID getCachedTeamId(UUID playerUuid) {
-            // If the team ID is cached and still fresh, return it.
+            // If the team ID is cached and still fresh, return it (FRESH).
             Long cachedAt = islandCacheTimestamps.get(playerUuid);
+            UUID cached = islandCache.get(playerUuid);
             if (cachedAt != null && (System.currentTimeMillis() - cachedAt) < TEAM_CACHE_TTL_MS) {
-                return islandCache.get(playerUuid);
+                return cached;
             }
-            // If not, fetch it synchronously. This will block, but it's necessary for FTB Quests.
-            return refreshAndGetTeamId(playerUuid);
+            // STALE or UNKNOWN — never block the caller (often the Minecraft
+            // server thread, e.g. quest permission checks) on HTTP here.
+            // Refresh happens in the background; this call returns whatever
+            // is cached right now (possibly null on first-ever lookup).
+            triggerAsyncRefresh(playerUuid);
+            return cached;
+        }
+
+        /**
+         * Kicks off a background refresh for a player's team, if one isn't
+         * already in flight. Never blocks the calling thread.
+         *
+         * @param playerUuid The UUID of the player.
+         */
+        private void triggerAsyncRefresh(UUID playerUuid) {
+            if (!refreshInFlight.add(playerUuid)) return; // already refreshing
+            CompletableFuture.runAsync(() -> {
+                try {
+                    refreshAndGetTeamId(playerUuid);
+                } finally {
+                    refreshInFlight.remove(playerUuid);
+                }
+            });
         }
 
         /**
          * Sends a "ready" signal to the API for the specified island owner.
+         * Retries on transient failure — this is a one-shot signal with no
+         * other recovery path (mods-server spec §11).
          *
          * @param ownerUuid The UUID of the island owner.
          * @return A CompletableFuture that completes when the signal has been sent.
          */
         public CompletableFuture<Void> sendReady(UUID ownerUuid) {
             String apiUrl = Config.getApiBaseUrl() + "islands/" + ownerUuid.toString() + "/ready";
-            HttpRequest request = apiRequest(apiUrl).POST(HttpRequest.BodyPublishers.noBody()).build();
-
-            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(response -> {
-                        if (response.statusCode() >= 300) {
-                            LOGGER.warn("Non-successful response {} for ready signal for owner {}", response.statusCode(), ownerUuid);
-                        }
-                    });
+            return postWithRetry(apiUrl, "ready signal for " + ownerUuid, 5, 2_000L);
         }
 
         /**
          * Sends a "freeze" signal to the API for the specified island owner.
+         * Retries on transient failure — with idle_reaper no longer
+         * auto-freezing (lifecycle_stability_plan.md §3), this is the only
+         * path that ever freezes an island, with no backstop if it fails.
          *
          * @param ownerUuid The UUID of the island owner.
          * @return A CompletableFuture that completes when the signal has been sent.
          */
         public CompletableFuture<Void> sendFreeze(UUID ownerUuid) {
             String apiUrl = Config.getApiBaseUrl() + "islands/" + ownerUuid.toString() + "/freeze";
-            HttpRequest request = apiRequest(apiUrl).POST(HttpRequest.BodyPublishers.noBody()).build();
+            return postWithRetry(apiUrl, "freeze signal for " + ownerUuid, 5, 2_000L);
+        }
 
-            return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(response -> {
-                        if (response.statusCode() >= 300) {
-                             LOGGER.warn("Non-successful response {} for freeze signal for owner {}", response.statusCode(), ownerUuid);
+        /**
+         * POSTs with no body, retrying transient failures (timeout,
+         * connection error, 5xx) with capped exponential backoff. Never
+         * retries 4xx — the same request body would just fail the same way
+         * again (mods-server spec §13-14).
+         *
+         * @param url The full request URL.
+         * @param label Human-readable label for log messages.
+         * @param maxAttempts Maximum number of attempts before giving up.
+         * @param initialBackoffMs Delay before the first retry; doubles each attempt, capped at 30s.
+         * @return A CompletableFuture that completes when the request succeeds, or fails after the final attempt.
+         */
+        private CompletableFuture<Void> postWithRetry(String url, String label, int maxAttempts, long initialBackoffMs) {
+            CompletableFuture<Void> result = new CompletableFuture<>();
+            attemptPost(url, label, 1, maxAttempts, initialBackoffMs, result);
+            return result;
+        }
+
+        private void attemptPost(String url, String label, int attempt, int maxAttempts, long backoffMs, CompletableFuture<Void> result) {
+            HttpRequest request = apiRequest(url).POST(HttpRequest.BodyPublishers.noBody()).build();
+            httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                    .whenComplete((response, ex) -> {
+                        boolean success = ex == null && response.statusCode() < 300;
+                        if (success) {
+                            result.complete(null);
+                            return;
                         }
+                        boolean retryable = ex != null || (response != null && response.statusCode() >= 500);
+                        if (!retryable || attempt >= maxAttempts) {
+                            LOGGER.error("{} failed{}: {}", label, attempt > 1 ? " after " + attempt + " attempts" : "",
+                                    ex != null ? ex.getMessage() : "HTTP " + response.statusCode());
+                            result.completeExceptionally(ex != null ? ex : new java.io.IOException("HTTP " + response.statusCode()));
+                            return;
+                        }
+                        LOGGER.warn("{} attempt {} failed ({}), retrying in {}ms", label, attempt,
+                                ex != null ? ex.getMessage() : "HTTP " + response.statusCode(), backoffMs);
+                        CompletableFuture.delayedExecutor(backoffMs, TimeUnit.MILLISECONDS)
+                                .execute(() -> attemptPost(url, label, attempt + 1, maxAttempts, Math.min(backoffMs * 2, 30_000L), result));
                     });
         }
 
@@ -151,8 +210,15 @@ public class NestworldModsServer {
                     LOGGER.info("Successfully fetched team data from API for player {}.", playerUuid);
                     JsonObject teamJson = gson.fromJson(response.body(), JsonObject.class);
                     
-                    try (FileWriter writer = new FileWriter(cachePath.toFile())) {
+                    // Write to a .tmp file and atomically rename over the real
+                    // one — a crash mid-write must never leave a partially
+                    // written cache file behind (mods-server spec §33).
+                    Path tmpPath = cachePath.resolveSibling(cachePath.getFileName() + ".tmp");
+                    try (FileWriter writer = new FileWriter(tmpPath.toFile())) {
                         gson.toJson(teamJson, writer);
+                        Files.move(tmpPath, cachePath,
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                                java.nio.file.StandardCopyOption.ATOMIC_MOVE);
                         LOGGER.info("Successfully cached team data to {}.", cachePath);
                     } catch (IOException e) {
                         LOGGER.error("Failed to write team data to cache file: {}", cachePath, e);

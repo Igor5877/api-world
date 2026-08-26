@@ -48,10 +48,25 @@ public class SkyBlockMod {
     private static boolean playerJoinedWithinFirstHour = false;
     private static com.skyblock.dynamic.utils.IslandWebSocketClient webSocketClient;
 
+    /** Унікальний ідентифікатор цього runtime-запуску (генерується раз на JVM
+     *  boot) — діагностичне поле в heartbeat/shutting_down, не використовується
+     *  для маршрутизації (WS client_id лишається owner_uuid-based, бо в
+     *  api-world 1 острів = 1 контейнер = 1 owner, структурно). */
+    private static final String INSTANCE_ID = java.util.UUID.randomUUID().toString();
+
     /** Heartbeat для API-watchdog: шлеться з server tick loop, тож зависання
-     *  server thread автоматично означає тишу і реакцію watchdog. */
-    private static final long HEARTBEAT_INTERVAL_MS = 30_000L;
+     *  server thread автоматично означає тишу і реакцію watchdog. Інтервал —
+     *  конфігурований (Config.getHeartbeatIntervalSeconds()), не константа. */
     private long lastHeartbeatAtMs = 0L;
+    private long heartbeatSequence = 0L;
+
+    /** Backoff для reconnect-спроб, коли WS недоступний тривалий час — росте
+     *  експоненційно (5с→10с→20с→30с-cap) замість фіксованих 30с завжди,
+     *  скидається на успішне з'єднання. */
+    private static final long RECONNECT_BACKOFF_INITIAL_MS = 5_000L;
+    private static final long RECONNECT_BACKOFF_CAP_MS = 30_000L;
+    private long reconnectBackoffMs = RECONNECT_BACKOFF_INITIAL_MS;
+    private long lastReconnectAttemptMs = 0L;
 
     /** Скільки тіків чекати після ServerStartedEvent, перш ніж слати ready-сигнал.
      *  Forge на важких модпаках ще кілька секунд після цієї події виконує фонову
@@ -184,6 +199,7 @@ public class SkyBlockMod {
             // Кажемо API, що це штатна зупинка — watchdog не запише її як краш.
             com.google.gson.JsonObject bye = new com.google.gson.JsonObject();
             bye.addProperty("type", "shutting_down");
+            bye.addProperty("instance_id", INSTANCE_ID);
             webSocketClient.sendJsonBlocking(bye, 2000L);
             LOGGER.info("SkyBlockMod: Sent shutting_down signal, closing WebSocket connection.");
             webSocketClient.close();
@@ -208,14 +224,24 @@ public class SkyBlockMod {
         }
 
         long now = System.currentTimeMillis();
-        if (now - lastHeartbeatAtMs < HEARTBEAT_INTERVAL_MS) return;
-        lastHeartbeatAtMs = now;
 
+        // Reconnect on its own cadence (exponential backoff, independent of
+        // the heartbeat interval) — previously gated behind the same 30s
+        // heartbeat check, so a fixed 30s was the only possible retry rate.
         if (webSocketClient == null || !webSocketClient.isOpen()) {
-            LOGGER.warn("SkyBlockMod: WebSocket is not open — attempting to reconnect.");
-            initializeWebSocket();
+            if (now - lastReconnectAttemptMs >= reconnectBackoffMs) {
+                lastReconnectAttemptMs = now;
+                LOGGER.warn("SkyBlockMod: WebSocket is not open — attempting to reconnect (backoff {}ms).", reconnectBackoffMs);
+                initializeWebSocket();
+                reconnectBackoffMs = Math.min(reconnectBackoffMs * 2, RECONNECT_BACKOFF_CAP_MS);
+            }
             return;
         }
+        reconnectBackoffMs = RECONNECT_BACKOFF_INITIAL_MS; // connected — reset for next time it's needed
+
+        long heartbeatIntervalMs = Config.getHeartbeatIntervalSeconds() * 1000L;
+        if (now - lastHeartbeatAtMs < heartbeatIntervalMs) return;
+        lastHeartbeatAtMs = now;
 
         var server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
         if (server == null) return;
@@ -224,7 +250,13 @@ public class SkyBlockMod {
 
         com.google.gson.JsonObject heartbeat = new com.google.gson.JsonObject();
         heartbeat.addProperty("type", "heartbeat");
+        heartbeat.addProperty("instance_id", INSTANCE_ID);
+        heartbeat.addProperty("owner_uuid", islandContext.getOwnerUuid());
+        heartbeat.addProperty("timestamp", java.time.Instant.now().toString());
+        heartbeat.addProperty("sequence", ++heartbeatSequence);
+        heartbeat.addProperty("uptime", now - serverStartTime);
         heartbeat.addProperty("tps", Math.round(tps * 100.0) / 100.0);
+        heartbeat.addProperty("mspt", Math.round(avgTickMs * 100.0) / 100.0);
         heartbeat.addProperty("players", server.getPlayerCount());
         webSocketClient.sendJson(heartbeat);
     }

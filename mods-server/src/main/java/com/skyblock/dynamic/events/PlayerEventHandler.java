@@ -2,10 +2,15 @@ package com.skyblock.dynamic.events;
 
 import com.skyblock.dynamic.SkyBlockMod;
 import com.skyblock.dynamic.nestworld.mods.NestworldModsServer;
+import net.minecraft.commands.Commands;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -27,6 +32,10 @@ public class PlayerEventHandler {
     private static final Logger LOGGER = LogUtils.getLogger();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> freezeTask;
+    /** Incremented on every login — lets an already-running freeze task
+     *  recognize it was superseded even though cancel(false) couldn't stop
+     *  it (freeze race protection, mods-server spec §28). */
+    private final java.util.concurrent.atomic.AtomicLong freezeGeneration = new java.util.concurrent.atomic.AtomicLong(0);
 
     private static final Method CACHED_GET_PLAYER_COUNT;
     static {
@@ -43,6 +52,7 @@ public class PlayerEventHandler {
      */
     @SubscribeEvent
     public void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
+        freezeGeneration.incrementAndGet();
         if (freezeTask != null && !freezeTask.isDone()) {
             freezeTask.cancel(false);
             LOGGER.info("Player logged in. Canceled scheduled island freeze.");
@@ -104,8 +114,12 @@ public class PlayerEventHandler {
     }
 
     /**
-     * The hub/spawn server is a safe zone: no PvP, no fall damage, no mob
-     * damage, nothing. Islands are unaffected — players can still die there.
+     * The hub/spawn server's OVERWORLD is a safe zone: no PvP, no fall
+     * damage, no mob damage, nothing. Islands are unaffected — players can
+     * still die there. Other dimensions reachable from spawn (e.g. an End
+     * portal placed in the hub) are real gameplay areas and must NOT
+     * inherit the safe-zone rule just because the backend server itself is
+     * "spawn" — only the Overworld dimension is the actual safe zone.
      *
      * @param event The living-hurt event.
      */
@@ -113,6 +127,9 @@ public class PlayerEventHandler {
     public void onLivingHurt(LivingHurtEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player) || SkyBlockMod.isIslandServer()) {
             return;
+        }
+        if (player.level().dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+            return; // real gameplay dimension (End/Nether/custom) — damage applies normally
         }
         event.setCanceled(true);
         if (event.getSource().is(DamageTypes.FELL_OUT_OF_WORLD)) {
@@ -122,6 +139,35 @@ public class PlayerEventHandler {
             player.teleportTo(spawn.getX() + 0.5, spawn.getY(), spawn.getZ() + 0.5);
             player.fallDistance = 0f;
         }
+    }
+
+    /**
+     * /hubspawn — teleports the executing player to THIS server's Overworld
+     * shared spawn point, crossing dimensions if needed (e.g. called from
+     * The End via a portal placed in the hub). Exists so Velocity's /spawn
+     * has something real to do when the player is already connected to the
+     * spawn backend but not physically at the spawn point (previously a
+     * silent no-op — "you are already on spawn" while standing in The End).
+     *
+     * @param event The command registration event.
+     */
+    @SubscribeEvent
+    public void onRegisterCommands(RegisterCommandsEvent event) {
+        event.getDispatcher().register(
+            Commands.literal("hubspawn").executes(ctx -> {
+                CommandSourceStack source = ctx.getSource();
+                if (!(source.getEntity() instanceof ServerPlayer player)) {
+                    source.sendFailure(Component.literal("Only players can use this command."));
+                    return 0;
+                }
+                ServerLevel overworld = source.getServer().overworld();
+                BlockPos spawn = overworld.getSharedSpawnPos();
+                player.teleportTo(overworld, spawn.getX() + 0.5, spawn.getY(), spawn.getZ() + 0.5,
+                        player.getYRot(), player.getXRot());
+                player.fallDistance = 0f;
+                return 1;
+            })
+        );
     }
 
     /**
@@ -135,14 +181,30 @@ public class PlayerEventHandler {
             return;
         }
 
+        long myGeneration = freezeGeneration.get();
         Runnable task = () -> {
+            // Re-check state at execution time — cancel(false) on login can't
+            // interrupt a task that already started running (freeze race
+            // protection, mods-server spec §28).
+            if (freezeGeneration.get() != myGeneration) {
+                LOGGER.info("Freeze task superseded (generation mismatch) — skipping.");
+                return;
+            }
+            MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+            int currentPlayers = server != null ? server.getPlayerCount() : -1;
+            if (currentPlayers != 0) {
+                LOGGER.info("Freeze task: {} player(s) online at execution time — skipping.", currentPlayers);
+                return;
+            }
             try {
                 UUID ownerUuid = UUID.fromString(ownerUuidStr);
+                // sendFreeze already retries transient failures internally
+                // (capped exponential backoff, ~5 attempts) — no external
+                // timeout here, it would just cut that retry chain short.
                 NestworldModsServer.ISLAND_PROVIDER.sendFreeze(ownerUuid)
-                    .orTimeout(10, TimeUnit.SECONDS)
                     .thenRun(() -> LOGGER.info("Island frozen successfully for owner: {}", ownerUuidStr))
                     .exceptionally(ex -> {
-                        LOGGER.error("Freeze failed or timed out for owner {}: {}", ownerUuidStr, ex.getMessage());
+                        LOGGER.error("Freeze failed for owner {}: {}", ownerUuidStr, ex.getMessage());
                         return null;
                     });
             } catch (IllegalArgumentException e) {

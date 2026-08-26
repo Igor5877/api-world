@@ -165,6 +165,24 @@ public class ServerQuestFile extends BaseQuestFile {
 	}
 
 	@Override
+	public IslandData getOrCreateIslandData(net.minecraft.world.entity.Entity player) {
+		// On the server, quest data always belongs to THIS island (the
+		// container's own owner), never to whichever team the visiting
+		// player happens to belong to — otherwise a guest with their own
+		// team sees an empty IslandData instead of the island's real
+		// progress (GUEST_QUEST_VIEW_TODO.md). player is still used
+		// elsewhere for per-player fields (canEdit, claimedRewards), just
+		// not for choosing which IslandData to resolve.
+		if (com.skyblock.dynamic.SkyBlockMod.isIslandServer()) {
+			String ownerUuid = com.skyblock.dynamic.SkyBlockMod.getOwnerUuid();
+			if (ownerUuid != null) {
+				return getOrCreateIslandData(UUID.fromString(ownerUuid));
+			}
+		}
+		return super.getOrCreateIslandData(player);
+	}
+
+	@Override
 	public boolean moveChapterGroup(long id, boolean movingUp) {
 		if (super.moveChapterGroup(id, movingUp)) {
 			markDirty();

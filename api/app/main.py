@@ -13,7 +13,7 @@ from app.services.lxd_service import lxd_service, LXDContainerNotFoundError, LXD
 from app.crud.crud_island import crud_island
 from app.models.island import Island as IslandModel # For type hinting if needed directly
 from app.schemas.island import IslandStatusEnum
-from app.services.websocket_manager import manager as websocket_manager
+from app.services.websocket_manager import manager as websocket_manager, INTERNAL_RESPONSE_CLIENT_ID
 
 logger = logging.getLogger(__name__) # Get logger for main module
 
@@ -202,6 +202,7 @@ from app.services.start_worker import start_start_worker
 from app.services.workers.analytics_worker import start_analytics_worker
 from app.services.update_worker import start_update_worker
 from app.services.health_worker import start_health_worker
+from app.services.workers.idle_reaper_worker import start_idle_reaper_worker
 
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
@@ -234,18 +235,36 @@ async def lifespan(app: FastAPI):
     
     if is_startup_leader:
         logger.info("This worker is the startup leader. Running initial tasks...")
-        # Perform island state reconciliation
+        # Perform island state reconciliation. One-shot on purpose (a cold-
+        # boot sanity pass, not a continuous concern) — if two restarts land
+        # within this lock's 60s TTL, this particular pass is simply skipped
+        # once, not a correctness problem the way the loops below losing
+        # their leader forever would be.
         await reconcile_island_states()
-        
-        # Start background workers
+        # creation_worker/start_worker have no concurrency safety of their
+        # own (no per-item DB claim, no Redis lock) — they stay one-shot,
+        # single-instance, gated by this same startup lock. Only the four
+        # loops below were actually verified/converted to persistent
+        # per-tick leader election; don't add more here without auditing
+        # each worker's own locking first.
         await start_creation_worker()
         await start_start_worker()
-        await start_analytics_worker()
-        start_update_worker()
-        start_health_worker()
-        logger.info("Startup leader has finished initial tasks.")
+        logger.info("Startup leader has finished the one-shot initial tasks.")
     else:
-        logger.info("This worker is not the startup leader. Skipping initial tasks.")
+        logger.info("This worker is not the startup leader. Skipping the one-shot initial tasks.")
+
+    # These four loops start on EVERY gunicorn worker process — each one
+    # does its OWN persistent Redis leader election per tick (see
+    # app.core.leader_election) instead of relying on the one-shot
+    # `is_startup_leader` check above. A worker that loses that single
+    # SETNX roll (e.g. two restarts within its 60s TTL) used to never run
+    # again for the rest of the process's life — exactly what stalled the
+    # v0.0.20 update campaign on 2026-08-22. Now any surviving process keeps
+    # retrying, so leadership always ends up held by someone.
+    await start_analytics_worker()
+    start_update_worker()
+    start_health_worker()
+    start_idle_reaper_worker()
 
     yield
     
@@ -319,20 +338,29 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             logger.error(f"Failed to send pending extractions to {client_id}: {e}")
 
     # mods-server's IslandWebSocketClient (ws/core_{uuid}) — джерело heartbeat/
-    # shutting_down нижче в receive-циклі. Тут закриваємо reload-команди
-    # оновлень, що лишилися з минулої сесії: сервер щойно перезапустився і вже
-    # завантажив нові файли, тож повторний reload не потрібен (і мод може його
-    # не підтримувати).
+    # shutting_down нижче в receive-циклі. Тут резендимо reload-команди
+    # оновлень, що лишились недоставленими з минулого з'єднання — раніше
+    # вони просто позначались "доставлено" на reconnect (припущення "reconnect
+    # = сервер щойно перезапустився з вже свіжими файлами"), але з появою
+    # backoff-reconnect (Фаза 1 heartbeat/WS, той самий JVM-процес може
+    # перепідключитись після короткого мережевого збою, без рестарту) це
+    # припущення вже не завжди правильне — команда, надіслана саме в момент
+    # розриву WS, губилась назавжди. Мод сам ідемпотентний до повторного
+    # виконання команди оновлення (просто перевиконає reload).
     if client_id.startswith("core_"):
         owner_uuid = client_id[len("core_"):]
         try:
             from app.crud.crud_update import crud_island_pending_command
             async with AsyncSessionLocal() as db:
-                closed = await crud_island_pending_command.mark_all_delivered_for_player(db, player_uuid=owner_uuid)
-                if closed:
-                    logger.info(f"Closed {closed} stale update commands for {client_id} (server restarted with fresh files)")
+                undelivered = await crud_island_pending_command.get_undelivered(db, player_uuid=owner_uuid)
+                for pending in undelivered:
+                    await websocket_manager.send_personal_message(
+                        {"type": "execute_command", "command": pending.command, "pending_id": pending.id},
+                        client_id)
+                if undelivered:
+                    logger.info(f"Resent {len(undelivered)} undelivered update command(s) to {client_id} on reconnect.")
         except Exception as e:
-            logger.error(f"Failed to close stale update commands for {client_id}: {e}")
+            logger.error(f"Failed to resend undelivered update commands for {client_id}: {e}")
 
     # Якщо це спавн-хаб — надсилаємо всі pending warp команди
     if client_id == "spawn_hub":
@@ -368,6 +396,8 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
                 # Heartbeat від мода (кожні ~30с з server tick loop): живий MC.
                 elif msg_type == "heartbeat" and client_id.startswith("core_"):
+                    logger.debug(f"Heartbeat {client_id}: instance_id={msg.get('instance_id')} "
+                                f"sequence={msg.get('sequence')} uptime={msg.get('uptime')}")
                     async with AsyncSessionLocal() as db:
                         island = await _resolve_island_by_owner_uuid(db, client_id[len("core_"):])
                         if island:
@@ -375,8 +405,20 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                             fields = {"last_heartbeat_at": _dt.utcnow()}
                             if msg.get("tps") is not None:
                                 fields["last_tps"] = round(float(msg["tps"]), 2)
+                            if msg.get("mspt") is not None:
+                                fields["last_mspt"] = round(float(msg["mspt"]), 2)
                             if msg.get("players") is not None:
-                                fields["online_players"] = int(msg["players"])
+                                players = int(msg["players"])
+                                fields["online_players"] = players
+                                # Idle reaper timestamp: set once when the island
+                                # first goes empty, cleared the moment someone's
+                                # back — never touched otherwise, unlike
+                                # updated_at (which every heartbeat bumps
+                                # regardless of player count).
+                                if players == 0 and island.idle_since is None:
+                                    fields["idle_since"] = _dt.utcnow()
+                                elif players > 0 and island.idle_since is not None:
+                                    fields["idle_since"] = None
                             await crud_island.update_by_id(db, island_id=island.id, obj_in=fields)
 
                 # MC зупиняється штатно — watchdog не вважатиме тишу крашем.
@@ -388,6 +430,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                             await crud_island_event.add(db, island_id=island.id, event_type="stopping",
                                                         details="Minecraft signalled a clean shutdown.")
                             logger.info(f"WebSocket: island {island.id} signalled clean shutdown.")
+
+                # Reply to idle_reaper's "can I stop island X" query from the
+                # persistent proxy_control connection — routed back to
+                # whichever worker is actually awaiting it (see
+                # websocket_manager.await_response/resolve_response).
+                elif msg_type == "island_stop_check_response" and client_id == "proxy_control":
+                    await websocket_manager.publish_to_redis([INTERNAL_RESPONSE_CLIENT_ID], msg)
             except Exception:
                 pass  # не-JSON повідомлення ігноруємо, як і раніше
     except WebSocketDisconnect:
@@ -424,6 +473,16 @@ app.include_router(
     dependencies=_auth,
 )
 
+# POST /islands/launcher/start — mounted separately, WITHOUT the shared
+# X-Api-Key dependency. It has its own require_launcher_token dependency
+# (X-Launcher-Token header vs LAUNCHER_API_KEY) so a leaked launcher key
+# can only ever call this one action, never the rest of the islands router.
+app.include_router(
+    islands_router_module.launcher_router,
+    prefix=f"{settings.API_V1_STR}/islands",
+    tags=["Islands"],
+)
+
 app.include_router(
     teams_router_module.router,
     prefix=f"{settings.API_V1_STR}/teams",
@@ -453,6 +512,7 @@ app.include_router(
 )
 
 from app.api.v1.endpoints import updates as updates_router_module
+from app.api.v1.endpoints import prometheus_sd as prometheus_sd_router_module
 
 # Webhook від GitHub автентифікується HMAC-підписом, НЕ api-key —
 # тому цей роутер підключається без _auth.
@@ -460,6 +520,15 @@ app.include_router(
     updates_router_module.webhook_router,
     prefix=f"{settings.API_V1_STR}/updates",
     tags=["Updates"],
+)
+
+# Prometheus http_sd_configs не вміє X-Api-Key заголовок — цей роутер має
+# власну query-token авторизацію (require_prometheus_sd_token), тому теж
+# підключається без глобального _auth.
+app.include_router(
+    prometheus_sd_router_module.router,
+    prefix=f"{settings.API_V1_STR}/prometheus",
+    tags=["Prometheus"],
 )
 
 app.include_router(

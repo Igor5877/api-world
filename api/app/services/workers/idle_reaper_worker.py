@@ -18,8 +18,9 @@ pass's failure can't roll back another's work:
 
   1. _reap_state_mismatches — DB status vs real LXD status, for every
      "stable" (non-transitional) status. Independent of heartbeat.
-  2. _reap_idle_islands — RUNNING/FROZEN with no real players for longer
-     than FREEZE_TIMER_SECONDS/STOP_TIMER_SECONDS -> freeze/stop.
+  2. _reap_idle_islands — FROZEN for longer than STOP_TIMER_SECONDS -> stop.
+     Freezing is NOT this worker's job (removed 2026-08-25, see the
+     function docstring) — only the mod/plugin ever freeze an island.
   3. _reap_stuck_transitions — PENDING_START/STOP/FREEZE held far longer
      than a normal LXD op should take, inspected via the LXD-level Java
      process check (never the container's own network) and reconciled to
@@ -32,9 +33,11 @@ so it's visible without opening the database.
 """
 import asyncio
 import logging
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -43,9 +46,11 @@ from app.db.session import AsyncSessionLocal
 from app.crud.crud_island import crud_island
 from app.crud.crud_island_event import crud_island_event
 from app.models.island import Island as IslandModel
+from app.models.team import Team as TeamModel
 from app.schemas.island import IslandStatusEnum
 from app.services.lxd_service import lxd_service
 from app.services.island_service import island_service
+from app.services.websocket_manager import manager as websocket_manager
 
 logger = logging.getLogger(__name__)
 
@@ -155,31 +160,24 @@ async def _reap_state_mismatches(db_session: AsyncSession):
 # ── Pass 2: idle timeout ────────────────────────────────────────────────
 
 async def _reap_idle_islands(db_session: AsyncSession):
-    """RUNNING/FROZEN with no real players for long enough -> freeze/stop.
+    """FROZEN for long enough with no proxy-reported activity -> stop.
 
-    Works whether or not any player_left/proxy-timer event ever fired —
-    this is the point. Uses `idle_since` (set by the heartbeat handler the
-    moment online_players first reads 0, cleared the moment it's >0 again)
-    for RUNNING islands, falling back to `updated_at` when no heartbeat was
-    ever received at all (e.g. an aborted transfer nobody actually joined —
-    see the 2026-08-23 Chaos924 incident, which is exactly this case). For
-    FROZEN islands, `updated_at` is reliable on its own (freezing suspends
-    the process, so nothing keeps bumping it while frozen).
+    Freezing is deliberately NOT this worker's job any more (removed
+    2026-08-25): it was pure duplication of the mod's own
+    PlayerEventHandler.scheduleFreezeTask (same 5-minute number), and unlike
+    the mod it had no way to know a player was still actively connected —
+    online_players/idle_since only update via the heartbeat WS, a completely
+    separate connection from the player's actual game connection through the
+    proxy. A stalled/dead heartbeat WS with a still-playing player used to
+    read as "idle" here and get silently frozen out from under them. See
+    lifecycle_stability_plan.md §3.
+
+    Stop is kept as a backstop for when the proxy's own stop_delay_seconds
+    never fires (proxy restart, crash) — `updated_at` on a FROZEN island is
+    reliable on its own (freezing suspends the process, so nothing keeps
+    bumping it while frozen).
     """
     now = datetime.utcnow()
-
-    running = await crud_island.get_islands_by_statuses(
-        db_session, statuses=[IslandStatusEnum.RUNNING], limit=1000)
-    for island in running:
-        if (island.online_players or 0) > 0:
-            continue
-        since = island.idle_since or (island.updated_at if island.last_heartbeat_at is None else None)
-        if since is None:
-            continue
-        idle_seconds = (now - since).total_seconds()
-        if idle_seconds < settings.FREEZE_TIMER_SECONDS:
-            continue
-        await _reap_freeze(db_session, island, idle_seconds)
 
     frozen = await crud_island.get_islands_by_statuses(
         db_session, statuses=[IslandStatusEnum.FROZEN], limit=1000)
@@ -193,44 +191,39 @@ async def _reap_idle_islands(db_session: AsyncSession):
         await _reap_stop(db_session, island, idle_seconds)
 
 
-async def _reap_freeze(db_session: AsyncSession, island: IslandModel, idle_seconds: float):
-    """Freezes one RUNNING island after re-verifying it's still safe to."""
-    fresh = await crud_island.get(db_session, island_id=island.id)
-    if not fresh or fresh.status != IslandStatusEnum.RUNNING:
-        return  # already moved on — don't fight whatever moved it
-    if (fresh.online_players or 0) > 0:
-        return  # a player joined between the scan and now — don't freeze them out
-
-    logger.info(f"Idle reaper: island {island.id} ('{island.container_name}') idle "
-               f"{int(idle_seconds)}s with 0 players — auto-freezing.")
-    event = await crud_island_event.add(
-        db_session, island_id=island.id, event_type="auto_frozen_idle",
-        details=f"Idle reaper: RUNNING with 0 players for {int(idle_seconds)}s "
-                f"(>= FREEZE_TIMER_SECONDS={settings.FREEZE_TIMER_SECONDS}) — froze automatically, "
-                f"independent of any player_left/proxy-timer event.")
-    await crud_island.update_by_id(db_session, island_id=island.id,
-                                   obj_in={"status": IslandStatusEnum.PENDING_FREEZE})
-    try:
-        if fresh.team_id:
-            await island_service._perform_lxd_freeze_and_update_status(team_id=fresh.team_id)
-        elif fresh.player_uuid:
-            await island_service._perform_solo_lxd_freeze_and_update_status(
-                player_uuid_str=str(fresh.player_uuid))
-        else:
-            logger.error(f"Idle reaper: island {island.id} has neither team_id nor player_uuid — "
-                         f"cannot determine which freeze path to use.")
-    except Exception as e:
-        logger.error(f"Idle reaper: freeze of island {island.id} failed: {e}", exc_info=True)
-        await crud_island_event.add(
-            db_session, island_id=island.id, event_type="auto_frozen_idle",
-            details=f"Idle reaper: auto-freeze attempt FAILED: {e}")
-
-
 async def _reap_stop(db_session: AsyncSession, island: IslandModel, idle_seconds: float):
-    """Stops one FROZEN island after re-verifying it's still safe to."""
+    """Stops one FROZEN island after re-verifying it's still safe to.
+
+    Before acting, asks the proxy_control connection (if any) whether it
+    genuinely sees zero players connected to this island's backend server —
+    catches the race where a resume (/myisland, /tpa) is already under way
+    and Velocity already routed someone there while the island is still
+    nominally FROZEN in the DB. If the proxy doesn't answer in time (no
+    connection at all, or it's down) this worker proceeds anyway — it must
+    stay a backstop that works independently of the proxy being alive.
+    """
     fresh = await crud_island.get(db_session, island_id=island.id)
     if not fresh or fresh.status != IslandStatusEnum.FROZEN:
         return
+
+    owner_uuid = str(fresh.player_uuid) if fresh.player_uuid else None
+    if not owner_uuid and fresh.team_id:
+        owner_uuid = await db_session.scalar(select(TeamModel.owner_uuid).where(TeamModel.id == fresh.team_id))
+
+    if owner_uuid:
+        request_id = str(uuid.uuid4())
+        await websocket_manager.send_personal_message(
+            {"type": "island_stop_check_request", "request_id": request_id, "owner_uuid": owner_uuid},
+            "proxy_control")
+        response = await websocket_manager.await_response(request_id, timeout=5.0)
+        if response is not None and response.get("allow") is False:
+            logger.info(f"Idle reaper: island {island.id} stop deferred — proxy reports "
+                       f"{response.get('online_count', '?')} player(s) still connected.")
+            await crud_island_event.add(
+                db_session, island_id=island.id, event_type="stop_deferred_by_proxy",
+                details=f"Idle reaper: proxy reports {response.get('online_count', '?')} "
+                        f"player(s) still on island — stop skipped this tick, will retry.")
+            return
 
     logger.info(f"Idle reaper: island {island.id} ('{island.container_name}') frozen-idle "
                f"{int(idle_seconds)}s — auto-stopping.")

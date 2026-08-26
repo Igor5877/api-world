@@ -30,12 +30,17 @@ public class Config {
             .comment("Timeout in seconds for API requests to the SkyBlock API.")
             .defineInRange("apiRequestTimeoutSeconds", 10, 5, 60);
 
+    private static final ForgeConfigSpec.IntValue HEARTBEAT_INTERVAL_SECONDS = BUILDER
+            .comment("How often (seconds) the island sends a heartbeat to the API watchdog.")
+            .defineInRange("heartbeatIntervalSeconds", 30, 5, 300);
+
 
     static final ForgeConfigSpec SPEC = BUILDER.build();
 
     private static String apiBaseUrl;
     private static String apiKey;
     private static int apiRequestTimeoutSeconds; // Field to store the baked value
+    private static int heartbeatIntervalSeconds;
 
     /**
      * Validates a URL.
@@ -81,12 +86,22 @@ public class Config {
     }
 
     /**
+     * Gets the heartbeat interval in seconds.
+     *
+     * @return The heartbeat interval in seconds.
+     */
+    public static int getHeartbeatIntervalSeconds() {
+        return heartbeatIntervalSeconds > 0 ? heartbeatIntervalSeconds : 30; // Fallback to 30 if not baked or invalid
+    }
+
+    /**
      * Bakes the configuration values into static fields.
      */
     public static void bake() {
         apiBaseUrl = API_BASE_URL.get();
         apiKey = API_KEY.get();
         apiRequestTimeoutSeconds = API_REQUEST_TIMEOUT_SECONDS.get();
+        heartbeatIntervalSeconds = HEARTBEAT_INTERVAL_SECONDS.get();
         // Ensure trailing slash for base URL consistency
         if (apiBaseUrl != null && !apiBaseUrl.endsWith("/")) {
             apiBaseUrl += "/";
