@@ -287,3 +287,22 @@ class IslandDiagnosticsResponse(BaseModel):
     db_status: str
     live_container_status: str
     consistent: bool
+
+
+class IslandSummary(BaseModel):
+    """One row of the admin island list (/islands/admin/list).
+
+    Deliberately thin — a dashboard/command listing many islands at once
+    shouldn't pull the full IslandResponse (event history, quest state, ...)
+    per row.
+    """
+    owner_uuid: Optional[str] = None
+    team_name: Optional[str] = None
+    status: IslandStatusEnum
+    minecraft_ready: bool
+    online_players: Optional[int] = None
+    current_version: Optional[str] = None
+    container_name: str
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)

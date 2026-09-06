@@ -138,6 +138,27 @@ public class ApiClient {
     }
 
     /**
+     * Lists all islands (the full roster) for /islandadmin list.
+     *
+     * @param statusFilter Optional status to narrow the list to (e.g. "RUNNING"), or null for all.
+     * @return A CompletableFuture that completes with the API response (a JSON array).
+     */
+    public CompletableFuture<ApiResponse> listIslands(String statusFilter) {
+        String path = "/islands/admin/list" + (statusFilter != null
+                ? "?status_filter=" + URLEncoder.encode(statusFilter, StandardCharsets.UTF_8) : "");
+        HttpRequest request = baseRequest(apiUrlBase + path).GET().build();
+
+        logger.debug("Requesting island list: GET {}", request.uri());
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
+                .exceptionally(ex -> {
+                    logger.error("API request failed for listIslands: {}", ex.getMessage(), ex);
+                    return new ApiResponse(ex.getMessage());
+                });
+    }
+
+    /**
      * Live DB-vs-LXD consistency check for /islandadmin status.
      *
      * @param ownerUuid The UUID of the island owner (team owner or solo player).

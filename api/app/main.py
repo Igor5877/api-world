@@ -158,6 +158,8 @@ async def reconcile_island_states():
                     elif lxd_status_str == "Running": # Stop failed
                         logger.info(f"Reconciliation: Island ID {island_db.id} (DB: PENDING_STOP, LXD: Running). Correcting to RUNNING (stop failed).")
                         new_status = IslandStatusEnum.RUNNING
+                        if actual_lxd_state_info and actual_lxd_state_info.get("ip_address"):
+                            extra_fields_to_update["internal_ip_address"] = actual_lxd_state_info.get("ip_address")
                     elif lxd_status_str == "Frozen": # Stop might have been interrupted, or was frozen before stop
                         logger.info(f"Reconciliation: Island ID {island_db.id} (DB: PENDING_STOP, LXD: Frozen). Correcting to FROZEN (stop failed).")
                         new_status = IslandStatusEnum.FROZEN

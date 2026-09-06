@@ -139,7 +139,7 @@ async def reset_stale_updating_islands(db_session: AsyncSession):
             fields = {"status": new_status}
             if new_status == IslandStatusEnum.STOPPED:
                 fields.update({"internal_ip_address": None, "minecraft_ready": False,
-                               "last_heartbeat_at": None})
+                               "last_heartbeat_at": None, "online_players": 0, "idle_since": None})
             await crud_island.update_by_id(db_session, island_id=island.id, obj_in=fields)
             logger.warning(f"Update worker: Island {island.id} ('{island.container_name}') was stuck "
                            f"in UPDATING after a crash — reset to {new_status.value} "

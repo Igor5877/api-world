@@ -485,7 +485,8 @@ class IslandService:
             if not team or not team.island: return
             try:
                 await lxd_service.stop_container(team.island.container_name, force=True)
-                update_fields = {"status": IslandStatusEnum.STOPPED, "internal_ip_address": None, "minecraft_ready": False}
+                update_fields = {"status": IslandStatusEnum.STOPPED, "internal_ip_address": None,
+                                  "minecraft_ready": False, "online_players": 0, "idle_since": None}
                 updated_island = await crud_island.update(db, db_obj=team.island, obj_in=update_fields)
                 await db.commit()
                 await db.refresh(updated_island)
@@ -506,7 +507,8 @@ class IslandService:
             if not island: return
             try:
                 await lxd_service.stop_container(island.container_name, force=True)
-                update_fields = {"status": IslandStatusEnum.STOPPED, "internal_ip_address": None, "minecraft_ready": False}
+                update_fields = {"status": IslandStatusEnum.STOPPED, "internal_ip_address": None,
+                                  "minecraft_ready": False, "online_players": 0, "idle_since": None}
                 updated_island = await crud_island.update(db, db_obj=island, obj_in=update_fields)
                 await db.commit()
                 await db.refresh(updated_island)

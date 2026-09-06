@@ -154,6 +154,16 @@ async def _reap_state_mismatches(db_session: AsyncSession):
         if expected_status != IslandStatusEnum.RUNNING:
             update_fields["internal_ip_address"] = None
             update_fields["minecraft_ready"] = False
+            update_fields["online_players"] = 0
+            update_fields["idle_since"] = None
+        elif not island.internal_ip_address:
+            # DB thought the island was offline (no IP recorded) but LXD says
+            # it's actually running — fetch the real IP so RUNNING doesn't
+            # get stamped with a stale/missing address (the mod's /ready call
+            # never touches internal_ip_address, so nothing else would).
+            real_ip = await lxd_service.get_container_ip(island.container_name)
+            if real_ip:
+                update_fields["internal_ip_address"] = real_ip
         await crud_island.update_by_id(db_session, island_id=island.id, obj_in=update_fields)
 
 
@@ -316,7 +326,7 @@ async def _reap_stuck_transitions(db_session: AsyncSession):
             await crud_island.update_by_id(
                 db_session, island_id=island.id,
                 obj_in={"status": IslandStatusEnum.ERROR_START, "internal_ip_address": None,
-                        "minecraft_ready": False})
+                        "minecraft_ready": False, "online_players": 0, "idle_since": None})
             continue
 
         if lxd_status == "frozen":
@@ -337,7 +347,8 @@ async def _reap_stuck_transitions(db_session: AsyncSession):
                         f"{lxd_status} — reconciling to {target.value}.")
             await crud_island.update_by_id(
                 db_session, island_id=island.id,
-                obj_in={"status": target, "internal_ip_address": None, "minecraft_ready": False})
+                obj_in={"status": target, "internal_ip_address": None, "minecraft_ready": False,
+                        "online_players": 0, "idle_since": None})
             continue
 
 

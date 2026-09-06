@@ -119,7 +119,7 @@ public class NestworldVelocityPlugin {
         CommandMeta islandAdminMeta = commandManager.metaBuilder("islandadmin")
                 .plugin(this)
                 .build();
-        commandManager.register(islandAdminMeta, new IslandAdminCommand(this.apiClient, server, logger, this.pluginConfig));
+        commandManager.register(islandAdminMeta, new IslandAdminCommand(this.apiClient, server, logger, this.pluginConfig, myIslandCommandInstance));
         logger.info("Registered /islandadmin command.");
 
         this.proxyControlConnection = new ProxyControlConnection(this, server, logger, this.pluginConfig);

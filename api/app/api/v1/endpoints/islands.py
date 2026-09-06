@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession # Added for DB session type hint
 import logging
 
 from app.core.auth import require_launcher_token
-from app.schemas.island import IslandCreate, IslandResponse, IslandStatusEnum, MessageResponse, QuestProgressUpload, QuestProgressResponse, IslandEventResponse, LauncherStartRequest, IslandOwnerChangeRequest, IslandDiagnosticsResponse
+from app.schemas.island import IslandCreate, IslandResponse, IslandStatusEnum, MessageResponse, QuestProgressUpload, QuestProgressResponse, IslandEventResponse, LauncherStartRequest, IslandOwnerChangeRequest, IslandDiagnosticsResponse, IslandSummary
 from app.services.island_service import island_service
 from app.db.session import get_db_session # Import the dependency
 
@@ -385,6 +385,53 @@ async def _resolve_island_by_owner(db_session: AsyncSession, owner_uuid: str):
 
 
 # ── IslandAdminCommand (/islandadmin) support ──────────────────────────
+
+@router.get("/admin/list", response_model=list[IslandSummary])
+async def list_islands_endpoint(
+    status_filter: str | None = None,
+    limit: int = 200,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """Lists all islands for /islandadmin list — the full roster, not just
+    one player's.
+
+    Args:
+        status_filter: Optional island status (e.g. "RUNNING") to narrow the
+            list to; case-insensitive. Unrecognized values are ignored (the
+            full list is returned) rather than raising a 400 — this backs an
+            in-game command, not a strict API contract.
+        limit: Row cap (default 200) — a modpack has at most a few hundred
+            islands, so no cursor pagination is needed yet.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.island import Island as IslandModel
+
+    query = select(IslandModel).options(selectinload(IslandModel.team)).order_by(IslandModel.updated_at.desc())
+    if status_filter:
+        try:
+            query = query.where(IslandModel.status == IslandStatusEnum(status_filter.upper()))
+        except ValueError:
+            pass
+    query = query.limit(limit)
+
+    result = await db_session.execute(query)
+    islands = result.scalars().all()
+
+    return [
+        IslandSummary(
+            owner_uuid=(island.team.owner_uuid if island.team else island.player_uuid),
+            team_name=(island.team.name if island.team else island.player_name),
+            status=island.status,
+            minecraft_ready=island.minecraft_ready,
+            online_players=island.online_players,
+            current_version=island.current_version,
+            container_name=island.container_name,
+            updated_at=island.updated_at,
+        )
+        for island in islands
+    ]
+
 
 @router.get("/{owner_uuid}/admin/diagnostics", response_model=IslandDiagnosticsResponse)
 async def get_island_diagnostics_endpoint(

@@ -121,14 +121,26 @@ public class MyIslandCommand implements SimpleCommand {
                     boolean minecraftReady = islandData.has("minecraft_ready") && islandData.get("minecraft_ready").getAsBoolean();
 
                     if ("RUNNING".equalsIgnoreCase(status) && minecraftReady) {
-                        player.sendMessage(localeManager.getComponent(lang, "myisland.status.ready", NamedTextColor.GREEN));
+                        // Parse the connection target before telling the player
+                        // we're connecting — a broken/missing IP on an already
+                        // RUNNING island (e.g. lifecycle_stability_plan.md
+                        // reconciliation gap) must not present as "connecting"
+                        // followed by a silent, unfixable not_ready/start loop.
                         String ip = islandData.get("internal_ip_address").getAsString();
                         int port = islandData.get("internal_port").getAsInt();
+                        player.sendMessage(localeManager.getComponent(lang, "myisland.status.ready", NamedTextColor.GREEN));
                         attemptSingleConnection(player, player.getUniqueId(), ip, port);
                         return;
                     }
                 } catch (Exception e) {
+                    // The island exists and reported RUNNING/ready but its data
+                    // is malformed — requesting a start would be a silent no-op
+                    // (island_service short-circuits an already-RUNNING island
+                    // without touching internal_ip_address), so tell the player
+                    // instead of looping them into startAndListen() forever.
                     logger.error("Error parsing initial island status for {}: {}", player.getUsername(), e.getMessage());
+                    player.sendMessage(localeManager.getComponent(lang, "myisland.status.inconsistent", NamedTextColor.RED));
+                    return;
                 }
             }
 
@@ -171,7 +183,8 @@ public class MyIslandCommand implements SimpleCommand {
      */
     private void connectToWebSocket(Player player) {
         UUID playerUuid = player.getUniqueId();
-        
+        String lang = player.getPlayerSettings().getLocale().getLanguage();
+
         WebSocketManager old = plugin.getWebSocketManagers().remove(playerUuid);
         if (old != null) old.close();
 
@@ -180,15 +193,24 @@ public class MyIslandCommand implements SimpleCommand {
 
         try {
             WebSocketManager client = new WebSocketManager(new URI(wsUrl), logger, player, proxyServer, (islandData) -> {
-                String ip = islandData.get("internal_ip_address").getAsString();
-                int port = islandData.get("internal_port").getAsInt();
-                proxyServer.getScheduler().buildTask(plugin, () -> attemptSingleConnection(player, player.getUniqueId(), ip, port)).schedule();
+                try {
+                    String ip = islandData.get("internal_ip_address").getAsString();
+                    int port = islandData.get("internal_port").getAsInt();
+                    proxyServer.getScheduler().buildTask(plugin, () -> attemptSingleConnection(player, player.getUniqueId(), ip, port)).schedule();
+                } catch (Exception e) {
+                    // Same broken-data case as initiateIslandConnection, but
+                    // reached via the WS push — WebSocketManager.onText only
+                    // logs this exception, so the player would otherwise be
+                    // stuck silently forever (already removed from
+                    // awaitingConnection by the time this runs).
+                    logger.error("Island reported ready via WebSocket but connection data is invalid for {}: {}", player.getUsername(), e.getMessage());
+                    player.sendMessage(localeManager.getComponent(lang, "myisland.status.inconsistent", NamedTextColor.RED));
+                }
             }, plugin);
             client.connect();
             plugin.getWebSocketManagers().put(playerUuid, client);
         } catch (Exception e) {
             logger.error("Failed to create WebSocket client for player {}: {}", player.getUsername(), e.getMessage(), e);
-            String lang = player.getPlayerSettings().getLocale().getLanguage();
             player.sendMessage(localeManager.getComponent(lang, "myisland.status.websocket_fail", NamedTextColor.RED));
         }
     }
@@ -243,6 +265,68 @@ public class MyIslandCommand implements SimpleCommand {
     @Override
     public boolean hasPermission(Invocation invocation) {
         return true;
+    }
+
+    private static final int ADMIN_JOIN_POLL_INTERVAL_SECONDS = 2;
+    private static final int ADMIN_JOIN_POLL_MAX_ATTEMPTS = 45; // ~90s, matches a cold island boot
+
+    /**
+     * Admin variant of {@link #teleportToIsland}: starts (creating the island
+     * first if the target has never played) an arbitrary player's island by
+     * name and connects {@code admin} the moment it's ready — no confirmation
+     * from the target, and the target does not need to be online. The server
+     * runs with online-mode=false, so the UUID is derived the same
+     * deterministic way the rest of the platform (islands, teams) already
+     * does, rather than requiring a live Mojang/proxy lookup.
+     *
+     * @param admin      The admin being connected.
+     * @param targetName The nickname of the island owner (may never have logged in).
+     */
+    public void adminJoinIsland(Player admin, String targetName) {
+        UUID targetUuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + targetName).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String lang = admin.getPlayerSettings().getLocale().getLanguage();
+        admin.sendMessage(Component.text("⏳ Запускаю острів " + targetName + "...", NamedTextColor.YELLOW));
+        apiClient.requestIslandStart(targetUuid, targetName);
+        adminPollAndConnect(admin, targetUuid, targetName, 0);
+    }
+
+    private void adminPollAndConnect(Player admin, UUID targetUuid, String targetName, int attempt) {
+        apiClient.getIslandDetails(targetUuid).thenAccept(res -> {
+            if (res.isSuccess()) {
+                try {
+                    JsonObject island = JsonParser.parseString(res.body()).getAsJsonObject();
+                    String status = island.get("status").getAsString();
+                    boolean ready = island.has("minecraft_ready") && !island.get("minecraft_ready").isJsonNull()
+                            && island.get("minecraft_ready").getAsBoolean();
+                    if ("RUNNING".equalsIgnoreCase(status) && ready) {
+                        String ip = island.get("internal_ip_address").getAsString();
+                        int port = island.get("internal_port").getAsInt();
+                        admin.sendMessage(Component.text("✔ Острів готовий, підключаю...", NamedTextColor.GREEN));
+                        attemptSingleConnection(admin, targetUuid, ip, port);
+                        return;
+                    }
+                } catch (Exception e) {
+                    logger.error("[IslandAdmin] join: bad island data for {}: {}", targetName, e.getMessage());
+                    admin.sendMessage(Component.text("✖ Некоректні дані острова.", NamedTextColor.RED));
+                    return;
+                }
+            }
+            adminScheduleNextPoll(admin, targetUuid, targetName, attempt);
+        }).exceptionally(ex -> {
+            adminScheduleNextPoll(admin, targetUuid, targetName, attempt);
+            return null;
+        });
+    }
+
+    private void adminScheduleNextPoll(Player admin, UUID targetUuid, String targetName, int attempt) {
+        if (attempt + 1 >= ADMIN_JOIN_POLL_MAX_ATTEMPTS) {
+            admin.sendMessage(Component.text("✖ Острів " + targetName + " не запустився за відведений час.", NamedTextColor.RED));
+            return;
+        }
+        if (!admin.isActive()) return; // admin disconnected while waiting
+        proxyServer.getScheduler().buildTask(plugin, () -> adminPollAndConnect(admin, targetUuid, targetName, attempt + 1))
+                .delay(java.time.Duration.ofSeconds(ADMIN_JOIN_POLL_INTERVAL_SECONDS))
+                .schedule();
     }
 
     /**

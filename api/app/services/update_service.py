@@ -347,7 +347,8 @@ class UpdateService:
                 # The container stays stopped — islands start on demand when the
                 # player joins, so no restart is needed here.
                 final_status = IslandStatusEnum.STOPPED
-                extra = {"internal_ip_address": None, "minecraft_ready": False}
+                extra = {"internal_ip_address": None, "minecraft_ready": False,
+                         "online_players": 0, "idle_since": None}
             else:
                 # Soft update: files + in-game reload, the player never leaves.
                 backed_up = await lxd_service.backup_files(container_name, paths_to_save, backup_dir)
@@ -423,7 +424,8 @@ class UpdateService:
                 await crud_island.update_by_id(
                     db_session, island_id=island.id,
                     obj_in={"status": IslandStatusEnum.STOPPED, "internal_ip_address": None,
-                            "minecraft_ready": False, "current_version": campaign.previous_version},
+                            "minecraft_ready": False, "current_version": campaign.previous_version,
+                            "online_players": 0, "idle_since": None},
                 )
             else:
                 if owner_uuid and previous_status == IslandStatusEnum.RUNNING:

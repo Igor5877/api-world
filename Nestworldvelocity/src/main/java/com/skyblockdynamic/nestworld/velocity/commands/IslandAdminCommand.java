@@ -29,12 +29,12 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * /islandadmin status|info|set|member|start|stop|restart
+ * /islandadmin status|info|set|member|start|stop|restart|join|list
  *
  * Адмінська діагностика й керування островом через API — ніколи напряму
- * через DB/LXD/мод. Read-only (status/info) доступне за island.admin;
+ * через DB/LXD/мод. Read-only (status/info/list) доступне за island.admin;
  * зміна persistent-даних (set/member) — island.admin.modify; lifecycle
- * (start/stop/restart) — island.admin.lifecycle. Наявність island.admin
+ * (start/stop/restart/join) — island.admin.lifecycle. Наявність island.admin
  * саму по собі не дає права на дії з іншими рівнями.
  *
  * Audit trail для mutation/lifecycle-операцій — не окрема підсистема, а
@@ -43,7 +43,7 @@ import java.util.concurrent.CompletableFuture;
  */
 public class IslandAdminCommand implements SimpleCommand {
 
-    private static final List<String> SUBCOMMANDS = List.of("status", "info", "set", "member", "start", "stop", "restart");
+    private static final List<String> SUBCOMMANDS = List.of("status", "info", "set", "member", "start", "stop", "restart", "join", "list");
     private static final List<String> SET_FIELDS = List.of("owner");
     private static final List<String> MEMBER_ACTIONS = List.of("add", "remove");
 
@@ -51,15 +51,18 @@ public class IslandAdminCommand implements SimpleCommand {
     private final ProxyServer server;
     private final Logger logger;
     private final PluginConfig config;
+    private final MyIslandCommand myIslandCommand;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
             .build();
 
-    public IslandAdminCommand(ApiClient apiClient, ProxyServer server, Logger logger, PluginConfig config) {
+    public IslandAdminCommand(ApiClient apiClient, ProxyServer server, Logger logger, PluginConfig config,
+                              MyIslandCommand myIslandCommand) {
         this.apiClient = apiClient;
         this.server = server;
         this.logger = logger;
         this.config = config;
+        this.myIslandCommand = myIslandCommand;
     }
 
     @Override
@@ -74,18 +77,20 @@ public class IslandAdminCommand implements SimpleCommand {
         switch (sub) {
             case "status" -> runWithPermission(invocation, "island.admin", () -> handleStatus(invocation, args, true));
             case "info" -> runWithPermission(invocation, "island.admin", () -> handleStatus(invocation, args, false));
+            case "list" -> runWithPermission(invocation, "island.admin", () -> handleList(invocation, args));
             case "set" -> runWithPermission(invocation, "island.admin.modify", () -> handleSet(invocation, args));
             case "member" -> runWithPermission(invocation, "island.admin.modify", () -> handleMember(invocation, args));
             case "start" -> runWithPermission(invocation, "island.admin.lifecycle", () -> handleStart(invocation, args));
             case "stop" -> runWithPermission(invocation, "island.admin.lifecycle", () -> handleStop(invocation, args));
             case "restart" -> runWithPermission(invocation, "island.admin.lifecycle", () -> handleRestart(invocation, args));
+            case "join" -> runWithPermission(invocation, "island.admin.lifecycle", () -> handleJoin(invocation, args));
             default -> sendUsage(invocation);
         }
     }
 
     private void sendUsage(Invocation invocation) {
         invocation.source().sendMessage(Component.text(
-                "Використання: /islandadmin <status|info|set|member|start|stop|restart> <name> ...",
+                "Використання: /islandadmin <status|info|set|member|start|stop|restart|join|list> <name> ...",
                 NamedTextColor.RED));
     }
 
@@ -436,6 +441,63 @@ public class IslandAdminCommand implements SimpleCommand {
         });
     }
 
+    private void handleJoin(Invocation invocation, String[] args) {
+        if (args.length < 2) {
+            invocation.source().sendMessage(Component.text("Використання: /islandadmin join <name>", NamedTextColor.RED));
+            return;
+        }
+        if (!(invocation.source() instanceof Player admin)) {
+            invocation.source().sendMessage(Component.text("✖ Only players can join an island in-game.", NamedTextColor.RED));
+            return;
+        }
+        myIslandCommand.adminJoinIsland(admin, args[1]);
+    }
+
+    // ── list ─────────────────────────────────────────────────────────
+
+    private void handleList(Invocation invocation, String[] args) {
+        String statusFilter = args.length >= 2 ? args[1].toUpperCase() : null;
+        apiClient.listIslands(statusFilter).thenAccept(res -> {
+            if (!res.isSuccess()) {
+                invocation.source().sendMessage(Component.text("✖ Operation failed: " + describeError(res), NamedTextColor.RED));
+                return;
+            }
+            JsonArray islands = JsonParser.parseString(res.body()).getAsJsonArray();
+            if (islands.isEmpty()) {
+                invocation.source().sendMessage(Component.text("Островів не знайдено.", NamedTextColor.GRAY));
+                return;
+            }
+            invocation.source().sendMessage(Component.text(
+                    "════ Острови (" + islands.size() + ") ════", NamedTextColor.GOLD));
+            for (JsonElement el : islands) {
+                JsonObject island = el.getAsJsonObject();
+                String name = getStringOrNull(island, "team_name");
+                String dbStatus = getStringOrNull(island, "status");
+                boolean ready = island.has("minecraft_ready") && !island.get("minecraft_ready").isJsonNull()
+                        && island.get("minecraft_ready").getAsBoolean();
+                Object online = island.has("online_players") && !island.get("online_players").isJsonNull()
+                        ? island.get("online_players").getAsInt() : "—";
+                String version = getStringOrNull(island, "current_version");
+
+                NamedTextColor statusColor = switch (dbStatus == null ? "" : dbStatus) {
+                    case "RUNNING" -> ready ? NamedTextColor.GREEN : NamedTextColor.YELLOW;
+                    case "FROZEN" -> NamedTextColor.AQUA;
+                    case "STOPPED" -> NamedTextColor.GRAY;
+                    default -> dbStatus != null && dbStatus.startsWith("ERROR") ? NamedTextColor.RED : NamedTextColor.LIGHT_PURPLE;
+                };
+
+                invocation.source().sendMessage(Component.text("  " + (name == null ? "?" : name) + " ", NamedTextColor.WHITE)
+                        .append(Component.text("[" + dbStatus + "]", statusColor))
+                        .append(Component.text("  онлайн: " + online, NamedTextColor.GRAY))
+                        .append(Component.text(version == null ? "" : "  " + version, NamedTextColor.DARK_GRAY)));
+            }
+        }).exceptionally(ex -> {
+            logger.error("[IslandAdmin] list failed: {}", ex.getMessage(), ex);
+            invocation.source().sendMessage(Component.text("✖ Operation failed.", NamedTextColor.RED));
+            return null;
+        });
+    }
+
     private void reportLifecycleResult(Invocation invocation, String op, ApiResponse res) {
         if (res.isSuccess()) {
             invocation.source().sendMessage(Component.text("✔ " + op + " accepted.", NamedTextColor.GREEN));
@@ -535,7 +597,8 @@ public class IslandAdminCommand implements SimpleCommand {
         if (args.length == 2) {
             return switch (sub) {
                 case "member" -> MEMBER_ACTIONS;
-                case "status", "info", "set", "start", "stop", "restart" ->
+                case "list" -> List.of("RUNNING", "STOPPED", "FROZEN");
+                case "status", "info", "set", "start", "stop", "restart", "join" ->
                         server.getAllPlayers().stream().map(Player::getUsername).toList();
                 default -> List.of();
             };

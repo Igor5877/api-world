@@ -104,7 +104,7 @@ async def _handle_silent_island(db_session: AsyncSession, island, silence: float
     lxd_status = ((state or {}).get("status") or "").lower()
 
     offline_fields = {"internal_ip_address": None, "minecraft_ready": False,
-                      "last_heartbeat_at": None}
+                      "last_heartbeat_at": None, "online_players": 0, "idle_since": None}
 
     if state is None:
         logger.error(f"Health watchdog: island {island.id}: container '{container_name}' "
