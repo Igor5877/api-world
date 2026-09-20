@@ -1,0 +1,60 @@
+package com.nguyendevs.freesia.common.communicating.handler;
+
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.SimpleChannelInboundHandler;
+import com.nguyendevs.freesia.common.EntryPoint;
+import com.nguyendevs.freesia.common.communicating.NettySocketClient;
+import com.nguyendevs.freesia.common.communicating.message.IMessage;
+import org.jetbrains.annotations.NotNull;
+
+import java.util.concurrent.CompletableFuture;
+
+public abstract class NettyClientChannelHandlerLayer extends SimpleChannelInboundHandler<IMessage<NettyClientChannelHandlerLayer>> {
+    @Override
+    protected void channelRead0(ChannelHandlerContext ctx, IMessage<NettyClientChannelHandlerLayer> msg) {
+        try {
+            msg.process(this);
+        } catch (Exception e) {
+            EntryPoint.LOGGER_INST.error("Failed to process packet! ", e);
+        }
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        if (cause instanceof java.io.IOException) {
+            return;
+        }
+
+        if (cause instanceof javax.net.ssl.SSLException) {
+            EntryPoint.LOGGER_INST.error("SSL error: {}", cause.getMessage());
+            ctx.close();
+            return;
+        }
+
+        if (cause instanceof io.netty.handler.codec.TooLongFrameException) {
+            EntryPoint.LOGGER_INST.error("TooLongFrameException: Adjusted frame length exceeds maximum. This may indicate a protocol mismatch between the proxy and the worker. Closing channel.");
+            ctx.close();
+            return;
+        }
+
+        EntryPoint.LOGGER_INST.error("Exception caught in Client channel: ", cause);
+        ctx.close();
+    }
+
+    @Override
+    public void channelActive(@NotNull ChannelHandlerContext ctx) {
+        this.getClient().onChannelActive(ctx.channel());
+    }
+
+    @Override
+    public void channelInactive(@NotNull ChannelHandlerContext ctx) {
+        this.getClient().onChannelInactive();
+    }
+
+    public abstract NettySocketClient getClient();
+
+    public abstract void onMasterPlayerDataResponse(int traceId, byte[] content);
+
+    public abstract CompletableFuture<String> dispatchCommand(String command);
+}
+

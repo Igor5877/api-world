@@ -1,0 +1,25 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="GPL-2.0-only"
+
+[[mods]]
+modId="freesia_backend"
+version="1.0.0"
+displayName="Freesia Backend for Forge"
+displayTest="IGNORE_ALL_VERSION"
+authors="NguyenDevs, MrHua269; Forge adaptation for Nestworld"
+description='''Server-side FreesiaII player tracking bridge for Forge 1.20.1.'''
+
+[[dependencies.freesia_backend]]
+modId="forge"
+mandatory=true
+versionRange="[47.4.0,48)"
+ordering="NONE"
+side="SERVER"
+
+[[dependencies.freesia_backend]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.20.2)"
+ordering="NONE"
+side="SERVER"
