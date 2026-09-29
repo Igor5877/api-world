@@ -46,7 +46,7 @@ from app.db.session import AsyncSessionLocal
 from app.crud.crud_island import crud_island
 from app.crud.crud_island_event import crud_island_event
 from app.models.island import Island as IslandModel
-from app.models.team import Team as TeamModel
+from app.models.team import Team as TeamModel, TeamMember as TeamMemberModel
 from app.schemas.island import IslandStatusEnum
 from app.services.lxd_service import lxd_service
 from app.services.island_service import island_service
@@ -204,35 +204,49 @@ async def _reap_idle_islands(db_session: AsyncSession):
 async def _reap_stop(db_session: AsyncSession, island: IslandModel, idle_seconds: float):
     """Stops one FROZEN island after re-verifying it's still safe to.
 
-    Before acting, asks the proxy_control connection (if any) whether it
-    genuinely sees zero players connected to this island's backend server —
-    catches the race where a resume (/myisland, /tpa) is already under way
-    and Velocity already routed someone there while the island is still
-    nominally FROZEN in the DB. If the proxy doesn't answer in time (no
-    connection at all, or it's down) this worker proceeds anyway — it must
-    stay a backstop that works independently of the proxy being alive.
+    Before acting, asks the proxy_control connection (if any) whether any
+    member of the island's team is online anywhere on the proxy (spawn,
+    someone else's island, mid-/myisland) — such a player can come back any
+    second, so the island stays FROZEN (instant resume) instead of being
+    stopped (full cold boot). Asking about the island's own backend server
+    only was wrong twice over: a member on the spawn is "not on the island"
+    yet about to return, and Velocity names the backend after whichever
+    player connected (`island-<player uuid>`), so a non-owner member's
+    session was invisible to an owner-keyed check. If the proxy doesn't
+    answer in time (no connection at all, or it's down) this worker proceeds
+    anyway — it must stay a backstop that works independently of the proxy
+    being alive.
     """
     fresh = await crud_island.get(db_session, island_id=island.id)
     if not fresh or fresh.status != IslandStatusEnum.FROZEN:
         return
 
     owner_uuid = str(fresh.player_uuid) if fresh.player_uuid else None
-    if not owner_uuid and fresh.team_id:
-        owner_uuid = await db_session.scalar(select(TeamModel.owner_uuid).where(TeamModel.id == fresh.team_id))
-
+    member_uuids: list[str] = [owner_uuid] if owner_uuid else []
+    if fresh.team_id:
+        if not owner_uuid:
+            owner_uuid = await db_session.scalar(select(TeamModel.owner_uuid).where(TeamModel.id == fresh.team_id))
+        member_uuids += (await db_session.scalars(
+            select(TeamMemberModel.player_uuid).where(TeamMemberModel.team_id == fresh.team_id))).all()
     if owner_uuid:
+        member_uuids.append(owner_uuid)
+    member_uuids = sorted({str(u) for u in member_uuids if u})
+
+    if member_uuids:
         request_id = str(uuid.uuid4())
+        # owner_uuid kept for proxies still running the old owner-server check.
         await websocket_manager.send_personal_message(
-            {"type": "island_stop_check_request", "request_id": request_id, "owner_uuid": owner_uuid},
+            {"type": "island_stop_check_request", "request_id": request_id,
+             "owner_uuid": owner_uuid, "member_uuids": member_uuids},
             "proxy_control")
         response = await websocket_manager.await_response(request_id, timeout=5.0)
         if response is not None and response.get("allow") is False:
             logger.info(f"Idle reaper: island {island.id} stop deferred — proxy reports "
-                       f"{response.get('online_count', '?')} player(s) still connected.")
+                       f"{response.get('online_count', '?')} team member(s) online on the proxy.")
             await crud_island_event.add(
                 db_session, island_id=island.id, event_type="stop_deferred_by_proxy",
                 details=f"Idle reaper: proxy reports {response.get('online_count', '?')} "
-                        f"player(s) still on island — stop skipped this tick, will retry.")
+                        f"team member(s) online on the proxy — stop skipped this tick, will retry.")
             return
 
     logger.info(f"Idle reaper: island {island.id} ('{island.container_name}') frozen-idle "

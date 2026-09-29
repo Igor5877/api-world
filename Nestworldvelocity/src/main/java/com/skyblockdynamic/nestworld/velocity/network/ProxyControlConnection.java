@@ -109,10 +109,28 @@ public class ProxyControlConnection implements WebSocket.Listener {
 
     private void handleStopCheckRequest(WebSocket ws, JsonObject request) {
         String requestId = request.get("request_id").getAsString();
-        String ownerUuid = request.get("owner_uuid").getAsString();
 
-        int onlineCount = server.getServer("island-" + ownerUuid)
-                .map(s -> s.getPlayersConnected().size()).orElse(0);
+        int onlineCount;
+        if (request.has("member_uuids") && request.get("member_uuids").isJsonArray()) {
+            // Будь-хто з команди онлайн на проксі (спавн, чужий острів, в дорозі
+            // на свій) — острів лишається FROZEN, а не зупиняється: гравець може
+            // повернутись будь-якої миті, і resume миттєвий, а холодний старт ні.
+            onlineCount = 0;
+            for (var element : request.getAsJsonArray("member_uuids")) {
+                try {
+                    if (server.getPlayer(java.util.UUID.fromString(element.getAsString())).isPresent()) {
+                        onlineCount++;
+                    }
+                } catch (IllegalArgumentException e) {
+                    logger.warn("[ProxyControl] Invalid member UUID in stop check: {}", element);
+                }
+            }
+        } else {
+            // Старий API без member_uuids — лише гравці на бекенді острова.
+            String ownerUuid = request.get("owner_uuid").getAsString();
+            onlineCount = server.getServer("island-" + ownerUuid)
+                    .map(s -> s.getPlayersConnected().size()).orElse(0);
+        }
 
         JsonObject response = new JsonObject();
         response.addProperty("type", "island_stop_check_response");
