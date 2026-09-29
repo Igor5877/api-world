@@ -267,6 +267,9 @@ class UpdateService:
         for island in targets:
             if island.skip_auto_updates:
                 continue
+            if island.is_spare:
+                continue  # rebuilt from the republished template by spare_pool instead
+
             if island.status in (IslandStatusEnum.DELETING, IslandStatusEnum.ARCHIVED):
                 continue
             await crud_update_queue.add_island(db_session, campaign_id=campaign.id, island=island)

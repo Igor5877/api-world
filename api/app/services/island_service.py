@@ -6,6 +6,7 @@ from fastapi import BackgroundTasks
 from app.core.config import settings
 from app.services.websocket_manager import manager as websocket_manager
 from app.services.lxd_service import lxd_service, LXDServiceError
+from app.services import spare_pool
 from app.crud.crud_island import crud_island
 from app.crud import crud_team
 from app.schemas.island import IslandCreate, IslandResponse, IslandUpdate, IslandStatusEnum
@@ -88,6 +89,18 @@ class IslandService:
 
         team_db_model = await crud_team.create_team(db=db_session, team_in=team_create_data)
         await db_session.flush()
+
+        # Warm spare pool: an already-booted island instead of clone + cold boot.
+        spare = await spare_pool.claim_spare(db_session, team=team_db_model,
+                                             player_uuid=player_uuid, player_name=player_name)
+        if spare:
+            team_db_model.island = spare
+            db_session.add(team_db_model)
+            await db_session.flush()
+            await db_session.refresh(team_db_model, attribute_names=['island', 'members'])
+            background_tasks.add_task(spare_pool.activate_claimed_spare, island_id=spare.id)
+            logger.info(f"Service: Player {player_uuid} got warm spare '{spare.container_name}'.")
+            return team_db_model
 
         container_name = f"skyblock-solo-{safe_player_name}-{uuid.UUID(player_uuid).hex[:8]}"
         new_island = await crud_island.create(
@@ -223,6 +236,15 @@ class IslandService:
             # Case 1b: Team exists but has no island. Create one for them.
             else:
                 logger.warning(f"Service: Team {team.id} exists for player {player_uuid} but has no island. Creating one now.")
+                spare = await spare_pool.claim_spare(db_session, team=team)
+                if spare:
+                    team.island = spare
+                    db_session.add(team)
+                    await db_session.commit()
+                    await db_session.refresh(team, attribute_names=["island"])
+                    background_tasks.add_task(spare_pool.activate_claimed_spare, island_id=spare.id)
+                    logger.info(f"Service: Team {team.id} got warm spare '{spare.container_name}'.")
+                    return IslandResponse.model_validate(spare)
                 safe_team_name = "".join(c if c.isalnum() else '-' for c in team.name)
                 container_name = f"skyblock-team-{safe_team_name}-{team.id}"
                 
@@ -764,7 +786,10 @@ class IslandService:
         updated_island = await crud_island.update(
             db_session, db_obj=island_db_model,
             obj_in={"minecraft_ready": True, "last_heartbeat_at": None,
-                    "last_seen_at": datetime.now(timezone.utc)})
+                    "last_seen_at": datetime.now(timezone.utc),
+                    # A claimed warm spare is fully handed over once its new
+                    # owner's /ready arrives — stop resending the claim.
+                    "spare_claimed_at": None})
         await db_session.commit()
         await db_session.refresh(updated_island)
         await db_session.refresh(team, attribute_names=['island', 'members'])

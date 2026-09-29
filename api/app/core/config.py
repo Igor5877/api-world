@@ -119,6 +119,19 @@ class Settings(BaseSettings):
     # воркери) — невеликий, щоб мертвий лідер звільняв місце швидко.
     WORKER_LEADER_LOCK_TTL_SECONDS: int = int(os.getenv("WORKER_LEADER_LOCK_TTL_SECONDS", "30"))
 
+    # ── Warm spare pool (services/spare_pool.py) ────────────────────
+    # Скільки заздалегідь склонованих, завантажених і заморожених островів
+    # без власника тримати напоготові для нових гравців. 0 = вимкнено.
+    # Кожен тримає RAM свого контейнера (~4 ГБ), хоч і FROZEN (CPU 0).
+    WARM_POOL_SIZE: int = int(os.getenv("WARM_POOL_SIZE", "0"))
+    SPARE_POOL_INTERVAL_SECONDS: int = int(os.getenv("SPARE_POOL_INTERVAL_SECONDS", "30"))
+    # Спейр, що не надіслав spare_ready за цей час після старту, — зламаний:
+    # контейнер видаляється і створюється новий.
+    SPARE_BOOT_TIMEOUT_SECONDS: int = int(os.getenv("SPARE_BOOT_TIMEOUT_SECONDS", "900"))
+    # Скільки чекати /ready від мода після claim, перш ніж fallback: записати
+    # skyblock_island_data.toml самим API і перезапустити контейнер.
+    SPARE_CLAIM_TIMEOUT_SECONDS: int = int(os.getenv("SPARE_CLAIM_TIMEOUT_SECONDS", "20"))
+
     # ── Prometheus service discovery ────────────────────────────────
     # Порт, на якому metrics-exporter мод острова піднімає /metrics
     # (nestworld.metrics.port у конфізі мода, дефолт 9219 з обох боків).

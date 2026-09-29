@@ -102,6 +102,11 @@ public class IslandWebSocketClient {
             switch (type) {
                 case "execute_command" -> handleExecuteCommand(json);
                 case "pending_update" -> handlePendingUpdate(json);
+                case "claim" -> {
+                    // Warm spare handed to a player's team — switch owner on the server thread.
+                    MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
+                    if (server != null) server.execute(() -> com.skyblock.dynamic.SkyBlockMod.handleClaim(json));
+                }
                 default -> { /* інші типи (market тощо) обробляються деінде */ }
             }
         } catch (JsonSyntaxException e) {

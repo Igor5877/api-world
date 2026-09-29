@@ -205,6 +205,7 @@ from app.services.workers.analytics_worker import start_analytics_worker
 from app.services.update_worker import start_update_worker
 from app.services.health_worker import start_health_worker
 from app.services.workers.idle_reaper_worker import start_idle_reaper_worker
+from app.services import spare_pool
 
 # Lifespan manager for startup and shutdown events
 @asynccontextmanager
@@ -267,6 +268,7 @@ async def lifespan(app: FastAPI):
     start_update_worker()
     start_health_worker()
     start_idle_reaper_worker()
+    spare_pool.start_spare_pool_worker()
 
     yield
     
@@ -349,7 +351,21 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     # припущення вже не завжди правильне — команда, надіслана саме в момент
     # розриву WS, губилась назавжди. Мод сам ідемпотентний до повторного
     # виконання команди оновлення (просто перевиконає reload).
-    if client_id.startswith("core_"):
+    # Warm spare (core_spare-<island id>): a resumed JVM reconnects with a
+    # fresh WS, so a claim sent while it was frozen/disconnected is resent here.
+    spare_island_id = (spare_pool.parse_spare_client_id(client_id[len("core_"):])
+                       if client_id.startswith("core_") else None)
+    if spare_island_id is not None:
+        try:
+            async with AsyncSessionLocal() as db:
+                island = await crud_island.get(db, island_id=spare_island_id)
+                claim = await spare_pool.build_claim_message(db, island) if island else None
+            if claim:
+                await websocket_manager.send_personal_message(claim, client_id)
+                logger.info(f"Resent claim to {client_id} on reconnect.")
+        except Exception as e:
+            logger.error(f"Failed to resend claim to {client_id}: {e}")
+    elif client_id.startswith("core_"):
         owner_uuid = client_id[len("core_"):]
         try:
             from app.crud.crud_update import crud_island_pending_command
@@ -433,6 +449,10 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                                                         details="Minecraft signalled a clean shutdown.")
                             logger.info(f"WebSocket: island {island.id} signalled clean shutdown.")
 
+                # Warm spare finished booting — claimable; the pool freezes it.
+                elif msg_type == "spare_ready" and spare_island_id is not None:
+                    asyncio.create_task(spare_pool.handle_spare_ready(spare_island_id))
+
                 # Reply to idle_reaper's "can I stop island X" query from the
                 # persistent proxy_control connection — routed back to
                 # whichever worker is actually awaiting it (see
@@ -446,8 +466,12 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
 
 async def _resolve_island_by_owner_uuid(db, owner_uuid: str):
-    """Знаходить острів за identity-UUID (player_uuid соло або owner команди)."""
+    """Знаходить острів за identity-UUID (player_uuid соло або owner команди)
+    або за `spare-<island id>` для warm spare без власника."""
     from app.crud.crud_team import get_team_by_owner_with_relations
+    spare_island_id = spare_pool.parse_spare_client_id(owner_uuid)
+    if spare_island_id is not None:
+        return await crud_island.get(db, island_id=spare_island_id)
     island = await crud_island.get_by_player_uuid(db, player_uuid=owner_uuid)
     if island:
         return island

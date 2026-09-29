@@ -97,6 +97,15 @@ class Island(Base):
     # proxy check before stop.
     proxy_left_at = Column(DateTime, nullable=True)
 
+    # Warm spare pool (services/spare_pool.py): a pre-cloned, pre-booted,
+    # FROZEN island nobody owns yet (team_id/player_uuid NULL). A new player's
+    # first /myisland claims it instead of waiting for clone + cold boot.
+    is_spare = Column(Boolean, default=False, nullable=False, server_default='0', index=True)
+    # Set when a spare is claimed, cleared by the owner's /ready. While set, a
+    # (re)connecting core_spare-<id> WebSocket is sent the claim again, and
+    # the pool's fallback restarts the container if /ready never arrives.
+    spare_claimed_at = Column(DateTime, nullable=True)
+
     # Auto-update system
     current_version = Column(String(50), nullable=True)  # last applied update tag, e.g. "v1.3.0"
     skip_auto_updates = Column(Boolean, default=False, nullable=False, server_default='0')  # unique servers are never touched

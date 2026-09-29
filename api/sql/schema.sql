@@ -374,3 +374,8 @@ CREATE TABLE IF NOT EXISTS island_events (
 
 -- Migration: proxy_left_at (idle reaper stop-backstop) — див. migration_2026-08_proxy_left_at.sql
 -- ALTER TABLE islands ADD COLUMN proxy_left_at DATETIME NULL AFTER idle_since;
+
+-- Migration: warm spare pool — див. migration_2026-09_spare_pool.sql
+-- ALTER TABLE islands ADD COLUMN is_spare BOOLEAN NOT NULL DEFAULT FALSE AFTER proxy_left_at;
+-- ALTER TABLE islands ADD COLUMN spare_claimed_at DATETIME NULL AFTER is_spare;
+-- CREATE INDEX idx_islands_is_spare ON islands (is_spare);

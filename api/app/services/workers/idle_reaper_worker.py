@@ -192,6 +192,8 @@ async def _reap_idle_islands(db_session: AsyncSession):
     frozen = await crud_island.get_islands_by_statuses(
         db_session, statuses=[IslandStatusEnum.FROZEN], limit=1000)
     for island in frozen:
+        if island.is_spare:
+            continue  # a warm spare is frozen on purpose — stopping it defeats the pool
         since = island.updated_at
         if since is None:
             continue

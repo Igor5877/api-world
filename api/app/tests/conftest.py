@@ -63,6 +63,7 @@ async def client(db_session: AsyncSession):
         patch("app.main.start_analytics_worker", new_callable=AsyncMock),
         patch("app.main.start_update_worker"),
         patch("app.main.start_health_worker"),
+        patch("app.main.spare_pool.start_spare_pool_worker"),
     ):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:

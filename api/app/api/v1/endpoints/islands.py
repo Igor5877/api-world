@@ -421,7 +421,8 @@ async def list_islands_endpoint(
     return [
         IslandSummary(
             owner_uuid=(island.team.owner_uuid if island.team else island.player_uuid),
-            team_name=(island.team.name if island.team else island.player_name),
+            team_name=(island.team.name if island.team
+                       else "(warm spare)" if island.is_spare else island.player_name),
             status=island.status,
             minecraft_ready=island.minecraft_ready,
             online_players=island.online_players,

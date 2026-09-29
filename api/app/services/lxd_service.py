@@ -133,6 +133,31 @@ class LXDService:
             logger.error(f"Error cloning container '{new_container_name}': {e}", exc_info=True)
             raise LXDServiceError(f"Failed to clone container: {e}")
 
+    async def get_image_fingerprint(self, image_alias: str) -> Optional[str]:
+        """Returns the fingerprint the alias currently points to, or None if missing."""
+        client = await self._get_client()
+
+        def _sync():
+            if not client.images.exists(image_alias, alias=True):
+                return None
+            return client.images.get_by_alias(image_alias).fingerprint
+
+        return await self._run_sync(_sync)
+
+    async def get_container_base_image(self, container_name: str) -> Optional[str]:
+        """Returns the fingerprint of the image a container was created from.
+
+        LXD records it as volatile.base_image at creation time, so comparing it
+        with get_image_fingerprint(LXD_BASE_IMAGE) tells whether the template
+        has been republished since (update campaign, new core).
+        """
+        client = await self._get_client()
+        try:
+            container = await self._run_sync(client.containers.get, container_name)
+        except NotFound:
+            return None
+        return container.config.get("volatile.base_image")
+
     async def start_container(self, container_name: str) -> bool:
         """Starts a container, resuming it if it turns out to already be frozen.
 
