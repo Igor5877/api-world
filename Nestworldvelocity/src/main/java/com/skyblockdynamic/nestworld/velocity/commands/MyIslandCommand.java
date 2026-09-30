@@ -163,6 +163,9 @@ public class MyIslandCommand implements SimpleCommand {
                 if (startResponse.isSuccess() || startResponse.statusCode() == 409) {
                     player.sendMessage(localeManager.getComponent(lang, "myisland.status.start_accepted", NamedTextColor.AQUA));
                     connectToWebSocket(player);
+                } else if (startResponse.statusCode() == 423) { // острів у режимі адміна
+                    player.sendMessage(Component.text("🔧 " + ApiClient.errorDetail(startResponse), NamedTextColor.GOLD));
+                    plugin.getAwaitingConnection().remove(player.getUniqueId());
                 } else {
                     player.sendMessage(Component.text(localeManager.getMessage(lang, "myisland.status.start_failed").replace("{status_code}", String.valueOf(startResponse.statusCode())), NamedTextColor.RED));
                     plugin.getAwaitingConnection().remove(player.getUniqueId());
@@ -286,7 +289,7 @@ public class MyIslandCommand implements SimpleCommand {
         UUID targetUuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + targetName).getBytes(java.nio.charset.StandardCharsets.UTF_8));
         String lang = admin.getPlayerSettings().getLocale().getLanguage();
         admin.sendMessage(Component.text("⏳ Запускаю острів " + targetName + "...", NamedTextColor.YELLOW));
-        apiClient.requestIslandStart(targetUuid, targetName);
+        apiClient.requestIslandStart(targetUuid, targetName, admin.getUsername()); // проходить крізь режим адміна
         adminPollAndConnect(admin, targetUuid, targetName, 0);
     }
 

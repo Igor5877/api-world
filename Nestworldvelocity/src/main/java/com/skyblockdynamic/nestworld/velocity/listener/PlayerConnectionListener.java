@@ -150,6 +150,11 @@ public class PlayerConnectionListener {
             if (startResponse != null) { 
                 if (startResponse.isSuccess()) {
                     logger.info("Player {}'s island start request was accepted by API (Status {}). Scheduling next poll.", player.getUsername(), startResponse.statusCode());
+                } else if (startResponse.statusCode() == 423) {
+                    // Острів у режимі адміна: опитувати далі немає сенсу, пояснюємо гравцю.
+                    pendingStartPlayers.remove(player.getUniqueId());
+                    player.sendMessage(Component.text("🔧 " + ApiClient.errorDetail(startResponse), NamedTextColor.GOLD));
+                    return;
                 } else {
                     logger.warn("Player {}'s island start request failed or was not successful (Status {}). Scheduling next poll anyway. Body: {}", player.getUsername(), startResponse.statusCode(), startResponse.body());
                     pendingStartPlayers.remove(player.getUniqueId());

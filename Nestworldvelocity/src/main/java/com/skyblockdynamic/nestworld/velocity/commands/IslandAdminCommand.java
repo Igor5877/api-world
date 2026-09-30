@@ -43,7 +43,7 @@ import java.util.concurrent.CompletableFuture;
  */
 public class IslandAdminCommand implements SimpleCommand {
 
-    private static final List<String> SUBCOMMANDS = List.of("status", "info", "set", "member", "start", "stop", "restart", "join", "list");
+    private static final List<String> SUBCOMMANDS = List.of("status", "info", "set", "member", "start", "stop", "restart", "join", "list", "hold", "release", "holds");
     private static final List<String> SET_FIELDS = List.of("owner");
     private static final List<String> MEMBER_ACTIONS = List.of("add", "remove");
 
@@ -84,13 +84,16 @@ public class IslandAdminCommand implements SimpleCommand {
             case "stop" -> runWithPermission(invocation, "island.admin.lifecycle", () -> handleStop(invocation, args));
             case "restart" -> runWithPermission(invocation, "island.admin.lifecycle", () -> handleRestart(invocation, args));
             case "join" -> runWithPermission(invocation, "island.admin.lifecycle", () -> handleJoin(invocation, args));
+            case "hold" -> runWithPermission(invocation, "island.admin.lifecycle", () -> handleHold(invocation, args));
+            case "release" -> runWithPermission(invocation, "island.admin.lifecycle", () -> handleRelease(invocation, args));
+            case "holds" -> runWithPermission(invocation, "island.admin", () -> handleHolds(invocation));
             default -> sendUsage(invocation);
         }
     }
 
     private void sendUsage(Invocation invocation) {
         invocation.source().sendMessage(Component.text(
-                "Використання: /islandadmin <status|info|set|member|start|stop|restart|join|list> <name> ...",
+                "Використання: /islandadmin <status|info|set|member|start|stop|restart|join|list|hold|release|holds> <name> ...",
                 NamedTextColor.RED));
     }
 
@@ -395,7 +398,7 @@ public class IslandAdminCommand implements SimpleCommand {
                 invocation.source().sendMessage(Component.text("✖ Player UUID not found: " + playerName, NamedTextColor.RED));
                 return;
             }
-            apiClient.requestIslandStart(uuidOpt.get(), playerName).thenAccept(res ->
+            apiClient.requestIslandStart(uuidOpt.get(), playerName, adminName(invocation)).thenAccept(res ->
                     reportLifecycleResult(invocation, "start", res));
         });
     }
@@ -411,7 +414,7 @@ public class IslandAdminCommand implements SimpleCommand {
                 invocation.source().sendMessage(Component.text("✖ Player UUID not found: " + playerName, NamedTextColor.RED));
                 return;
             }
-            apiClient.requestIslandStop(uuidOpt.get()).thenAccept(res ->
+            apiClient.requestIslandStop(uuidOpt.get(), adminName(invocation)).thenAccept(res ->
                     reportLifecycleResult(invocation, "stop", res));
         });
     }
@@ -453,6 +456,105 @@ public class IslandAdminCommand implements SimpleCommand {
         myIslandCommand.adminJoinIsland(admin, args[1]);
     }
 
+    // ── hold / release / holds (адмін-режим) ─────────────────────────
+    // Поки острів на hold, API його сам не чіпає: watchdog не вбиває за мовчання,
+    // idle-reaper не зупиняє, оновлення відкладаються, гравці й лаунчер не можуть
+    // запустити/зупинити (423). Адмінські start/stop/join/restart проходять.
+
+    private static String adminName(Invocation invocation) {
+        return invocation.source() instanceof Player p ? p.getUsername() : "console";
+    }
+
+    private void handleHold(Invocation invocation, String[] args) {
+        if (args.length < 2) {
+            invocation.source().sendMessage(Component.text(
+                    "Використання: /islandadmin hold <name> [хвилини=120] [причина...]", NamedTextColor.RED));
+            return;
+        }
+        String playerName = args[1];
+        int minutes = 120;
+        int reasonFrom = 2;
+        if (args.length >= 3 && args[2].matches("\\d+")) {
+            minutes = Integer.parseInt(args[2]);
+            reasonFrom = 3;
+        }
+        if (minutes < 1 || minutes > 24 * 60) {
+            invocation.source().sendMessage(Component.text("✖ Хвилини: від 1 до 1440.", NamedTextColor.RED));
+            return;
+        }
+        String reason = args.length > reasonFrom
+                ? String.join(" ", java.util.Arrays.copyOfRange(args, reasonFrom, args.length)) : null;
+        int finalMinutes = minutes;
+        resolveUuid(playerName).thenAccept(uuidOpt -> {
+            if (uuidOpt.isEmpty()) {
+                invocation.source().sendMessage(Component.text("✖ Player UUID not found: " + playerName, NamedTextColor.RED));
+                return;
+            }
+            apiClient.setAdminHold(uuidOpt.get(), adminName(invocation), finalMinutes, reason).thenAccept(res -> {
+                if (res.isSuccess()) {
+                    invocation.source().sendMessage(Component.text(
+                            "🔧 Острів " + playerName + " у режимі адміна на " + finalMinutes
+                                    + " хв — API його не чіпає. Зняти: /islandadmin release " + playerName,
+                            NamedTextColor.GREEN));
+                } else {
+                    invocation.source().sendMessage(Component.text("✖ Operation failed: " + describeError(res), NamedTextColor.RED));
+                }
+            });
+        });
+    }
+
+    private void handleRelease(Invocation invocation, String[] args) {
+        if (args.length < 2) {
+            invocation.source().sendMessage(Component.text("Використання: /islandadmin release <name>", NamedTextColor.RED));
+            return;
+        }
+        String playerName = args[1];
+        resolveUuid(playerName).thenAccept(uuidOpt -> {
+            if (uuidOpt.isEmpty()) {
+                invocation.source().sendMessage(Component.text("✖ Player UUID not found: " + playerName, NamedTextColor.RED));
+                return;
+            }
+            apiClient.releaseAdminHold(uuidOpt.get(), adminName(invocation)).thenAccept(res -> {
+                if (res.isSuccess()) {
+                    invocation.source().sendMessage(Component.text(
+                            "✔ Режим адміна знято з " + playerName + " — API знову керує островом.", NamedTextColor.GREEN));
+                } else {
+                    invocation.source().sendMessage(Component.text("✖ Operation failed: " + describeError(res), NamedTextColor.RED));
+                }
+            });
+        });
+    }
+
+    private void handleHolds(Invocation invocation) {
+        apiClient.listAdminHolds().thenAccept(res -> {
+            if (!res.isSuccess()) {
+                invocation.source().sendMessage(Component.text("✖ Operation failed: " + describeError(res), NamedTextColor.RED));
+                return;
+            }
+            JsonArray holds = JsonParser.parseString(res.body()).getAsJsonArray();
+            if (holds.isEmpty()) {
+                invocation.source().sendMessage(Component.text("Жоден острів не в режимі адміна.", NamedTextColor.GRAY));
+                return;
+            }
+            invocation.source().sendMessage(Component.text("════ Режим адміна (" + holds.size() + ") ════", NamedTextColor.GOLD));
+            for (JsonElement el : holds) {
+                JsonObject h = el.getAsJsonObject();
+                String until = getStringOrNull(h, "admin_hold_until");
+                Long age = until == null ? null : ageSeconds(until);
+                String left = age == null ? "?" : Math.max(0, -age / 60) + " хв";
+                String reason = getStringOrNull(h, "admin_hold_reason");
+                invocation.source().sendMessage(Component.text("  🔧 " + getStringOrNull(h, "container_name") + " ", NamedTextColor.WHITE)
+                        .append(Component.text("[" + getStringOrNull(h, "status") + "]", NamedTextColor.GRAY))
+                        .append(Component.text("  " + getStringOrNull(h, "admin_hold_by") + ", ще " + left, NamedTextColor.AQUA))
+                        .append(Component.text(reason == null ? "" : "  — " + reason, NamedTextColor.DARK_GRAY)));
+            }
+        }).exceptionally(ex -> {
+            logger.error("[IslandAdmin] holds failed: {}", ex.getMessage(), ex);
+            invocation.source().sendMessage(Component.text("✖ Operation failed.", NamedTextColor.RED));
+            return null;
+        });
+    }
+
     // ── list ─────────────────────────────────────────────────────────
 
     private void handleList(Invocation invocation, String[] args) {
@@ -478,6 +580,7 @@ public class IslandAdminCommand implements SimpleCommand {
                 Object online = island.has("online_players") && !island.get("online_players").isJsonNull()
                         ? island.get("online_players").getAsInt() : "—";
                 String version = getStringOrNull(island, "current_version");
+                String holdBy = getStringOrNull(island, "admin_hold_by");
 
                 NamedTextColor statusColor = switch (dbStatus == null ? "" : dbStatus) {
                     case "RUNNING" -> ready ? NamedTextColor.GREEN : NamedTextColor.YELLOW;
@@ -489,7 +592,8 @@ public class IslandAdminCommand implements SimpleCommand {
                 invocation.source().sendMessage(Component.text("  " + (name == null ? "?" : name) + " ", NamedTextColor.WHITE)
                         .append(Component.text("[" + dbStatus + "]", statusColor))
                         .append(Component.text("  онлайн: " + online, NamedTextColor.GRAY))
-                        .append(Component.text(version == null ? "" : "  " + version, NamedTextColor.DARK_GRAY)));
+                        .append(Component.text(version == null ? "" : "  " + version, NamedTextColor.DARK_GRAY))
+                        .append(Component.text(holdBy == null ? "" : "  🔧 " + holdBy, NamedTextColor.AQUA)));
             }
         }).exceptionally(ex -> {
             logger.error("[IslandAdmin] list failed: {}", ex.getMessage(), ex);
@@ -514,6 +618,7 @@ public class IslandAdminCommand implements SimpleCommand {
             case 401, 403 -> "Permission denied.";
             case 404 -> "Island not found.";
             case 409 -> res.body();
+            case 423 -> ApiClient.errorDetail(res);
             case 0 -> "API unavailable.";
             default -> "Operation failed (" + res.statusCode() + ").";
         };
@@ -598,7 +703,7 @@ public class IslandAdminCommand implements SimpleCommand {
             return switch (sub) {
                 case "member" -> MEMBER_ACTIONS;
                 case "list" -> List.of("RUNNING", "STOPPED", "FROZEN");
-                case "status", "info", "set", "start", "stop", "restart", "join" ->
+                case "status", "info", "set", "start", "stop", "restart", "join", "hold", "release" ->
                         server.getAllPlayers().stream().map(Player::getUsername).toList();
                 default -> List.of();
             };
@@ -608,6 +713,7 @@ public class IslandAdminCommand implements SimpleCommand {
                 case "set" -> SET_FIELDS;
                 case "member" -> server.getAllPlayers().stream().map(Player::getUsername).toList();
                 case "restart" -> List.of("confirm");
+                case "hold" -> List.of("30", "60", "120");
                 default -> List.of();
             };
         }

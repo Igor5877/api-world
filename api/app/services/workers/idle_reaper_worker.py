@@ -48,6 +48,7 @@ from app.crud.crud_island_event import crud_island_event
 from app.models.island import Island as IslandModel
 from app.models.team import Team as TeamModel, TeamMember as TeamMemberModel
 from app.schemas.island import IslandStatusEnum
+from app.services import admin_hold
 from app.services.lxd_service import lxd_service
 from app.services.island_service import island_service
 from app.services.websocket_manager import manager as websocket_manager
@@ -119,6 +120,8 @@ async def _reap_state_mismatches(db_session: AsyncSession):
         db_session, statuses=list(_STABLE_STATUS_TO_LXD.keys()), limit=1000)
 
     for island in islands:
+        if admin_hold.is_held(island):
+            continue  # адмін міг навмисно зупинити/запустити контейнер — не "виправляємо"
         try:
             state = await lxd_service.get_container_state(island.container_name)
         except Exception as e:
@@ -194,6 +197,8 @@ async def _reap_idle_islands(db_session: AsyncSession):
     for island in frozen:
         if island.is_spare:
             continue  # a warm spare is frozen on purpose — stopping it defeats the pool
+        if admin_hold.is_held(island, now):
+            continue
         since = island.updated_at
         if since is None:
             continue
@@ -293,6 +298,8 @@ async def _reap_stuck_transitions(db_session: AsyncSession):
     now = datetime.utcnow()
 
     for island in stuck:
+        if admin_hold.is_held(island, now):
+            continue
         age = (now - (island.updated_at or now)).total_seconds()
         if age < settings.STARTUP_STUCK_TIMEOUT_SECONDS:
             continue

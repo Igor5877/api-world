@@ -5,8 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession # Added for DB session type hint
 import logging
 
 from app.core.auth import require_launcher_token
-from app.schemas.island import IslandCreate, IslandResponse, IslandStatusEnum, MessageResponse, QuestProgressUpload, QuestProgressResponse, IslandEventResponse, LauncherStartRequest, IslandOwnerChangeRequest, IslandDiagnosticsResponse, IslandSummary
+from app.schemas.island import IslandCreate, IslandResponse, IslandStatusEnum, MessageResponse, QuestProgressUpload, QuestProgressResponse, IslandEventResponse, LauncherStartRequest, IslandOwnerChangeRequest, IslandDiagnosticsResponse, IslandSummary, AdminHoldRequest, AdminHoldResponse
 from app.services.island_service import island_service
+from app.services import admin_hold
 from app.db.session import get_db_session # Import the dependency
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ async def start_island_endpoint(
     player_uuid: uuid.UUID,
     background_tasks: BackgroundTasks,
     player_name: str, # Passed as a query parameter or in a request body
+    admin_name: str | None = None,  # set by /islandadmin start|join — bypasses an admin hold
     db_session: AsyncSession = Depends(get_db_session)
 ):
     """Starts a player's island.
@@ -68,6 +70,7 @@ async def start_island_endpoint(
         HTTPException: If the island cannot be started.
     """
     logger.info(f"Endpoint: Player {player_uuid} ({player_name}) requesting to start their island.")
+    await admin_hold.guard_automatic_action(db_session, str(player_uuid), "старт", admin_name)
     try:
         player_uuid_str = str(player_uuid)
         updated_island = await island_service.start_island_instance(
@@ -123,6 +126,7 @@ async def launcher_start_island_endpoint(
     if not island:
         logger.info(f"Launcher Endpoint: Island not found for {request.username} ({player_uuid_str}). Ignoring.")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Island does not exist.")
+    await admin_hold.guard_automatic_action(db_session, player_uuid_str, "автостарт з лаунчера")
 
     try:
         await island_service.start_island_instance(
@@ -152,6 +156,7 @@ async def launcher_start_island_endpoint(
 async def stop_island_endpoint(
     player_uuid: uuid.UUID,
     background_tasks: BackgroundTasks,
+    admin_name: str | None = None,  # set by /islandadmin stop — bypasses an admin hold
     db_session: AsyncSession = Depends(get_db_session)
 ):
     """Stops a player's team island.
@@ -168,6 +173,7 @@ async def stop_island_endpoint(
         HTTPException: If the island cannot be stopped.
     """
     logger.info(f"Endpoint: Player {player_uuid} requesting to stop their island.")
+    await admin_hold.guard_automatic_action(db_session, str(player_uuid), "стоп", admin_name)
     try:
         player_uuid_str = str(player_uuid)
         updated_island = await island_service.stop_island_instance(
@@ -213,6 +219,7 @@ async def freeze_island_endpoint(
         HTTPException: If the island cannot be frozen.
     """
     logger.info(f"Endpoint: Received request to freeze island UUID: {player_uuid}")
+    await admin_hold.guard_automatic_action(db_session, str(player_uuid), "заморозка")
     try:
         player_uuid_str = str(player_uuid)
         updated_island = await island_service.freeze_island_instance(
@@ -429,6 +436,8 @@ async def list_islands_endpoint(
             current_version=island.current_version,
             container_name=island.container_name,
             updated_at=island.updated_at,
+            admin_hold_by=island.admin_hold_by if admin_hold.is_held(island) else None,
+            admin_hold_until=island.admin_hold_until if admin_hold.is_held(island) else None,
         )
         for island in islands
     ]
@@ -529,6 +538,85 @@ async def restart_island_endpoint(
     except Exception as e:
         logger.error(f"Endpoint Error: Unexpected error during admin restart for {owner_uuid}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An internal server error occurred while restarting the island.")
+
+
+def _hold_response(island, owner_uuid: str | None) -> AdminHoldResponse:
+    held = admin_hold.is_held(island)
+    return AdminHoldResponse(
+        owner_uuid=owner_uuid, container_name=island.container_name, status=island.status, held=held,
+        admin_hold_by=island.admin_hold_by if held else None,
+        admin_hold_reason=island.admin_hold_reason if held else None,
+        admin_hold_until=island.admin_hold_until if held else None)
+
+
+@router.post("/{owner_uuid}/admin/hold", response_model=AdminHoldResponse)
+async def set_admin_hold_endpoint(
+    owner_uuid: str,
+    body: AdminHoldRequest,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """Puts an island into admin mode (/islandadmin hold) — see services/admin_hold.py.
+
+    Re-issuing it (same or another admin) replaces the holder and extends the
+    deadline; the previous holder is kept in the audit event.
+    """
+    from datetime import datetime, timedelta
+    from app.crud.crud_island import crud_island
+    from app.crud.crud_island_event import crud_island_event
+
+    island = await _resolve_island_by_owner(db_session, owner_uuid)
+    previous = island.admin_hold_by if admin_hold.is_held(island) else None
+    until = datetime.utcnow() + timedelta(minutes=body.minutes)
+    island = await crud_island.update_by_id(db_session, island_id=island.id, obj_in={
+        "admin_hold_by": body.admin_name, "admin_hold_reason": body.reason, "admin_hold_until": until})
+    await crud_island_event.add(
+        db_session, island_id=island.id, event_type="admin_hold",
+        details=f"admin={body.admin_name} minutes={body.minutes} reason={body.reason or '-'}"
+                + (f" previous={previous}" if previous else ""))
+    logger.info(f"Admin hold: island {island.id} held by {body.admin_name} until {until:%Y-%m-%d %H:%M} UTC.")
+    return _hold_response(island, owner_uuid)
+
+
+@router.delete("/{owner_uuid}/admin/hold", response_model=AdminHoldResponse)
+async def release_admin_hold_endpoint(
+    owner_uuid: str,
+    admin_name: str,
+    db_session: AsyncSession = Depends(get_db_session)
+):
+    """Takes an island out of admin mode (/islandadmin release).
+
+    last_heartbeat_at is cleared so the health watchdog waits for a fresh
+    heartbeat instead of judging the silence of whatever the admin did; the
+    idle reaper reconciles the DB status with LXD on its next tick.
+    """
+    from app.crud.crud_island import crud_island
+    from app.crud.crud_island_event import crud_island_event
+
+    island = await _resolve_island_by_owner(db_session, owner_uuid)
+    holder = island.admin_hold_by
+    island = await crud_island.update_by_id(db_session, island_id=island.id, obj_in={
+        "admin_hold_by": None, "admin_hold_reason": None, "admin_hold_until": None,
+        "last_heartbeat_at": None})
+    await crud_island_event.add(
+        db_session, island_id=island.id, event_type="admin_release",
+        details=f"admin={admin_name} holder={holder or '-'}")
+    logger.info(f"Admin hold: island {island.id} released by {admin_name}.")
+    return _hold_response(island, owner_uuid)
+
+
+@router.get("/admin/holds", response_model=list[AdminHoldResponse])
+async def list_admin_holds_endpoint(db_session: AsyncSession = Depends(get_db_session)):
+    """Islands currently in admin mode (/islandadmin holds)."""
+    from datetime import datetime
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.island import Island as IslandModel
+
+    result = await db_session.execute(
+        select(IslandModel).options(selectinload(IslandModel.team))
+        .where(IslandModel.admin_hold_until > datetime.utcnow())
+        .order_by(IslandModel.admin_hold_until))
+    return [_hold_response(i, i.team.owner_uuid if i.team else i.player_uuid) for i in result.scalars().all()]
 
 
 @router.put("/{owner_uuid}/quest-progress", response_model=MessageResponse)

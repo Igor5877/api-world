@@ -379,3 +379,8 @@ CREATE TABLE IF NOT EXISTS island_events (
 -- ALTER TABLE islands ADD COLUMN is_spare BOOLEAN NOT NULL DEFAULT FALSE AFTER proxy_left_at;
 -- ALTER TABLE islands ADD COLUMN spare_claimed_at DATETIME NULL AFTER is_spare;
 -- CREATE INDEX idx_islands_is_spare ON islands (is_spare);
+
+-- Migration: адмін-режим острова — див. migration_2026-09_admin_hold.sql
+-- ALTER TABLE islands ADD COLUMN admin_hold_by VARCHAR(64) NULL AFTER spare_claimed_at;
+-- ALTER TABLE islands ADD COLUMN admin_hold_reason VARCHAR(255) NULL AFTER admin_hold_by;
+-- ALTER TABLE islands ADD COLUMN admin_hold_until DATETIME NULL AFTER admin_hold_reason;

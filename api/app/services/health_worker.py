@@ -30,6 +30,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.services import admin_hold
 from app.core.leader_election import LeaderElection
 from app.db.session import AsyncSessionLocal
 from app.crud.crud_island import crud_island
@@ -85,6 +86,8 @@ async def check_running_islands(db_session: AsyncSession):
 
     for island in islands:
         try:
+            if admin_hold.is_held(island, now):
+                continue  # адмін працює з островом — його зупинки й рестарти не аварія
             if not island.minecraft_ready:
                 continue  # still booting; the start flow owns this phase
             if island.last_heartbeat_at is None:

@@ -95,8 +95,18 @@ public class ApiClient {
      * @return A CompletableFuture that completes with the API response.
      */
     public CompletableFuture<ApiResponse> requestIslandStart(UUID playerUuid, String playerName) {
+        return requestIslandStart(playerUuid, playerName, null);
+    }
+
+    /**
+     * Same as {@link #requestIslandStart(UUID, String)}, on behalf of an admin
+     * (/islandadmin start|join): with adminName the API lets the start through
+     * even while the island is in admin mode (HTTP 423 for everyone else).
+     */
+    public CompletableFuture<ApiResponse> requestIslandStart(UUID playerUuid, String playerName, String adminName) {
         String path = "/islands/start/" + playerUuid.toString() + "?player_name="
-                + URLEncoder.encode(playerName, StandardCharsets.UTF_8);
+                + URLEncoder.encode(playerName, StandardCharsets.UTF_8)
+                + (adminName != null ? "&admin_name=" + URLEncoder.encode(adminName, StandardCharsets.UTF_8) : "");
         HttpRequest request = baseRequest(apiUrlBase + path).POST(HttpRequest.BodyPublishers.noBody()).build();
 
         logger.info("Requesting island start for {}: POST {}", playerUuid, request.uri());
@@ -202,6 +212,58 @@ public class ApiClient {
     }
 
     /**
+     * Puts an island into admin mode (/islandadmin hold): the API stops
+     * touching it on its own (watchdog, idle stop, updates, player starts).
+     *
+     * @param ownerUuid The UUID of the island owner.
+     * @param adminName Who is working on the island.
+     * @param minutes   How long the hold lasts (1..1440); it expires by itself.
+     * @param reason    Optional note, may be null.
+     */
+    public CompletableFuture<ApiResponse> setAdminHold(UUID ownerUuid, String adminName, int minutes, String reason) {
+        String path = "/islands/" + ownerUuid.toString() + "/admin/hold";
+        Map<String, Object> body = new java.util.HashMap<>(Map.of("admin_name", adminName, "minutes", minutes));
+        if (reason != null && !reason.isBlank()) body.put("reason", reason);
+        HttpRequest request = baseRequest(apiUrlBase + path).POST(HttpRequest.BodyPublishers.ofString(gson.toJson(body))).build();
+        logger.info("Requesting admin hold for island {} by {} ({} min)", ownerUuid, adminName, minutes);
+        return send(request, "setAdminHold");
+    }
+
+    /** Takes an island out of admin mode (/islandadmin release). */
+    public CompletableFuture<ApiResponse> releaseAdminHold(UUID ownerUuid, String adminName) {
+        String path = "/islands/" + ownerUuid.toString() + "/admin/hold?admin_name="
+                + URLEncoder.encode(adminName, StandardCharsets.UTF_8);
+        HttpRequest request = baseRequest(apiUrlBase + path).DELETE().build();
+        logger.info("Releasing admin hold for island {} by {}", ownerUuid, adminName);
+        return send(request, "releaseAdminHold");
+    }
+
+    /** Islands currently in admin mode (/islandadmin holds). */
+    public CompletableFuture<ApiResponse> listAdminHolds() {
+        return send(baseRequest(apiUrlBase + "/islands/admin/holds").GET().build(), "listAdminHolds");
+    }
+
+    private CompletableFuture<ApiResponse> send(HttpRequest request, String op) {
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(httpResponse -> new ApiResponse(httpResponse.statusCode(), httpResponse.body()))
+                .exceptionally(ex -> {
+                    logger.error("API request failed for {}: {}", op, ex.getMessage(), ex);
+                    return new ApiResponse(ex.getMessage());
+                });
+    }
+
+    /** FastAPI error text ({"detail": "..."}) or the raw body. */
+    public static String errorDetail(ApiResponse res) {
+        try {
+            com.google.gson.JsonElement detail = com.google.gson.JsonParser.parseString(res.body())
+                    .getAsJsonObject().get("detail");
+            if (detail != null && detail.isJsonPrimitive()) return detail.getAsString();
+        } catch (Exception ignored) {
+        }
+        return res.body();
+    }
+
+    /**
      * Restarts a running island's container (/islandadmin restart).
      *
      * @param ownerUuid The UUID of the island owner.
@@ -272,7 +334,13 @@ public class ApiClient {
      * @return A CompletableFuture that completes with the API response.
      */
     public CompletableFuture<ApiResponse> requestIslandStop(UUID playerUuid) {
-        String path = "/islands/stop/" + playerUuid.toString();
+        return requestIslandStop(playerUuid, null);
+    }
+
+    /** Stop on behalf of an admin (/islandadmin stop) — passes an admin-mode hold. */
+    public CompletableFuture<ApiResponse> requestIslandStop(UUID playerUuid, String adminName) {
+        String path = "/islands/stop/" + playerUuid.toString()
+                + (adminName != null ? "?admin_name=" + URLEncoder.encode(adminName, StandardCharsets.UTF_8) : "");
         HttpRequest request = baseRequest(apiUrlBase + path).POST(HttpRequest.BodyPublishers.noBody()).build();
 
         logger.info("Requesting island stop for {}: POST {}", playerUuid, request.uri());

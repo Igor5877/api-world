@@ -27,7 +27,7 @@ from app.crud.crud_update import crud_update_campaign
 from app.crud.crud_update_queue import crud_update_queue
 from app.models.update import CampaignStatusEnum, UpdateQueueStatusEnum
 from app.schemas.island import IslandStatusEnum
-from app.services import git_sync
+from app.services import admin_hold, git_sync
 from app.services.update_service import update_service, UpdateServiceError
 
 logger = logging.getLogger(__name__)
@@ -211,6 +211,10 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
     if island.current_version == campaign.version:
         await crud_update_queue.set_status(db_session, entry_id=entry.id,
                                            status=UpdateQueueStatusEnum.COMPLETED)
+        return
+    if admin_hold.is_held(island):
+        # Адмін працює з островом — оновимо після зняття hold.
+        await crud_update_queue.defer_entry(db_session, entry_id=entry.id)
         return
     if island.status in _TRANSIENT:
         # Island is mid-transition (starting/stopping/...) — try again later.

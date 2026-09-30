@@ -304,5 +304,33 @@ class IslandSummary(BaseModel):
     current_version: Optional[str] = None
     container_name: str
     updated_at: Optional[datetime] = None
+    admin_hold_by: Optional[str] = None
+    admin_hold_until: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AdminHoldRequest(BaseModel):
+    """Body for POST /{owner_uuid}/admin/hold (/islandadmin hold).
+
+    Attributes:
+        admin_name: Who is working on the island (shown to other admins and
+            to players whose start is refused).
+        reason: Free-text note, e.g. "перевірка консолі".
+        minutes: How long the hold lasts; it expires by itself so a
+            forgotten hold never leaves an island unmanaged forever.
+    """
+    admin_name: str = Field(..., min_length=1, max_length=64)
+    reason: Optional[str] = Field(None, max_length=255)
+    minutes: int = Field(120, ge=1, le=24 * 60)
+
+
+class AdminHoldResponse(BaseModel):
+    """Current admin-hold state of one island."""
+    owner_uuid: Optional[str] = None
+    container_name: str
+    status: IslandStatusEnum
+    held: bool
+    admin_hold_by: Optional[str] = None
+    admin_hold_reason: Optional[str] = None
+    admin_hold_until: Optional[datetime] = None

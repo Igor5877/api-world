@@ -106,6 +106,13 @@ class Island(Base):
     # the pool's fallback restarts the container if /ready never arrives.
     spare_claimed_at = Column(DateTime, nullable=True)
 
+    # Адмін-режим (services/admin_hold.py): поки admin_hold_until у майбутньому,
+    # API не чіпає острів сам — watchdog, idle-reaper, кампанії оновлень і
+    # старт/стоп/заморозка від гравця чи мода пропускаються. Час — UTC.
+    admin_hold_by = Column(String(64), nullable=True)
+    admin_hold_reason = Column(String(255), nullable=True)
+    admin_hold_until = Column(DateTime, nullable=True)
+
     # Auto-update system
     current_version = Column(String(50), nullable=True)  # last applied update tag, e.g. "v1.3.0"
     skip_auto_updates = Column(Boolean, default=False, nullable=False, server_default='0')  # unique servers are never touched
