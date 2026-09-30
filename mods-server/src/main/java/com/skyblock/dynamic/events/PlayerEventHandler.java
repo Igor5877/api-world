@@ -30,7 +30,13 @@ import java.util.concurrent.TimeUnit;
 public class PlayerEventHandler {
 
     private static final Logger LOGGER = LogUtils.getLogger();
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    // Daemon: відкладена заморозка — лише таймер; недаемонний потік тримав JVM
+    // після зупинки сервера до SIGKILL wrapper'а (2026-09-30, thread dump).
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "NestWorld-freeze-scheduler");
+        t.setDaemon(true);
+        return t;
+    });
     private ScheduledFuture<?> freezeTask;
     /** Incremented on every login — lets an already-running freeze task
      *  recognize it was superseded even though cancel(false) couldn't stop
