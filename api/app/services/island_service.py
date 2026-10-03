@@ -5,7 +5,7 @@ from sqlalchemy.orm import selectinload
 from fastapi import BackgroundTasks
 from app.core.config import settings
 from app.services.websocket_manager import manager as websocket_manager
-from app.services.lxd_service import lxd_service, LXDServiceError
+from app.services.lxd_service import ISLAND_LABELS, lxd_service, LXDServiceError
 from app.services import spare_pool
 from app.crud.crud_island import crud_island
 from app.crud import crud_team
@@ -164,6 +164,7 @@ class IslandService:
                 await lxd_service.clone_container(
                     source_image_alias=settings.LXD_BASE_IMAGE,
                     new_container_name=container_name,
+                    config=dict(ISLAND_LABELS),
                     profiles=settings.LXD_DEFAULT_PROFILES
                 )
 

@@ -15,6 +15,16 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+# Мітки для NestWorld crash-agent (nestworld-crash): контейнер — острів під
+# керуванням api-world. server_id генерує wrapper при першому старті острова.
+ISLAND_LABELS = {
+    "user.nestworld.managed": "true",
+    "user.nestworld.server_type": "SKYBLOCK_ISLAND",
+    "user.nestworld.lifecycle_mode": "API_WORLD",
+    "user.nestworld.minecraft_path": "/opt/minecraft",
+}
+
 class LXDServiceError(Exception):
     """Custom exception for LXDService errors."""
     pass

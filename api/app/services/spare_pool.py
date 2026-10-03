@@ -46,7 +46,7 @@ from app.db.session import AsyncSessionLocal
 from app.models.island import Island as IslandModel, IslandEvent as IslandEventModel
 from app.models.team import Team as TeamModel
 from app.schemas.island import IslandStatusEnum
-from app.services.lxd_service import lxd_service
+from app.services.lxd_service import ISLAND_LABELS, lxd_service
 from app.services.websocket_manager import manager as websocket_manager
 
 logger = logging.getLogger(__name__)
@@ -325,6 +325,7 @@ async def _create_spare(db: AsyncSession):
     try:
         await lxd_service.clone_container(source_image_alias=settings.LXD_BASE_IMAGE,
                                           new_container_name=container_name,
+                                          config=dict(ISLAND_LABELS),
                                           profiles=settings.LXD_DEFAULT_PROFILES)
         await lxd_service.push_file_to_container(container_name, ISLAND_DATA_PATH,
                                                  _spare_toml(island.id).encode("utf-8"))

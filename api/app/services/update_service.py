@@ -162,6 +162,33 @@ class UpdateService:
                                              settings.UPDATES_TARGET_DIR, clean_first=True)
             logger.info(f"UpdateService: Pushed core dir {dir_name}/ to '{container_name}' (full wipe).")
 
+    # Що з шаблону не має потрапити в образ: це належить самому шаблону, а не
+    # майбутнім островам (NestWorld crash-agent: ідентичність і історія запусків).
+    _TEMPLATE_SCRUB_FILES = ("/var/lib/nestworld/server_id",
+                             "/var/lib/nestworld/runtime/evidence/current.json",
+                             "/var/lib/nestworld/runtime/evidence/runs.jsonl")
+    _TEMPLATE_SCRUB_DIRS = ("/var/lib/nestworld/runtime/evidence/runs",
+                            "/var/lib/nestworld/runtime/game-events/graceful")
+
+    async def _scrub_template_identity(self, container_name: str):
+        """Removes the template's own server_id, run history and crash reports
+        before publishing, so every cloned island starts with a clean identity
+        (the wrapper generates a fresh server_id on the island's first start)
+        and the crash agent never attributes the template's crashes to it.
+        """
+        target = settings.UPDATES_TARGET_DIR.rstrip("/")
+        for path in self._TEMPLATE_SCRUB_FILES:
+            try:
+                await lxd_service.delete_file(container_name, path)
+            except Exception as e:
+                logger.warning(f"UpdateService: template scrub of {path} failed: {e}")
+        for dir_path in self._TEMPLATE_SCRUB_DIRS + (f"{target}/crash-reports",):
+            try:
+                for name in await lxd_service.list_directory(container_name, dir_path):
+                    await lxd_service.delete_file(container_name, f"{dir_path}/{name}")
+            except Exception as e:
+                logger.warning(f"UpdateService: template scrub of {dir_path}/ failed: {e}")
+
     # Файли, які чистка логів не чіпає (активні лог-файли сервера).
     _LOG_KEEP_ALWAYS = {"latest.log", "debug.log"}
     _LOG_KEEP_COUNT = 20
@@ -525,6 +552,7 @@ class UpdateService:
         await self._push_repo_to_container(template)
         await self._push_core_to_container(template, campaign)
         await self._cleanup_container_logs(template)
+        await self._scrub_template_identity(template)
         await lxd_service.publish_container_image(template, settings.LXD_BASE_IMAGE)
         logger.info(f"UpdateService: Template '{template}' updated to {campaign_version} and image "
                     f"'{settings.LXD_BASE_IMAGE}' republished.")
