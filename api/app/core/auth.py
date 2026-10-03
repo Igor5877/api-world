@@ -30,12 +30,15 @@ async def require_launcher_token(x_launcher_token: Optional[str] = Header(None, 
         )
 
 
-async def require_prometheus_sd_token(token: Optional[str] = Query(None)):
-    """Query-param auth for /prometheus/sd — Prometheus http_sd_configs can't
-    send the X-Api-Key header require_api_key relies on."""
+async def require_prometheus_sd_token(token: Optional[str] = Query(None),
+                                     authorization: Optional[str] = Header(None)):
+    """Auth for /prometheus/sd: `Authorization: Bearer <token>` (Prometheus
+    http_sd_configs → authorization:) or, for older configs, `?token=`.
+    The header is preferred — a token in the URL ends up in access logs."""
     if not settings.PROMETHEUS_SD_TOKEN:
         return  # auth disabled when no token configured
-    if token != settings.PROMETHEUS_SD_TOKEN:
+    bearer = authorization[7:] if authorization and authorization.startswith("Bearer ") else None
+    if settings.PROMETHEUS_SD_TOKEN not in (bearer, token):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing token",
