@@ -5,9 +5,10 @@ from sqlalchemy.orm import selectinload
 from fastapi import BackgroundTasks
 from app.core.config import settings
 from app.services.websocket_manager import manager as websocket_manager
-from app.services.lxd_service import ISLAND_LABELS, lxd_service, LXDServiceError
-from app.services import spare_pool
+from app.services.lxd_service import ISLAND_LABELS, lxd_service, LXDContainerNotFoundError, LXDServiceError
+from app.services import crash_agent, spare_pool
 from app.crud.crud_island import crud_island
+from app.crud.crud_island_event import crud_island_event
 from app.crud import crud_team
 from app.schemas.island import IslandCreate, IslandResponse, IslandUpdate, IslandStatusEnum
 from app.schemas.team import TeamCreate
@@ -514,7 +515,7 @@ class IslandService:
             team = result.scalars().first()
             if not team or not team.island: return
             try:
-                await lxd_service.stop_container(team.island.container_name, force=True)
+                await lxd_service.shutdown_container(team.island.container_name)
                 update_fields = {"status": IslandStatusEnum.STOPPED, "internal_ip_address": None,
                                   "minecraft_ready": False, "online_players": 0, "idle_since": None}
                 updated_island = await crud_island.update(db, db_obj=team.island, obj_in=update_fields)
@@ -536,7 +537,7 @@ class IslandService:
             island = await crud_island.get_by_player_uuid(db, player_uuid=player_uuid_str)
             if not island: return
             try:
-                await lxd_service.stop_container(island.container_name, force=True)
+                await lxd_service.shutdown_container(island.container_name)
                 update_fields = {"status": IslandStatusEnum.STOPPED, "internal_ip_address": None,
                                   "minecraft_ready": False, "online_players": 0, "idle_since": None}
                 updated_island = await crud_island.update(db, db_obj=island, obj_in=update_fields)
@@ -596,7 +597,7 @@ class IslandService:
             team = result.scalars().first()
             if not team or not team.island: return
             try:
-                await lxd_service.stop_container(container_name, force=True)
+                await lxd_service.shutdown_container(container_name)
                 await lxd_service.start_container(container_name)
                 ip_address = await lxd_service.get_container_ip(container_name)
                 if not ip_address:
@@ -623,7 +624,7 @@ class IslandService:
             island = await crud_island.get_by_player_uuid(db, player_uuid=player_uuid_str)
             if not island: return
             try:
-                await lxd_service.stop_container(container_name, force=True)
+                await lxd_service.shutdown_container(container_name)
                 await lxd_service.start_container(container_name)
                 ip_address = await lxd_service.get_container_ip(container_name)
                 if not ip_address:
@@ -893,8 +894,27 @@ class IslandService:
                     logger.warning(f"Service (background): Island {island_id} not found for deletion.")
                     return
 
-                logger.info(f"Service (background): Deleting container {island.container_name} for island {island_id}")
-                await lxd_service.delete_container(island.container_name)
+                # Destroy barrier: зупинити коректно (світ і terminal record wrapper'а
+                # збережені), дати crash-агенту забрати докази, лише потім видаляти.
+                await crud_island.update(db_session_bg, db_obj=island, obj_in={"status": IslandStatusEnum.DELETING})
+                await db_session_bg.commit()
+                container_name = island.container_name
+                try:
+                    await lxd_service.shutdown_container(container_name)
+                except LXDContainerNotFoundError:
+                    pass
+                collected, reason = await crash_agent.collect_before_destroy(container_name)
+                if not collected:
+                    await crud_island_event.add(
+                        db_session_bg, island_id=island_id, event_type="destroy_blocked",
+                        details=f"Crash-agent did not collect '{container_name}' ({reason}); "
+                                f"container kept, island left DELETING.")
+                    logger.error(f"Service (background): Island {island_id}: evidence of '{container_name}' "
+                                 f"not collected ({reason}) — NOT deleting; island left DELETING.")
+                    return
+
+                logger.info(f"Service (background): Deleting container {container_name} for island {island_id}")
+                await lxd_service.delete_container(container_name)
 
                 logger.info(f"Service (background): Deleting island record {island_id} from database.")
                 await crud_island.remove_by_id(db_session_bg, island_id=island_id)

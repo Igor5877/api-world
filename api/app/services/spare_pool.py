@@ -46,7 +46,8 @@ from app.db.session import AsyncSessionLocal
 from app.models.island import Island as IslandModel, IslandEvent as IslandEventModel
 from app.models.team import Team as TeamModel
 from app.schemas.island import IslandStatusEnum
-from app.services.lxd_service import ISLAND_LABELS, lxd_service
+from app.services import crash_agent
+from app.services.lxd_service import ISLAND_LABELS, LXDContainerNotFoundError, lxd_service
 from app.services.websocket_manager import manager as websocket_manager
 
 logger = logging.getLogger(__name__)
@@ -240,7 +241,7 @@ async def _restart_claimed(db: AsyncSession, island: IslandModel):
         "spare_claimed_at": None, "minecraft_ready": False,
         "status": IslandStatusEnum.PENDING_START})
     try:
-        await lxd_service.stop_container(island.container_name, force=True)
+        await lxd_service.shutdown_container(island.container_name)
         await lxd_service.push_file_to_container(
             island.container_name, ISLAND_DATA_PATH, island_data_toml(team).encode("utf-8"))
     except Exception as e:
@@ -295,6 +296,23 @@ async def _delete_spare(db: AsyncSession, island: IslandModel, reason: str):
     logger.warning(f"Spare pool: deleting spare '{island.container_name}' (island {island.id}): {reason}")
     await crud_island.update_by_id(db, island_id=island.id,
                                    obj_in={"status": IslandStatusEnum.DELETING})
+    # Destroy barrier: спейр, що впав при завантаженні, — саме той випадок, коли
+    # crash-report треба зберегти (2026-10-04, ExtendedTerminal). Спейр нікому
+    # не належить, тож зупиняємо примусово: світ не потрібен. Якщо агент не
+    # зібрав — рядок лишається DELETING, наступний тік повторить.
+    try:
+        await lxd_service.stop_container(island.container_name, force=True)
+    except LXDContainerNotFoundError:
+        pass
+    except Exception as e:
+        logger.error(f"Spare pool: stopping '{island.container_name}' before delete failed: {e}")
+        return
+    collected, reason = await crash_agent.collect(island.container_name) \
+        if settings.CRASH_AGENT_URL else (True, "")
+    if not collected:
+        logger.warning(f"Spare pool: crash-agent has not collected '{island.container_name}' yet ({reason}) "
+                       f"— deletion retried next tick.")
+        return
     try:
         await lxd_service.delete_container(island.container_name)
     except Exception as e:

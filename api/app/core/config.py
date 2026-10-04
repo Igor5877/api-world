@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     LXD_PROJECT: str | None = os.getenv("LXD_PROJECT", "default")
     LXD_BASE_IMAGE: str = os.getenv("LXD_BASE_IMAGE", "skyblock-template") # Name of the published LXD image
     LXD_OPERATION_TIMEOUT: int = int(os.getenv("LXD_OPERATION_TIMEOUT", "30")) # Seconds for LXD operations like start/stop
+    # Коректна зупинка острова (lxd_service.shutdown_container): systemd у контейнері
+    # зупиняє minecraft.service → wrapper шле `stop`, світ зберігається. Має бути більшим
+    # за TimeoutStopSec юніта (150 s), а той — за grace wrapper'а (120 s).
+    LXD_GRACEFUL_STOP_TIMEOUT: int = int(os.getenv("LXD_GRACEFUL_STOP_TIMEOUT", "180"))
+    # Destroy barrier: NestWorld crash-agent забирає докази із зупиненого контейнера перед
+    # видаленням (POST {CRASH_AGENT_URL}/collect). Порожньо — бар'єр вимкнено.
+    CRASH_AGENT_URL: str = os.getenv("CRASH_AGENT_URL", "")
+    # Скільки повторювати збір, перш ніж залишити острів у DELETING для адміна.
+    DESTROY_BARRIER_TIMEOUT_SECONDS: int = int(os.getenv("DESTROY_BARRIER_TIMEOUT_SECONDS", "600"))
     LXD_IP_RETRY_ATTEMPTS: int = int(os.getenv("LXD_IP_RETRY_ATTEMPTS", "10")) # How many times to try fetching an IP
     LXD_IP_RETRY_DELAY: int = int(os.getenv("LXD_IP_RETRY_DELAY", "3")) # Delay in seconds between IP fetch attempts
     LXD_DEFAULT_PROFILES: list[str] = os.getenv("LXD_DEFAULT_PROFILES", "default,skyblock").split(',') # Comma-separated list e.g., "default,skyblock"

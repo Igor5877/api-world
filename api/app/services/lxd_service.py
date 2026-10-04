@@ -221,7 +221,7 @@ class LXDService:
             logger.error(f"Error starting container '{container_name}': {e}", exc_info=True)
             raise LXDServiceError(f"Failed to start container: {e}")
 
-    async def stop_container(self, container_name: str, force: bool = True):
+    async def stop_container(self, container_name: str, force: bool = True, timeout: Optional[int] = None):
         """Stops a container.
 
         Args:
@@ -236,12 +236,39 @@ class LXDService:
         try:
             container = await self._run_sync(client.containers.get, container_name)
             if container.status.lower() != 'stopped':
-                await self._run_sync(container.stop, wait=True, force=force, timeout=settings.LXD_OPERATION_TIMEOUT)
+                await self._run_sync(container.stop, wait=True, force=force,
+                                     timeout=timeout or settings.LXD_OPERATION_TIMEOUT)
         except NotFound:
             raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
         except Exception as e:
             logger.error(f"Error stopping container '{container_name}': {e}", exc_info=True)
             raise LXDServiceError(f"Failed to stop container: {e}")
+
+    async def shutdown_container(self, container_name: str) -> str:
+        """Stops a container so Minecraft saves the world, forcing only as a last resort.
+
+        A frozen container is resumed first (it can't react to a shutdown).
+        The non-forced stop makes systemd stop minecraft.service, whose wrapper
+        sends `stop` and waits for the save; LXD_GRACEFUL_STOP_TIMEOUT covers
+        that whole chain. Returns "already_stopped", "graceful" or "forced".
+        """
+        state = await self.get_container_state(container_name)
+        status = ((state or {}).get("status") or "").lower()
+        if state is None:
+            raise LXDContainerNotFoundError(f"Container '{container_name}' not found.")
+        if status == "stopped":
+            return "already_stopped"
+        if status == "frozen":
+            await self.unfreeze_container(container_name)
+        try:
+            await self.stop_container(container_name, force=False,
+                                      timeout=settings.LXD_GRACEFUL_STOP_TIMEOUT)
+            return "graceful"
+        except LXDServiceError as e:
+            logger.warning(f"LXDService: '{container_name}' did not stop cleanly in "
+                           f"{settings.LXD_GRACEFUL_STOP_TIMEOUT}s ({e}) — forcing.")
+            await self.stop_container(container_name, force=True)
+            return "forced"
 
     async def rename_container(self, old_name: str, new_name: str):
         """Renames a stopped container (LXD refuses to rename a running one)."""

@@ -337,16 +337,9 @@ class UpdateService:
             if campaign.requires_restart:
                 # Hard update: container must be stopped (world consistency).
                 lxd_status = (state.get("status") or "").lower()
-                if lxd_status == "frozen":
-                    await lxd_service.unfreeze_container(container_name)
-                    lxd_status = "running"
-                if lxd_status == "running":
-                    # Graceful first (systemd stops minecraft cleanly, world is saved).
-                    try:
-                        await lxd_service.stop_container(container_name, force=False)
-                    except Exception:
-                        logger.warning(f"UpdateService: Graceful stop of '{container_name}' failed, forcing.")
-                        await lxd_service.stop_container(container_name, force=True)
+                if lxd_status in ("frozen", "running"):
+                    # systemd stops minecraft cleanly, world is saved; force only as a last resort.
+                    await lxd_service.shutdown_container(container_name)
 
                 # Safety snapshot for manual emergency recovery only.
                 # UPDATE_SNAPSHOT_MODE: on a dir storage backend a snapshot is a
@@ -436,14 +429,8 @@ class UpdateService:
             if campaign.requires_restart:
                 state = await lxd_service.get_container_state(container_name)
                 lxd_status = ((state or {}).get("status") or "").lower()
-                if lxd_status == "frozen":
-                    await lxd_service.unfreeze_container(container_name)
-                    lxd_status = "running"
-                if lxd_status == "running":
-                    try:
-                        await lxd_service.stop_container(container_name, force=False)
-                    except Exception:
-                        await lxd_service.stop_container(container_name, force=True)
+                if lxd_status in ("frozen", "running"):
+                    await lxd_service.shutdown_container(container_name)
 
             # Delete files the campaign added, then restore the previous versions.
             for path in self._paths_added_by(campaign):
@@ -544,11 +531,8 @@ class UpdateService:
         if state is None:
             logger.warning(f"UpdateService: Template container '{template}' not found — skipping template update.")
             return
-        if (state.get("status") or "").lower() == "running":
-            try:
-                await lxd_service.stop_container(template, force=False)
-            except Exception:
-                await lxd_service.stop_container(template, force=True)
+        if (state.get("status") or "").lower() != "stopped":
+            await lxd_service.shutdown_container(template)
 
         await self._push_repo_to_container(template)
         await self._push_core_to_container(template, campaign)
@@ -579,11 +563,7 @@ class UpdateService:
 
         was_running = (state.get("status") or "").lower() == "running"
         if was_running:
-            try:
-                await lxd_service.stop_container(spawn, force=False)
-            except Exception:
-                logger.warning(f"UpdateService: Graceful stop of spawn '{spawn}' failed, forcing.")
-                await lxd_service.stop_container(spawn, force=True)
+            await lxd_service.shutdown_container(spawn)
 
         await self._push_repo_to_container(spawn)
         await self._push_core_to_container(spawn, campaign)
