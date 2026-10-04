@@ -133,6 +133,7 @@ def _lxd(base_image="img-new", current_image="img-new"):
     lxd.get_image_fingerprint.return_value = current_image
     lxd.get_container_base_image.return_value = base_image
     lxd.get_container_ip.return_value = "10.0.0.5"
+    lxd.get_container_image_version.return_value = "v1.0.0"
     return lxd
 
 
@@ -148,6 +149,7 @@ async def test_pool_creates_spare_when_empty(db_session: AsyncSession):
     assert "is_island_server = false" in toml
     spares = await crud_island.get_multi(db_session, skip=0, limit=10)
     assert len(spares) == 1 and spares[0].is_spare and spares[0].status == IslandStatusEnum.RUNNING
+    assert spares[0].current_version == "v1.0.0"  # версія образу, з якого склоновано
 
 
 @pytest.mark.asyncio
@@ -214,6 +216,52 @@ async def test_stale_claim_falls_back_to_restart(db_session: AsyncSession):
     assert f'owner_uuid = "{team.owner_uuid}"' in toml
     service._perform_lxd_start_and_update_status.assert_awaited_once_with(
         team_id=team.id, container_name=spare.container_name)
+
+
+@pytest.mark.asyncio
+async def test_retire_spares_makes_them_unclaimable_at_once(db_session: AsyncSession):
+    await _make_spare(db_session)
+    team, _ = await _make_team(db_session)
+    assert await spare_pool.retire_spares(db_session) == 1
+    with _pool_size(1):
+        assert await spare_pool.claim_spare(db_session, team=team) is None
+
+
+@pytest.mark.asyncio
+async def test_spare_booted_from_old_template_never_becomes_ready(db_session: AsyncSession):
+    spare = await _make_spare(db_session, status=IslandStatusEnum.RUNNING, ready=False)
+    lxd = _lxd(base_image="img-old", current_image="img-new")
+    with patch("app.services.spare_pool.lxd_service", lxd), \
+         patch("app.services.spare_pool.AsyncSessionLocal", return_value=_session_cm(db_session)):
+        await spare_pool.handle_spare_ready(spare.id)
+    lxd.freeze_container.assert_not_awaited()
+    refreshed = await crud_island.get(db_session, island_id=spare.id)
+    assert refreshed.minecraft_ready is False
+
+
+@pytest.mark.asyncio
+async def test_claimed_spare_joins_running_campaign_it_missed(db_session: AsyncSession):
+    from app.crud.crud_update import crud_update_campaign
+    from app.crud.crud_update_queue import crud_update_queue
+    from app.models.update import CampaignStatusEnum
+
+    spare = await _make_spare(db_session)
+    await crud_island.update_by_id(db_session, island_id=spare.id, obj_in={"current_version": "v1.0.0"})
+    campaign = await crud_update_campaign.create(db_session, version="v1.1.0",
+                                                 status=CampaignStatusEnum.IN_PROGRESS)
+    team, _ = await _make_team(db_session)
+    with _pool_size(1):
+        await spare_pool.claim_spare(db_session, team=team)
+    await db_session.commit()
+
+    with patch("app.services.spare_pool.lxd_service", _lxd()), \
+         patch("app.services.spare_pool.websocket_manager", AsyncMock()), \
+         patch("app.services.island_service.island_service", AsyncMock()), \
+         patch("app.services.spare_pool.AsyncSessionLocal", return_value=_session_cm(db_session)):
+        await spare_pool.activate_claimed_spare(spare.id)
+
+    assert await crud_update_queue.get_by_campaign_and_island(
+        db_session, campaign_id=campaign.id, island_id=spare.id) is not None
 
 
 # ── other components leave spares alone ────────────────────────────────

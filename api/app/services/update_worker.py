@@ -17,6 +17,7 @@ image republished so new islands start with the fresh files.
 import asyncio
 import logging
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -25,9 +26,11 @@ from app.db.session import AsyncSessionLocal
 from app.crud.crud_island import crud_island
 from app.crud.crud_update import crud_update_campaign
 from app.crud.crud_update_queue import crud_update_queue
-from app.models.update import CampaignStatusEnum, UpdateQueueStatusEnum
+from app.models.island import Island as IslandModel
+from app.models.update import CampaignStatusEnum, UpdateQueue as UpdateQueueModel, UpdateQueueStatusEnum
 from app.schemas.island import IslandStatusEnum
-from app.services import admin_hold, git_sync
+from app.services import admin_hold, git_sync, spare_pool
+from app.services.lxd_service import lxd_service
 from app.services.update_service import update_service, UpdateServiceError
 
 logger = logging.getLogger(__name__)
@@ -167,6 +170,10 @@ async def process_active_campaign(db_session: AsyncSession):
         await crud_update_campaign.set_status(db_session, campaign_id=campaign.id,
                                               status=CampaignStatusEnum.IN_PROGRESS)
         logger.info(f"Update worker: Campaign {campaign.version} is now IN_PROGRESS.")
+        # Template first: new islands and the warm spare are on the new version
+        # minutes after the tag, not hours later when the last online player
+        # logs out and frees the WAITING islands.
+        await refresh_template(db_session, campaign)
 
     entry = await crud_update_queue.get_next_pending(db_session, campaign_id=campaign.id)
     if entry:
@@ -192,6 +199,8 @@ async def process_active_campaign(db_session: AsyncSession):
                 logger.info(f"Update worker: WAITING island {island.id} went offline — re-queued.")
         return
 
+    if await enqueue_islands_cloned_from_old_template(db_session, campaign):
+        return
     await finish_campaign(db_session, campaign)
 
 
@@ -275,14 +284,49 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
                                                error_message=str(e), increment_retry=True)
 
 
-async def finish_campaign(db_session: AsyncSession, campaign):
-    """Refreshes the template container and closes the campaign."""
+async def refresh_template(db_session: AsyncSession, campaign):
+    """Updates and republishes the template unless its image is already at
+    campaign.version, then takes the old-version warm spares out of rotation."""
     try:
+        if await lxd_service.get_image_version(settings.LXD_BASE_IMAGE) == campaign.version:
+            return
         await update_service.update_template_container(campaign.version, campaign=campaign)
     except Exception as e:
-        # The islands are updated; a template failure shouldn't mark the whole
-        # campaign failed — log loudly and let the admin republish manually.
+        # A template failure shouldn't fail the islands' update — log loudly;
+        # finish_campaign retries, or the admin republishes manually.
         logger.error(f"Update worker: Template update for {campaign.version} failed: {e}", exc_info=True)
+        return
+    await spare_pool.retire_spares(db_session)
+
+
+async def enqueue_islands_cloned_from_old_template(db_session: AsyncSession, campaign) -> int:
+    """Queues islands created after the campaign started from an image older
+    than campaign.version — the queue was built at campaign creation and the
+    template is republished a few minutes later, so a clone in between would
+    otherwise stay on the old version for good. Returns how many were queued."""
+    queued_ids = select(UpdateQueueModel.island_id).where(UpdateQueueModel.campaign_id == campaign.id)
+    stragglers = (await db_session.execute(
+        select(IslandModel).where(
+            IslandModel.created_at >= campaign.created_at,
+            IslandModel.is_spare.is_(False),
+            IslandModel.skip_auto_updates.is_(False),
+            IslandModel.status.notin_([IslandStatusEnum.DELETING, IslandStatusEnum.ARCHIVED]),
+            (IslandModel.current_version.is_(None)) | (IslandModel.current_version != campaign.version),
+            IslandModel.id.notin_(queued_ids),
+        )
+    )).scalars().all()
+    for island in stragglers:
+        await crud_update_queue.add_island(db_session, campaign_id=campaign.id, island=island)
+        logger.info(f"Update worker: Island {island.id} was cloned from an older template "
+                    f"({island.current_version or 'unknown'}) during {campaign.version} — queued.")
+    return len(stragglers)
+
+
+async def finish_campaign(db_session: AsyncSession, campaign):
+    """Makes sure the template is at the campaign version and closes the campaign."""
+    # Normally done at campaign start; this retries a failure there and covers
+    # campaigns that were already running when this code was deployed.
+    await refresh_template(db_session, campaign)
 
     try:
         await update_service.update_spawn_container(campaign.version, campaign=campaign)

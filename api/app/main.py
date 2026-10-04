@@ -275,6 +275,8 @@ async def lifespan(app: FastAPI):
     # Code to run on shutdown
     logger.info("Shutting down SkyBlock LXD Manager API worker...")
     redis_listener_task.cancel()
+    from app.core import leader_election
+    await leader_election.release_all()
     await close_azuriom_client()
     await close_redis_pool()
 

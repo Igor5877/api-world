@@ -25,6 +25,9 @@ ISLAND_LABELS = {
     "user.nestworld.minecraft_path": "/opt/minecraft",
 }
 
+# Властивість образу шаблону: версія оновлення (тег модпаку), з якої він зібраний.
+TEMPLATE_VERSION_PROPERTY = "nestworld.version"
+
 class LXDServiceError(Exception):
     """Custom exception for LXDService errors."""
     pass
@@ -151,6 +154,17 @@ class LXDService:
             if not client.images.exists(image_alias, alias=True):
                 return None
             return client.images.get_by_alias(image_alias).fingerprint
+
+        return await self._run_sync(_sync)
+
+    async def get_image_version(self, image_alias: str) -> Optional[str]:
+        """The nestworld.version property of the image the alias points to."""
+        client = await self._get_client()
+
+        def _sync():
+            if not client.images.exists(image_alias, alias=True):
+                return None
+            return (client.images.get_by_alias(image_alias).properties or {}).get(TEMPLATE_VERSION_PROPERTY)
 
         return await self._run_sync(_sync)
 
@@ -694,6 +708,21 @@ class LXDService:
                 return
             raise
 
+    async def get_container_image_version(self, container_name: str) -> Optional[str]:
+        """Update version of the template image a container was cloned from.
+
+        The template is published with the property nestworld.version (see
+        update_service.update_template_container); LXD copies image
+        properties into the clone's config as image.<key>. None for clones of
+        an image published before that, or a missing container.
+        """
+        client = await self._get_client()
+        try:
+            container = await self._run_sync(client.containers.get, container_name)
+        except NotFound:
+            return None
+        return container.config.get(f"image.{TEMPLATE_VERSION_PROPERTY}")
+
     async def delete_directory(self, container_name: str, container_path: str):
         """Recursively deletes a directory (or single file) inside a container.
 
@@ -766,7 +795,8 @@ class LXDService:
             )
         logger.info(f"LXDService: Restored {len(container_paths)} files into '{container_name}' from '{host_backup_dir}'.")
 
-    async def publish_container_image(self, container_name: str, image_alias: str):
+    async def publish_container_image(self, container_name: str, image_alias: str,
+                                      properties: Optional[Dict[str, str]] = None):
         """Publishes a (stopped) container as an image, replacing the alias.
 
         Used after the template container is updated so new islands are created
@@ -775,9 +805,13 @@ class LXDService:
         Args:
             container_name: The name of the template container.
             image_alias: The image alias to (re)point at the new image.
+            properties: Image properties (key=value). LXD copies them into every
+                container cloned from the image as image.<key> config.
         """
+        props = [f"{k}={v}" for k, v in (properties or {}).items()]
         await self._run_lxc(
             "publish", container_name, "--alias", image_alias, "--reuse", "--force",
+            *props,
             *self._project_args(),
             timeout=1800,
         )

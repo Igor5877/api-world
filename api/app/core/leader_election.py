@@ -16,10 +16,30 @@ means the next `tick()` from any surviving contender picks it up, no restart
 required anywhere.
 """
 import logging
+import uuid
+import weakref
 
 from app.core.redis import get_redis_client
 
 logger = logging.getLogger(__name__)
+
+# Renew/release only a lock that still holds OUR token: a leader whose lock
+# expired mid-tick (a long LXD clone) must not extend or delete the lock the
+# next leader has since taken.
+_RENEW_SCRIPT = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('expire', KEYS[1], ARGV[2])
+end
+return 0
+"""
+_RELEASE_SCRIPT = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+end
+return 0
+"""
+
+_instances: "weakref.WeakSet[LeaderElection]" = weakref.WeakSet()
 
 
 class LeaderElection:
@@ -34,7 +54,9 @@ class LeaderElection:
         """
         self._lock_key = lock_key
         self._ttl_seconds = ttl_seconds
+        self._token = uuid.uuid4().hex
         self._is_leader = False
+        _instances.add(self)
 
     @property
     def is_leader(self) -> bool:
@@ -54,12 +76,12 @@ class LeaderElection:
         try:
             redis_client = get_redis_client()
             if not self._is_leader:
-                acquired = await redis_client.set(self._lock_key, "1", ex=self._ttl_seconds, nx=True)
+                acquired = await redis_client.set(self._lock_key, self._token, ex=self._ttl_seconds, nx=True)
                 if acquired:
                     self._is_leader = True
                     logger.info(f"LeaderElection[{self._lock_key}]: acquired leadership.")
             else:
-                renewed = await redis_client.set(self._lock_key, "1", ex=self._ttl_seconds, xx=True)
+                renewed = await redis_client.eval(_RENEW_SCRIPT, 1, self._lock_key, self._token, self._ttl_seconds)
                 if not renewed:
                     logger.warning(f"LeaderElection[{self._lock_key}]: lost leadership on renew "
                                    f"(lock expired or was cleared) — will retry acquiring it.")
@@ -77,8 +99,16 @@ class LeaderElection:
             return
         try:
             redis_client = get_redis_client()
-            await redis_client.delete(self._lock_key)
+            await redis_client.eval(_RELEASE_SCRIPT, 1, self._lock_key, self._token)
             logger.info(f"LeaderElection[{self._lock_key}]: released leadership.")
         except Exception:
             pass
         self._is_leader = False
+
+
+async def release_all():
+    """Gives up every lock this process leads — call on clean shutdown, so the
+    restarted processes don't wait out a dead leader's TTL (the spare pool's is
+    15 minutes)."""
+    for election in list(_instances):
+        await election.release()

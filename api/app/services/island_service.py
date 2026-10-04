@@ -177,7 +177,11 @@ class IslandService:
                 config_path = "/opt/minecraft/world/serverconfig/skyblock_island_data.toml"
                 await lxd_service.push_file_to_container(container_name, config_path, toml_content.encode('utf-8'))
                 
-                updated_island = await crud_island.update(db, db_obj=team.island, obj_in={"status": IslandStatusEnum.STOPPED})
+                # Версія шаблону, з якого склоновано: кампанія, що йде зараз, не
+                # пропустить острів, створений зі старого образу (update_worker).
+                current_version = await lxd_service.get_container_image_version(container_name)
+                updated_island = await crud_island.update(db, db_obj=team.island, obj_in={
+                    "status": IslandStatusEnum.STOPPED, "current_version": current_version})
                 await db.commit()
                 await db.refresh(updated_island)
                 await db.refresh(team, attribute_names=['island', 'members'])

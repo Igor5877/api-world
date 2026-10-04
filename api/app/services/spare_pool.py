@@ -191,6 +191,8 @@ async def activate_claimed_spare(island_id: int):
             await _restart_claimed(db, island)
             return
 
+        await _enqueue_if_campaign_missed(db, island)
+
         message = await build_claim_message(db, island)
         if message:
             await websocket_manager.send_personal_message(message, f"core_{spare_client_id(island.id)}")
@@ -200,6 +202,23 @@ async def activate_claimed_spare(island_id: int):
             .options(selectinload(TeamModel.members), selectinload(TeamModel.island))
         )).scalars().first()
         await island_service._send_update_notification(team, island)
+
+
+async def _enqueue_if_campaign_missed(db: AsyncSession, island: IslandModel):
+    """A spare booted before the running campaign's template refresh isn't in
+    its queue (spares never are) — queue it now that it's a real island."""
+    from app.crud.crud_update import crud_update_campaign
+    from app.crud.crud_update_queue import crud_update_queue
+
+    try:
+        campaign = await crud_update_campaign.get_active(db)
+        if campaign and island.current_version != campaign.version:
+            await crud_update_queue.add_island(db, campaign_id=campaign.id, island=island)
+            logger.info(f"Spare pool: claimed island {island.id} ({island.current_version or 'unknown'}) "
+                        f"queued for running campaign {campaign.version}.")
+    except Exception as e:
+        logger.error(f"Spare pool: queueing claimed island {island.id} for the campaign failed: {e}",
+                     exc_info=True)
 
 
 async def _restart_claimed(db: AsyncSession, island: IslandModel):
@@ -240,6 +259,11 @@ async def handle_spare_ready(island_id: int):
             return
         if island.status == IslandStatusEnum.FROZEN and island.minecraft_ready:
             return
+        if await _is_outdated(island.container_name):
+            # Booted from a template that was republished meanwhile — never
+            # claimable; the pool tick deletes and rebuilds it.
+            logger.info(f"Spare pool: spare {island.id} finished booting from an old template — not using it.")
+            return
         await crud_island.update_by_id(db, island_id=island.id,
                                        obj_in={"minecraft_ready": True,
                                                "status": IslandStatusEnum.PENDING_FREEZE})
@@ -255,6 +279,14 @@ async def handle_spare_ready(island_id: int):
                                        obj_in={"status": IslandStatusEnum.FROZEN,
                                                "last_heartbeat_at": None})
         logger.info(f"Spare pool: spare '{island.container_name}' (island {island.id}) ready and frozen.")
+
+
+async def _is_outdated(container_name: str) -> bool:
+    current = await lxd_service.get_image_fingerprint(settings.LXD_BASE_IMAGE)
+    if not current:
+        return False
+    base = await lxd_service.get_container_base_image(container_name)
+    return base is not None and base != current
 
 
 # ── pool maintenance ─────────────────────────────────────────────────────
@@ -278,7 +310,11 @@ async def _prune_spares(db: AsyncSession, current_image: Optional[str]):
     spares = (await db.execute(
         select(IslandModel).where(IslandModel.is_spare.is_(True))
     )).scalars().all()
-    now = _utcnow()
+    # created_at is the DB's server_default NOW() — in the DB server's local
+    # time zone, not UTC — so the age is measured against the DB's own clock.
+    # Comparing it with utcnow() made a spare look 3 h younger (Kyiv), and a
+    # spare that crashed while booting blocked the pool for 3 h 15 min.
+    now = await db.scalar(select(func.now()))
     for island in spares:
         age = (now - island.created_at).total_seconds() if island.created_at else 0
         if island.status in (IslandStatusEnum.STOPPED, IslandStatusEnum.DELETING,
@@ -299,6 +335,24 @@ async def _prune_spares(db: AsyncSession, current_image: Optional[str]):
                 continue
         if island.minecraft_ready and island.status == IslandStatusEnum.RUNNING:
             await handle_spare_ready(island.id)
+
+
+async def retire_spares(db: AsyncSession) -> int:
+    """Takes every unclaimed spare out of rotation right away — called after
+    the template image is republished, so nobody claims an old-version spare
+    in the ≤ SPARE_POOL_INTERVAL_SECONDS before the pool tick deletes it
+    (the pool sees the base image changed and rebuilds it)."""
+    spares = (await db.execute(
+        select(IslandModel).where(IslandModel.is_spare.is_(True),
+                                  IslandModel.minecraft_ready.is_(True))
+    )).scalars().all()
+    for island in spares:
+        island.minecraft_ready = False
+        db.add(island)
+    await db.commit()
+    if spares:
+        logger.info(f"Spare pool: template republished — {len(spares)} spare(s) taken out of rotation.")
+    return len(spares)
 
 
 async def _fallback_stale_claims(db: AsyncSession):
@@ -329,9 +383,11 @@ async def _create_spare(db: AsyncSession):
                                           profiles=settings.LXD_DEFAULT_PROFILES)
         await lxd_service.push_file_to_container(container_name, ISLAND_DATA_PATH,
                                                  _spare_toml(island.id).encode("utf-8"))
+        current_version = await lxd_service.get_container_image_version(container_name)
         await lxd_service.start_container(container_name)
         ip = await lxd_service.get_container_ip(container_name)
         await crud_island.update_by_id(db, island_id=island.id, obj_in={
+            "current_version": current_version,
             "status": IslandStatusEnum.RUNNING, "internal_ip_address": ip,
             "internal_port": settings.DEFAULT_MC_PORT_INTERNAL, "last_heartbeat_at": None})
     except Exception as e:

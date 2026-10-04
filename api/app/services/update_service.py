@@ -24,7 +24,7 @@ from app.schemas.island import IslandStatusEnum
 from app.services import git_sync
 from app.services.git_sync import (SYNC_DIRS, CLEAN_SYNC_DIRS, CLEAN_SYNC_SUBDIRS,
                                    CORE_SYNC_DIRS, CORE_SYNC_FILES)
-from app.services.lxd_service import lxd_service
+from app.services.lxd_service import TEMPLATE_VERSION_PROPERTY, lxd_service
 from app.services.websocket_manager import manager as websocket_manager
 
 logger = logging.getLogger(__name__)
@@ -208,7 +208,8 @@ class UpdateService:
                 candidates = sorted(e for e in entries if e not in self._LOG_KEEP_ALWAYS)
                 stale_files = candidates[:-self._LOG_KEEP_COUNT]  # порожньо, якщо файлів <= 20
                 for stale in stale_files:
-                    await lxd_service.delete_file(container_name, f"{dir_path}/{stale}")
+                    # delete_directory: logs/ містить і підкаталоги (logs/kubejs).
+                    await lxd_service.delete_directory(container_name, f"{dir_path}/{stale}")
                 if stale_files:
                     logger.info(f"UpdateService: Removed {len(stale_files)} old files from "
                                 f"{dir_name}/ in '{container_name}'.")
@@ -553,7 +554,9 @@ class UpdateService:
         await self._push_core_to_container(template, campaign)
         await self._cleanup_container_logs(template)
         await self._scrub_template_identity(template)
-        await lxd_service.publish_container_image(template, settings.LXD_BASE_IMAGE)
+        await lxd_service.publish_container_image(
+            template, settings.LXD_BASE_IMAGE,
+            properties={TEMPLATE_VERSION_PROPERTY: campaign_version})
         logger.info(f"UpdateService: Template '{template}' updated to {campaign_version} and image "
                     f"'{settings.LXD_BASE_IMAGE}' republished.")
 
