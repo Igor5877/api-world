@@ -134,6 +134,7 @@ def _lxd(base_image="img-new", current_image="img-new"):
     lxd.get_container_base_image.return_value = base_image
     lxd.get_container_ip.return_value = "10.0.0.5"
     lxd.get_container_image_version.return_value = "v1.0.0"
+    lxd.get_container_state.return_value = None
     return lxd
 
 
@@ -262,6 +263,38 @@ async def test_claimed_spare_joins_running_campaign_it_missed(db_session: AsyncS
 
     assert await crud_update_queue.get_by_campaign_and_island(
         db_session, campaign_id=campaign.id, island_id=spare.id) is not None
+
+
+@pytest.mark.asyncio
+async def test_stopped_claimed_spare_gets_normal_island_name(db_session: AsyncSession):
+    spare = await _make_spare(db_session)
+    old_name, spare_id = spare.container_name, spare.id
+    team, owner_uuid = await _make_team(db_session)
+    await crud_island.update_by_id(db_session, island_id=spare_id, obj_in={
+        "is_spare": False, "team_id": team.id, "player_uuid": owner_uuid, "player_name": "Te_st",
+        "status": IslandStatusEnum.STOPPED})
+    lxd = _lxd()
+    lxd.get_container_state.side_effect = lambda name: {"status": "Stopped"} if name == old_name else None
+    with _pool_size(0), patch("app.services.spare_pool.lxd_service", lxd):
+        await spare_pool.maintain_pool(db_session)
+
+    expected = f"skyblock-solo-Te-st-{uuid.UUID(owner_uuid).hex[:8]}"
+    lxd.rename_container.assert_awaited_once_with(old_name, expected)
+    db_session.expire_all()
+    assert (await crud_island.get(db_session, island_id=spare_id)).container_name == expected
+
+
+@pytest.mark.asyncio
+async def test_running_claimed_spare_is_not_renamed(db_session: AsyncSession):
+    spare = await _make_spare(db_session)
+    team, owner_uuid = await _make_team(db_session)
+    await crud_island.update_by_id(db_session, island_id=spare.id, obj_in={
+        "is_spare": False, "team_id": team.id, "player_uuid": owner_uuid, "player_name": "P",
+        "status": IslandStatusEnum.RUNNING})
+    lxd = _lxd()
+    with _pool_size(0), patch("app.services.spare_pool.lxd_service", lxd):
+        await spare_pool.maintain_pool(db_session)
+    lxd.rename_container.assert_not_awaited()
 
 
 # ── other components leave spares alone ────────────────────────────────

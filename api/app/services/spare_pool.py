@@ -355,6 +355,49 @@ async def retire_spares(db: AsyncSession) -> int:
     return len(spares)
 
 
+def island_container_name(island: IslandModel, team: TeamModel) -> str:
+    """The name a non-spare island would have got from a normal clone."""
+    if island.player_uuid and island.player_name:
+        safe = "".join(c if c.isalnum() else "-" for c in island.player_name)
+        return f"skyblock-solo-{safe}-{uuid.UUID(str(island.player_uuid)).hex[:8]}"
+    safe = "".join(c if c.isalnum() else "-" for c in team.name)
+    return f"skyblock-team-{safe}-{team.id}"
+
+
+async def _rename_claimed_spares(db: AsyncSession):
+    """A claimed spare keeps its skyblock-spare-* name while it runs (LXD can't
+    rename a running container) — once it is STOPPED, give it the normal
+    island name so admins and the crash dashboards see whose island it is."""
+    rows = (await db.execute(
+        select(IslandModel).where(IslandModel.is_spare.is_(False),
+                                  IslandModel.container_name.like("skyblock-spare-%"),
+                                  IslandModel.status == IslandStatusEnum.STOPPED,
+                                  IslandModel.team_id.isnot(None))
+        .with_for_update(skip_locked=True)
+    )).scalars().all()
+    for island in rows:
+        team = await db.get(TeamModel, island.team_id)
+        new_name = island_container_name(island, team)
+        state = await lxd_service.get_container_state(island.container_name)
+        if ((state or {}).get("status") or "").lower() != "stopped":
+            continue  # LXD каже інакше, ніж БД — не чіпаємо
+        if await lxd_service.get_container_state(new_name) is not None:
+            logger.warning(f"Spare pool: cannot rename '{island.container_name}' — '{new_name}' already exists.")
+            continue
+        old_name = island.container_name
+        try:
+            await lxd_service.rename_container(old_name, new_name)
+        except Exception as e:
+            logger.error(f"Spare pool: renaming '{old_name}' → '{new_name}' failed: {e}", exc_info=True)
+            continue
+        island.container_name = new_name
+        db.add(island)
+        db.add(IslandEventModel(island_id=island.id, event_type="container_renamed",
+                                details=f"Claimed warm spare renamed '{old_name}' → '{new_name}'."))
+        logger.info(f"Spare pool: claimed island {island.id} renamed '{old_name}' → '{new_name}'.")
+    await db.commit()
+
+
 async def _fallback_stale_claims(db: AsyncSession):
     """Claimed islands whose mod never sent /ready — restart them the normal way."""
     deadline = _utcnow() - timedelta(seconds=settings.SPARE_CLAIM_TIMEOUT_SECONDS)
@@ -399,6 +442,7 @@ async def _create_spare(db: AsyncSession):
 async def maintain_pool(db: AsyncSession):
     """One pool tick: prune, fall back stuck claims, top up to WARM_POOL_SIZE."""
     await _fallback_stale_claims(db)
+    await _rename_claimed_spares(db)
     if settings.WARM_POOL_SIZE <= 0:
         return
     current_image = await lxd_service.get_image_fingerprint(settings.LXD_BASE_IMAGE)

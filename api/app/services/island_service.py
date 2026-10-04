@@ -321,7 +321,10 @@ class IslandService:
             if team: await db_session.refresh(team, attribute_names=['island', 'members'])
             
             await self._send_update_notification(team, updated_island)
-            
+            # Після refresh: пул міг щойно перейменувати зупинений колишній спейр
+            # (spare_pool._rename_claimed_spares) — стартуємо під новою назвою.
+            container_name = updated_island.container_name
+
             if team:
                 background_tasks.add_task(self._perform_lxd_start_and_update_status, team_id=team.id, container_name=container_name)
             else:

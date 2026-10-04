@@ -243,6 +243,11 @@ class LXDService:
             logger.error(f"Error stopping container '{container_name}': {e}", exc_info=True)
             raise LXDServiceError(f"Failed to stop container: {e}")
 
+    async def rename_container(self, old_name: str, new_name: str):
+        """Renames a stopped container (LXD refuses to rename a running one)."""
+        await self._run_lxc("rename", old_name, new_name, *self._project_args())
+        logger.info(f"LXDService: Renamed '{old_name}' → '{new_name}'.")
+
     async def delete_container(self, container_name: str):
         """Deletes a container.
 
