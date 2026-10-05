@@ -29,7 +29,7 @@ from app.crud.crud_update_queue import crud_update_queue
 from app.models.island import Island as IslandModel
 from app.models.update import CampaignStatusEnum, UpdateQueue as UpdateQueueModel, UpdateQueueStatusEnum
 from app.schemas.island import IslandStatusEnum
-from app.services import admin_hold, git_sync, spare_pool
+from app.services import admin_hold, git_sync, spare_pool, update_notifier
 from app.services.lxd_service import lxd_service
 from app.services.update_service import update_service, UpdateServiceError
 
@@ -166,10 +166,13 @@ async def process_active_campaign(db_session: AsyncSession):
             logger.error(f"Update worker: Cannot prepare repo for campaign {campaign.version}: {e}")
             await crud_update_campaign.set_status(db_session, campaign_id=campaign.id,
                                                   status=CampaignStatusEnum.FAILED, error_message=str(e))
+            # Текст помилки git може містити токен у URL — у Discord не шлемо.
+            await update_notifier.campaign_failed_to_start(campaign)
             return
         await crud_update_campaign.set_status(db_session, campaign_id=campaign.id,
                                               status=CampaignStatusEnum.IN_PROGRESS)
         logger.info(f"Update worker: Campaign {campaign.version} is now IN_PROGRESS.")
+        await update_notifier.campaign_started(db_session, campaign)
         # Template first: new islands and the warm spare are on the new version
         # minutes after the tag, not hours later when the last online player
         # logs out and frees the WAITING islands.
@@ -253,6 +256,7 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
             await crud_update_queue.set_status(db_session, entry_id=entry.id,
                                                status=UpdateQueueStatusEnum.WAITING)
             logger.info(f"Update worker: Island {island.id} is online — WAITING for logout.")
+            await update_notifier.progress(db_session, campaign)
             return
 
     if campaign.requires_restart and island.status not in _UPDATABLE_OFFLINE \
@@ -264,11 +268,14 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
 
     await crud_update_queue.set_status(db_session, entry_id=entry.id,
                                        status=UpdateQueueStatusEnum.PROCESSING)
+    who = f" (гравець {island.player_name})" if island.player_name else ""
+    await update_notifier.progress(db_session, campaign, current=f"оновлюється **{island.container_name}**{who}")
     try:
         await update_service.perform_island_update(db_session, island, campaign)
         await crud_update_queue.set_status(db_session, entry_id=entry.id,
                                            status=UpdateQueueStatusEnum.COMPLETED)
         logger.info(f"Update worker: Island {island.id} updated to {campaign.version}.")
+        await update_notifier.progress(db_session, campaign)
     except UpdateServiceError as e:
         retry = entry.retry_count + 1
         if retry < settings.UPDATE_MAX_RETRIES:
@@ -282,6 +289,8 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
             await crud_update_queue.set_status(db_session, entry_id=entry.id,
                                                status=UpdateQueueStatusEnum.FAILED,
                                                error_message=str(e), increment_retry=True)
+            await update_notifier.island_failed(campaign, island, str(e))
+            await update_notifier.progress(db_session, campaign)
 
 
 async def refresh_template(db_session: AsyncSession, campaign):
@@ -328,6 +337,7 @@ async def finish_campaign(db_session: AsyncSession, campaign):
     # campaigns that were already running when this code was deployed.
     await refresh_template(db_session, campaign)
 
+    await update_notifier.progress(db_session, campaign, current="оновлення Spawn")
     try:
         await update_service.update_spawn_container(campaign.version, campaign=campaign)
     except Exception as e:
@@ -337,6 +347,7 @@ async def finish_campaign(db_session: AsyncSession, campaign):
     await crud_update_campaign.set_status(db_session, campaign_id=campaign.id,
                                           status=CampaignStatusEnum.COMPLETED)
     logger.info(f"Update worker: Campaign {campaign.version} COMPLETED. Breakdown: {counts}")
+    await update_notifier.campaign_finished(db_session, campaign)
 
     # Disk hygiene: old file backups are useless once a newer campaign landed
     # (rollback only goes one version back) — prune to the configured depth.

@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     # Destroy barrier: NestWorld crash-agent забирає докази із зупиненого контейнера перед
     # видаленням (POST {CRASH_AGENT_URL}/collect). Порожньо — бар'єр вимкнено.
     CRASH_AGENT_URL: str = os.getenv("CRASH_AGENT_URL", "")
+    # Discord-вебхук для ходу кампаній оновлень (services/update_notifier.py). Порожньо — вимкнено.
+    UPDATES_DISCORD_WEBHOOK: str = os.getenv("UPDATES_DISCORD_WEBHOOK", "")
     # Скільки повторювати збір, перш ніж залишити острів у DELETING для адміна.
     DESTROY_BARRIER_TIMEOUT_SECONDS: int = int(os.getenv("DESTROY_BARRIER_TIMEOUT_SECONDS", "600"))
     LXD_IP_RETRY_ATTEMPTS: int = int(os.getenv("LXD_IP_RETRY_ATTEMPTS", "10")) # How many times to try fetching an IP
