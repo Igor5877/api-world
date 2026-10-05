@@ -244,6 +244,23 @@ class LXDService:
             logger.error(f"Error stopping container '{container_name}': {e}", exc_info=True)
             raise LXDServiceError(f"Failed to stop container: {e}")
 
+    async def thread_dump(self, container_name: str, reason: str) -> Optional[str]:
+        """Asks the island's NestWorld wrapper for a JVM thread dump (written to
+        crash-reports/threaddump-*.txt and shipped by the crash agent).
+
+        Best effort — before killing a hung server, so we learn WHY it hung
+        (05.10: the main thread froze, region threads kept ticking, no trace).
+        Returns the dump path inside the container, or None.
+        """
+        try:
+            out = await self._run_lxc("exec", container_name, *self._project_args(), "--",
+                                      "/usr/local/bin/nestworld-minecraft-wrapper", "dump", reason, timeout=20)
+        except LXDServiceError as e:
+            logger.warning(f"LXDService: thread dump of '{container_name}' failed: {e}")
+            return None
+        out = out.strip()
+        return out.split(" ", 1)[1] if out.startswith("OK ") else None
+
     async def shutdown_container(self, container_name: str) -> str:
         """Stops a container so Minecraft saves the world, forcing only as a last resort.
 

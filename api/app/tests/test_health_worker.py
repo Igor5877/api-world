@@ -96,6 +96,11 @@ async def test_watchdog_stops_hung_server(db_session: AsyncSession):
     events = await crud_island_event.list_for_island(db_session, island_id=island.id)
     assert [e.event_type for e in events] == ["hung"]
 
+    # знімок потоків — ДО зупинки, інакше причина зависання зникає разом з JVM
+    calls = [c[0] for c in lxd.mock_calls if c[0] in ("thread_dump", "stop_container")]
+    assert calls[0] == "thread_dump"
+    assert "hung" in lxd.thread_dump.await_args.args[1]
+
 
 @pytest.mark.asyncio
 async def test_watchdog_respects_clean_shutdown_signal(db_session: AsyncSession):

@@ -147,6 +147,12 @@ async def _handle_silent_island(db_session: AsyncSession, island, silence: float
     logger.warning(f"Health watchdog: island {island.id}: container '{container_name}' is up "
                    f"but Minecraft is silent for {int(silence)}s ({event_type}) — stopping container.")
 
+    # Знімок потоків до зупинки: інакше причина зависання зникає разом з JVM.
+    dump_path = await lxd_service.thread_dump(
+        container_name, f"watchdog api-world: Minecraft мовчить {int(silence)} с ({event_type})")
+    if dump_path:
+        logger.info(f"Health watchdog: island {island.id}: thread dump saved to {dump_path}.")
+
     try:
         try:
             await lxd_service.stop_container(container_name, force=False)
