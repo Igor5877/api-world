@@ -48,15 +48,19 @@ class UpdateService:
     async def get_island_owner_uuid(self, db_session: AsyncSession, island: IslandModel) -> Optional[str]:
         """Returns the UUID used as the island's identity (WS client id, endpoints).
 
-        Team islands use the team owner's UUID; legacy solo islands use player_uuid.
+        Team islands use the team owner's UUID — the mod connects its WS as
+        core_<owner_uuid from skyblock_island_data.toml>, which is the team owner.
+        player_uuid only for legacy solo islands without a team: 06.10 island 18
+        had a stale player_uuid ≠ team owner, so chat messages and reload
+        commands went to a client id nobody listened on.
         """
-        if island.player_uuid:
-            return str(island.player_uuid)
         if island.team_id:
             result = await db_session.execute(select(TeamModel).where(TeamModel.id == island.team_id))
             team = result.scalars().first()
             if team:
                 return str(team.owner_uuid)
+        if island.player_uuid:
+            return str(island.player_uuid)
         return None
 
     def _repo_sync_dirs(self) -> List[pathlib.Path]:

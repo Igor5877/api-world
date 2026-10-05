@@ -79,3 +79,29 @@ async def test_refresh_template_skips_when_image_already_current(db_session: Asy
          patch("app.services.update_worker.update_service", service):
         await update_worker.refresh_template(db_session, campaign)
     service.update_template_container.assert_not_awaited()
+
+
+def test_running_island_without_players_is_not_waited_for():
+    from types import SimpleNamespace as NS
+    assert update_worker._has_players(NS(online_players=2)) is True
+    assert update_worker._has_players(NS(online_players=None)) is True   # ще без heartbeat — обережно
+    assert update_worker._has_players(NS(online_players=0)) is False     # запущений, але порожній
+
+
+@pytest.mark.asyncio
+async def test_waiting_entry_released_when_island_empties(db_session: AsyncSession):
+    campaign = await _campaign(db_session)
+    island = await _island(db_session, version="v1.0.0", created_at=datetime.utcnow() - timedelta(days=1))
+    island_id, campaign_id = island.id, campaign.id
+    await crud_island.update_by_id(db_session, island_id=island_id,
+                                   obj_in={"status": IslandStatusEnum.RUNNING, "online_players": 0})
+    island = await crud_island.get(db_session, island_id=island_id)
+    entry = await crud_update_queue.add_island(db_session, campaign_id=campaign_id, island=island)
+    entry_id = entry.id
+    from app.models.update import UpdateQueueStatusEnum
+    await crud_update_queue.set_status(db_session, entry_id=entry_id, status=UpdateQueueStatusEnum.WAITING)
+    with patch("app.services.update_worker.update_notifier", AsyncMock()):
+        await update_worker.process_active_campaign(db_session)
+    db_session.expire_all()
+    entries = await crud_update_queue.get_all_for_campaign(db_session, campaign_id=campaign_id)
+    assert [e.status for e in entries if e.id == entry_id] == [UpdateQueueStatusEnum.PENDING]

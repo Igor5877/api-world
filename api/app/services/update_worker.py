@@ -197,16 +197,25 @@ async def process_active_campaign(db_session: AsyncSession):
             if waiting_entry.status != UpdateQueueStatusEnum.WAITING:
                 continue
             island = await crud_island.get(db_session, island_id=waiting_entry.island_id)
-            if island and island.status in _UPDATABLE_OFFLINE:
+            if island and (island.status in _UPDATABLE_OFFLINE
+                           or (island.status == IslandStatusEnum.RUNNING and not _has_players(island))):
                 await crud_update_queue.set_status(db_session, entry_id=waiting_entry.id,
                                                    status=UpdateQueueStatusEnum.PENDING)
-                logger.info(f"Update worker: WAITING island {island.id} went offline — re-queued.")
-                await update_notifier.island_resumed(campaign, island, "острів уже не працює — оновлення продовжиться")
+                logger.info(f"Update worker: WAITING island {island.id} has no players anymore — re-queued.")
+                await update_notifier.island_resumed(campaign, island, "на острові вже нікого немає — оновлення продовжиться")
         return
 
     if await enqueue_islands_cloned_from_old_template(db_session, campaign):
         return
     await finish_campaign(db_session, campaign)
+
+
+def _has_players(island) -> bool:
+    """Чи на острові справді грають (за heartbeat мода). Запущений, але порожній
+    острів не чекає «виходу гравця», якого не буде (06.10: гравець з новим
+    клієнтом не міг зайти на острів зі старими модами, а кампанія чекала його
+    виходу). None — мод ще не надіслав heartbeat: обережно вважаємо, що грають."""
+    return island.online_players is None or island.online_players > 0
 
 
 async def process_queue_entry(db_session: AsyncSession, campaign, entry):
@@ -242,7 +251,7 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
 
     owner_uuid = await update_service.get_island_owner_uuid(db_session, island)
 
-    if campaign.requires_restart and island.status == IslandStatusEnum.RUNNING:
+    if campaign.requires_restart and island.status == IslandStatusEnum.RUNNING and _has_players(island):
         if campaign.update_type.value == "critical":
             if owner_uuid:
                 await update_service.notify_island(
