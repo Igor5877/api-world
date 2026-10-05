@@ -993,7 +993,8 @@ public abstract class BaseQuestFile extends QuestObject implements QuestFile {
 
 	@Override
 	public IslandData getOrCreateIslandData(Entity player) {
-		UUID islandId = com.skyblock.dynamic.nestworld.mods.NestworldModsServer.ISLAND_PROVIDER.getCachedTeamId(player.getUUID());
+		// Через NestworldHook: в одиночній грі серверного мода немає (NoClassDefFoundError).
+		UUID islandId = dev.ftb.mods.ftbquests.nestworld.NestworldHook.teamIdOf(player.getUUID());
 		if (islandId == null) {
 			// Player is not in a team or data hasn't loaded yet.
 			// Return the UNLOADED data singleton to prevent NPEs and quest progress.

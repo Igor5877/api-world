@@ -14,7 +14,7 @@ import dev.ftb.mods.ftbquests.quest.reward.RewardTypes;
 import dev.ftb.mods.ftbquests.quest.task.Task;
 import dev.ftb.mods.ftbquests.quest.task.TaskType;
 import dev.ftb.mods.ftbquests.quest.task.TaskTypes;
-import com.skyblock.dynamic.nestworld.mods.NestworldModsServer;
+import dev.ftb.mods.ftbquests.nestworld.NestworldHook;
 import dev.ftb.mods.ftbquests.util.FTBQuestsInventoryListener;
 import dev.ftb.mods.ftbquests.util.FileUtils;
 import net.minecraft.server.MinecraftServer;
@@ -160,7 +160,7 @@ public class ServerQuestFile extends BaseQuestFile {
 	@Override
 	public boolean isPlayerOnTeam(Player player, IslandData islandData) {
 		// Replaced with call to our cached provider
-		UUID playerTeamId = NestworldModsServer.ISLAND_PROVIDER.getCachedTeamId(player.getUUID());
+		UUID playerTeamId = NestworldHook.teamIdOf(player.getUUID());
 		return playerTeamId != null && playerTeamId.equals(islandData.getTeamId());
 	}
 
@@ -173,8 +173,8 @@ public class ServerQuestFile extends BaseQuestFile {
 		// progress (GUEST_QUEST_VIEW_TODO.md). player is still used
 		// elsewhere for per-player fields (canEdit, claimedRewards), just
 		// not for choosing which IslandData to resolve.
-		if (com.skyblock.dynamic.SkyBlockMod.isIslandServer()) {
-			String ownerUuid = com.skyblock.dynamic.SkyBlockMod.getOwnerUuid();
+		if (NestworldHook.isIslandServer()) {
+			String ownerUuid = NestworldHook.islandOwnerUuid();
 			if (ownerUuid != null) {
 				return getOrCreateIslandData(UUID.fromString(ownerUuid));
 			}

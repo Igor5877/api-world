@@ -3,7 +3,7 @@ package dev.ftb.mods.ftbquests.net;
 import dev.architectury.networking.NetworkManager;
 import dev.architectury.networking.simple.BaseC2SMessage;
 import dev.architectury.networking.simple.MessageType;
-import com.skyblock.dynamic.nestworld.mods.NestworldModsServer;
+import dev.ftb.mods.ftbquests.nestworld.NestworldHook;
 import dev.ftb.mods.ftbquests.quest.IslandData;
 import dev.ftb.mods.ftbquests.quest.ServerQuestFile;
 import dev.ftb.mods.ftbquests.quest.reward.Reward;
@@ -52,11 +52,11 @@ public class ClaimRewardMessage extends BaseC2SMessage {
 
 		if (islandData != null && islandData.isCompleted(reward.getQuest())) {
 			// MODIFIED: Use the QuestTeamBridge for an authoritative and synchronous check
-			boolean isMember = com.skyblock.dynamic.utils.QuestTeamBridge.getInstance().isPlayerOnTeam(player.getUUID(), islandData.getTeamId());
+			boolean isMember = NestworldHook.isPlayerOnTeam(player.getUUID(), islandData.getTeamId());
 
 			// ADDED: Crucial check to ensure the player is on THEIR OWN island server when claiming rewards.
-			boolean isCorrectIsland = !com.skyblock.dynamic.SkyBlockMod.isIslandServer() ||
-					java.util.UUID.fromString(com.skyblock.dynamic.SkyBlockMod.getOwnerUuid()).equals(islandData.getTeamId());
+			boolean isCorrectIsland = !NestworldHook.isIslandServer() ||
+					java.util.UUID.fromString(NestworldHook.islandOwnerUuid()).equals(islandData.getTeamId());
 
 			if (isMember && isCorrectIsland) {
 				islandData.claimReward(player, reward, notify);
