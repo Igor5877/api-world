@@ -355,6 +355,23 @@ class CRUDisland:
             logger.error(f"Database error in CRUDisland.get_running_islands_count: {e}")
             raise
 
+    async def claim_status(self, db_session: AsyncSession, *, island_id: int,
+                           expected: IslandStatusEnum, new: IslandStatusEnum) -> bool:
+        """Atomically moves an island from `expected` to `new` (compare-and-set).
+
+        One conditional UPDATE: of two actors racing for the same island (a
+        player's start and an update campaign, 2026-10-05) exactly one wins;
+        the loser sees False and must not touch the container. Commits.
+        """
+        result = await db_session.execute(
+            sqlalchemy_update(IslandModel)
+            .where(IslandModel.id == island_id, IslandModel.status == expected)
+            .values(status=new)
+            .execution_options(synchronize_session=False)
+        )
+        await db_session.commit()
+        return result.rowcount == 1
+
     async def update_by_id(self, db_session: AsyncSession, *, island_id: int, obj_in: Union[IslandUpdate, Dict[str, Any]]) -> Optional[IslandModel]:
         """Updates an island by its ID.
 

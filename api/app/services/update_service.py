@@ -35,6 +35,11 @@ class UpdateServiceError(Exception):
     pass
 
 
+class IslandBusyError(UpdateServiceError):
+    """The island changed state between the worker's check and the update
+    (a player started it) — nothing was touched; try again later."""
+
+
 class UpdateService:
     """Applies update campaigns to island containers."""
 
@@ -328,8 +333,12 @@ class UpdateService:
         if state is None:
             raise UpdateServiceError(f"Container '{container_name}' not found in LXD.")
 
-        await crud_island.update_by_id(db_session, island_id=island.id,
-                                       obj_in={"status": IslandStatusEnum.UPDATING})
+        # Атомарно забрати острів: якщо гравець саме його запускає (статус уже не
+        # той, що бачив воркер), файли не чіпаємо — 05.10 mods/ видалялись і
+        # заливались заново посеред завантаження сервера.
+        if not await crud_island.claim_status(db_session, island_id=island.id,
+                                              expected=previous_status, new=IslandStatusEnum.UPDATING):
+            raise IslandBusyError(f"Island {island.id} left {previous_status.value} before the update started.")
         try:
             backup_dir = self._backup_dir_for(island, campaign.version)
             paths_to_save = self._paths_to_back_up(campaign)

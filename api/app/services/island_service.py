@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from fastapi import BackgroundTasks
 from app.core.config import settings
+from app.core.redis import get_redis_client
 from app.services.websocket_manager import manager as websocket_manager
 from app.services.lxd_service import ISLAND_LABELS, lxd_service, LXDContainerNotFoundError, LXDServiceError
 from app.services import crash_agent, spare_pool
@@ -21,6 +22,9 @@ import logging
 import pathlib
 
 logger = logging.getLogger(__name__)
+
+_START_AFTER_UPDATE_KEY = "start_after_update:{}"
+
 
 class IslandService:
     """Provides business logic for island and team management."""
@@ -315,9 +319,17 @@ class IslandService:
 
         elif current_status in [IslandStatusEnum.STOPPED, IslandStatusEnum.FROZEN, IslandStatusEnum.ERROR_START]:
             logger.info(f"Service: Starting island {container_name} from status {current_status.value}...")
-            updated_island = await crud_island.update(db_session, db_obj=island, obj_in={"status": IslandStatusEnum.PENDING_START})
-            await db_session.commit()
-            
+            # Атомарно: кампанія оновлення могла щойно взяти цей острів (UPDATING) —
+            # тоді не стартуємо поверх оновлення (05.10: mods/ видалялись посеред старту).
+            if not await crud_island.claim_status(db_session, island_id=island.id,
+                                                  expected=current_status, new=IslandStatusEnum.PENDING_START):
+                await db_session.refresh(island)
+                if island.status == IslandStatusEnum.UPDATING:
+                    return await self._start_after_update_requested(island, team)
+                logger.info(f"Service: Island {container_name} changed state to {island.status.value} meanwhile — "
+                            f"not starting it twice.")
+                return IslandResponse.model_validate(island)
+            updated_island = island
             await db_session.refresh(updated_island)
             if team: await db_session.refresh(team, attribute_names=['island', 'members'])
             
@@ -335,9 +347,42 @@ class IslandService:
             return IslandResponse.model_validate(updated_island)
         elif current_status == IslandStatusEnum.PENDING_START:
             logger.info(f"Service: Island {container_name} is already PENDING_START.")
+        elif current_status == IslandStatusEnum.UPDATING:
+            return await self._start_after_update_requested(island, team)
         else:
             raise ValueError(f"Island cannot be started from its current state: {current_status.value}")
         return IslandResponse.model_validate(island)
+
+    async def _start_after_update_requested(self, island: IslandModel, team: Optional[TeamModel]) -> IslandResponse:
+        """The island is being updated right now: remember the start request —
+        the update worker starts the island as soon as the update finishes."""
+        await get_redis_client().set(_START_AFTER_UPDATE_KEY.format(island.id), "1", ex=3600)
+        logger.info(f"Service: Island {island.container_name} is UPDATING — it will start right after the update.")
+        await self._send_update_notification(team, island)
+        return IslandResponse.model_validate(island)
+
+    async def start_if_requested_after_update(self, island_id: int):
+        """Called by the update worker after an island's update: starts it if a
+        player asked to while it was UPDATING."""
+        from app.db.session import AsyncSessionLocal
+        redis = get_redis_client()
+        key = _START_AFTER_UPDATE_KEY.format(island_id)
+        if not await redis.get(key):
+            return
+        await redis.delete(key)
+        async with AsyncSessionLocal() as db:
+            island = await crud_island.get(db, island_id=island_id)
+            if not island or island.status not in (IslandStatusEnum.STOPPED, IslandStatusEnum.FROZEN):
+                return
+            if not await crud_island.claim_status(db, island_id=island.id, expected=island.status,
+                                                  new=IslandStatusEnum.PENDING_START):
+                return
+            logger.info(f"Service: Starting island {island.container_name} — a player asked during its update.")
+        if island.team_id:
+            await self._perform_lxd_start_and_update_status(team_id=island.team_id, container_name=island.container_name)
+        elif island.player_uuid:
+            await self._perform_solo_lxd_start_and_update_status(player_uuid_str=str(island.player_uuid),
+                                                                 container_name=island.container_name)
 
     async def _perform_solo_lxd_start_and_update_status(self, player_uuid_str: str, container_name: str):
         """Performs the LXD start and updates the status for a solo island.

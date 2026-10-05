@@ -32,7 +32,7 @@ from app.models.update import CampaignStatusEnum, UpdateQueue as UpdateQueueMode
 from app.schemas.island import IslandStatusEnum
 from app.services import admin_hold, git_sync, spare_pool, update_notifier
 from app.services.lxd_service import lxd_service
-from app.services.update_service import update_service, UpdateServiceError
+from app.services.update_service import update_service, IslandBusyError, UpdateServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +290,15 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
         logger.info(f"Update worker: Island {island.id} updated to {campaign.version}.")
         await update_notifier.island_done(campaign, island, time.monotonic() - started_at)
         await update_notifier.progress(db_session, campaign)
+        from app.services.island_service import island_service
+        await island_service.start_if_requested_after_update(island.id)
+    except IslandBusyError:
+        # Гравець запустив острів між перевіркою й оновленням — нічого не чіпали;
+        # наступний прохід побачить його RUNNING (чекати виходу / м'яке оновлення).
+        await crud_update_queue.set_status(db_session, entry_id=entry.id, status=UpdateQueueStatusEnum.PENDING)
+        await crud_update_queue.defer_entry(db_session, entry_id=entry.id)
+        logger.info(f"Update worker: Island {island.id} is being started by a player — update deferred.")
+        await update_notifier.island_paused(campaign, island, "гравець саме запускає острів — оновлення після старту")
     except UpdateServiceError as e:
         retry = entry.retry_count + 1
         if retry < settings.UPDATE_MAX_RETRIES:
