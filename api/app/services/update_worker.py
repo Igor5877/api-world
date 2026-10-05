@@ -16,6 +16,7 @@ image republished so new islands start with the fresh files.
 """
 import asyncio
 import logging
+import time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -200,6 +201,7 @@ async def process_active_campaign(db_session: AsyncSession):
                 await crud_update_queue.set_status(db_session, entry_id=waiting_entry.id,
                                                    status=UpdateQueueStatusEnum.PENDING)
                 logger.info(f"Update worker: WAITING island {island.id} went offline — re-queued.")
+                await update_notifier.island_resumed(campaign, island, "острів уже не працює — оновлення продовжиться")
         return
 
     if await enqueue_islands_cloned_from_old_template(db_session, campaign):
@@ -219,6 +221,7 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
         await crud_update_queue.set_status(db_session, entry_id=entry.id,
                                            status=UpdateQueueStatusEnum.SKIPPED,
                                            error_message="skip_auto_updates is set.")
+        await update_notifier.island_skipped(campaign, island, "для острова вимкнено автооновлення (skip_auto_updates)")
         return
     if island.current_version == campaign.version:
         await crud_update_queue.set_status(db_session, entry_id=entry.id,
@@ -227,10 +230,14 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
     if admin_hold.is_held(island):
         # Адмін працює з островом — оновимо після зняття hold.
         await crud_update_queue.defer_entry(db_session, entry_id=entry.id)
+        await update_notifier.island_paused(campaign, island,
+                                            "адмін працює з островом (режим адміна) — оновиться після зняття")
         return
     if island.status in _TRANSIENT:
         # Island is mid-transition (starting/stopping/...) — try again later.
         await crud_update_queue.defer_entry(db_session, entry_id=entry.id)
+        await update_notifier.island_paused(campaign, island,
+                                            f"острів зараз у перехідному стані ({island.status.value}) — повтор, щойно завершиться")
         return
 
     owner_uuid = await update_service.get_island_owner_uuid(db_session, island)
@@ -256,6 +263,8 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
             await crud_update_queue.set_status(db_session, entry_id=entry.id,
                                                status=UpdateQueueStatusEnum.WAITING)
             logger.info(f"Update worker: Island {island.id} is online — WAITING for logout.")
+            await update_notifier.island_paused(campaign, island,
+                                                "на острові грають — оновиться, щойно всі вийдуть (оновлення потребує рестарту)")
             await update_notifier.progress(db_session, campaign)
             return
 
@@ -264,17 +273,22 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
         await crud_update_queue.set_status(db_session, entry_id=entry.id,
                                            status=UpdateQueueStatusEnum.SKIPPED,
                                            error_message=f"Island in non-updatable state {island.status.value}.")
+        await update_notifier.island_skipped(campaign, island,
+                                             f"острів у стані {island.status.value}, з якого оновити не можна")
         return
 
     await crud_update_queue.set_status(db_session, entry_id=entry.id,
                                        status=UpdateQueueStatusEnum.PROCESSING)
     who = f" (гравець {island.player_name})" if island.player_name else ""
+    await update_notifier.island_started(campaign, island, restart=campaign.requires_restart)
     await update_notifier.progress(db_session, campaign, current=f"оновлюється **{island.container_name}**{who}")
+    started_at = time.monotonic()
     try:
         await update_service.perform_island_update(db_session, island, campaign)
         await crud_update_queue.set_status(db_session, entry_id=entry.id,
                                            status=UpdateQueueStatusEnum.COMPLETED)
         logger.info(f"Update worker: Island {island.id} updated to {campaign.version}.")
+        await update_notifier.island_done(campaign, island, time.monotonic() - started_at)
         await update_notifier.progress(db_session, campaign)
     except UpdateServiceError as e:
         retry = entry.retry_count + 1
@@ -284,6 +298,7 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
                                                status=UpdateQueueStatusEnum.PENDING,
                                                error_message=str(e), increment_retry=True)
             await crud_update_queue.defer_entry(db_session, entry_id=entry.id)
+            await update_notifier.island_retry(campaign, island, retry, str(e))
         else:
             logger.error(f"Update worker: Island {island.id} failed permanently: {e}")
             await crud_update_queue.set_status(db_session, entry_id=entry.id,
@@ -371,6 +386,10 @@ async def on_player_left_island(db_session: AsyncSession, island_id: int) -> boo
     await crud_update_queue.set_status(db_session, entry_id=entry.id,
                                        status=UpdateQueueStatusEnum.PENDING)
     logger.info(f"Update worker: Island {island_id} logged out — WAITING entry re-queued.")
+    campaign = await crud_update_campaign.get(db_session, campaign_id=entry.campaign_id)
+    island = await crud_island.get(db_session, island_id=island_id)
+    if campaign and island:
+        await update_notifier.island_resumed(campaign, island, "гравці вийшли — острів оновиться найближчим часом")
     return True
 
 

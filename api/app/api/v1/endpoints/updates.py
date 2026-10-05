@@ -26,7 +26,7 @@ from app.schemas.update import (
     CampaignCreateRequest, CampaignResponse, CampaignDetailResponse,
     QueueEntryResponse, SnapshotInfo, SpawnSyncRequest,
 )
-from app.services import git_sync
+from app.services import git_sync, update_notifier
 from app.services.lxd_service import lxd_service, LXDContainerNotFoundError
 from app.services.update_service import update_service, UpdateServiceError
 
@@ -51,8 +51,11 @@ async def _create_campaign_background(tag: str, islands=None):
             logger.info(f"Updates: Campaign {campaign.id} for '{tag}' created from webhook/manual trigger.")
         except ValueError as e:
             logger.warning(f"Updates: Campaign for '{tag}' not created: {e}")
+            await update_notifier.tag_rejected(tag, str(e))
         except Exception as e:
             logger.error(f"Updates: Failed to create campaign for '{tag}': {e}", exc_info=True)
+            # Текст помилки git може містити токен у URL — у Discord лише суть.
+            await update_notifier.tag_rejected(tag, "не вдалося підготувати кампанію (git/маніфест) — подробиці в журналі API")
 
 
 @webhook_router.post("/webhook", status_code=status.HTTP_200_OK)
@@ -86,12 +89,19 @@ async def github_webhook(
         return {"message": "Not a tag push — ignored."}
 
     tag = ref[len("refs/tags/"):]
+    try:
+        git_sync.parse_tag(tag)
+    except git_sync.GitSyncError:
+        logger.warning(f"Updates webhook: Tag '{tag}' does not match the naming convention — ignored.")
+        await update_notifier.tag_rejected(tag, "тег не відповідає формату версії")
+        return {"message": f"Tag '{tag}' does not match vX.Y.Z[-both|-critical] — ignored."}
 
     if await crud_update_campaign.get_by_version(db_session, version=tag):
         return {"message": f"Campaign for '{tag}' already exists — ignored (webhook redelivery)."}
     active = await crud_update_campaign.get_active(db_session)
     if active:
         logger.warning(f"Updates webhook: Tag '{tag}' received while campaign '{active.version}' is active.")
+        await update_notifier.tag_postponed(tag, active.version)
         return {"message": f"Campaign '{active.version}' is still active; trigger '{tag}' manually once it finishes."}
 
     background_tasks.add_task(_create_campaign_background, tag)

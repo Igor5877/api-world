@@ -101,3 +101,64 @@ async def test_disabled_without_webhook(db_session: AsyncSession):
         await update_notifier.campaign_started(db_session, campaign)
         await update_notifier.campaign_finished(db_session, campaign)
     post.assert_not_awaited()
+
+
+# ── per-island messages ────────────────────────────────────────────────
+
+def _isl(i=1, name="skyblock-solo-Hiklee-fec7b171", player="Hiklee"):
+    return SimpleNamespace(id=i, container_name=name, player_name=player)
+
+
+@pytest.mark.asyncio
+async def test_each_island_gets_start_and_done_messages():
+    campaign = SimpleNamespace(id=7, version="v1.2.3")
+    redis, post = _FakeRedis(), AsyncMock()
+    p1, p2, p3, p4 = _patched(redis, post, AsyncMock())
+    with p1, p2, p3, p4:
+        await update_notifier.island_started(campaign, _isl(), restart=True)
+        await update_notifier.island_done(campaign, _isl(), 42.7)
+    titles = [c.args[0]["title"] for c in post.await_args_list]
+    assert titles == ["🔧 v1.2.3: оновлюється skyblock-solo-Hiklee-fec7b171",
+                      "✅ v1.2.3: skyblock-solo-Hiklee-fec7b171 оновлено"]
+    assert "гравець Hiklee" in post.await_args_list[0].args[0]["description"]
+    assert "за 42 с" in post.await_args_list[1].args[0]["description"]
+
+
+@pytest.mark.asyncio
+async def test_pause_reason_sent_once_per_reason():
+    campaign = SimpleNamespace(id=7, version="v1.2.3")
+    redis, post = _FakeRedis(), AsyncMock()
+    p1, p2, p3, p4 = _patched(redis, post, AsyncMock())
+    with p1, p2, p3, p4:
+        for _ in range(5):  # воркер перевіряє відкладений острів кожні 10 с
+            await update_notifier.island_paused(campaign, _isl(), "на острові грають")
+        await update_notifier.island_paused(campaign, _isl(), "адмін працює з островом")
+        await update_notifier.island_paused(campaign, _isl(2, "skyblock-solo-other", None), "на острові грають")
+    assert post.await_count == 3
+    assert "**Чому:** на острові грають" in post.await_args_list[0].args[0]["description"]
+
+
+# ── tags ───────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("tag,hint", [
+    ("v.0.0.18", "v0.0.18"),
+    ("V.0.0.4", "v0.0.4"),
+    ("0.0.17", "v0.0.17"),
+    ("v0.0..19", "v0.0.19"),
+    ("v.0.025", "v0.025"),
+    ("v0.0.18", None),          # уже правильний
+    ("release-5", None),        # не вгадати
+])
+def test_suggest_tag(tag, hint):
+    assert update_notifier.suggest_tag(tag) == hint
+
+
+@pytest.mark.asyncio
+async def test_rejected_tag_message_shows_fix():
+    post = AsyncMock()
+    with patch.object(update_notifier.settings, "UPDATES_DISCORD_WEBHOOK", "https://discord/hook"), \
+         patch("app.services.update_notifier._post", post):
+        await update_notifier.tag_rejected("v.0.0.18", "тег не відповідає формату версії")
+    embed = post.await_args.args[0]
+    assert embed["title"] == "❌ Тег v.0.0.18: оновлення не запущено"
+    assert "**v0.0.18**" in embed["description"]
