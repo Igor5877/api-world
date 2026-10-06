@@ -151,11 +151,11 @@ async def island_started(campaign, island, *, restart: bool):
         "color": 0x1E88E5})
 
 
-async def island_done(campaign, island, seconds: float):
+async def island_done(campaign, island, seconds: float, files: str | None = None):
     await _island_event(campaign, island, "done", {
         "title": f"✅ {campaign.version}: {island.container_name} оновлено",
         "description": f"Острів **{island.container_name}**{_who(island)} оновлено до **{campaign.version}** "
-                       f"за {int(seconds)} с.",
+                       f"за {int(seconds)} с." + (f"\nФайли: {files}." if files else ""),
         "color": 0x43A047})
 
 

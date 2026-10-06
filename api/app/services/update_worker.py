@@ -293,11 +293,12 @@ async def process_queue_entry(db_session: AsyncSession, campaign, entry):
     await update_notifier.progress(db_session, campaign, current=f"оновлюється **{island.container_name}**{who}")
     started_at = time.monotonic()
     try:
-        await update_service.perform_island_update(db_session, island, campaign)
+        sync = await update_service.perform_island_update(db_session, island, campaign)
         await crud_update_queue.set_status(db_session, entry_id=entry.id,
                                            status=UpdateQueueStatusEnum.COMPLETED)
         logger.info(f"Update worker: Island {island.id} updated to {campaign.version}.")
-        await update_notifier.island_done(campaign, island, time.monotonic() - started_at)
+        await update_notifier.island_done(campaign, island, time.monotonic() - started_at,
+                                          sync.summary() if sync else None)
         await update_notifier.progress(db_session, campaign)
         from app.services.island_service import island_service
         await island_service.start_if_requested_after_update(island.id)

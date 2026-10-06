@@ -738,6 +738,12 @@ class LXDService:
                 return False
             raise
 
+    async def push_local_file(self, container_name: str, local_path: str, container_path: str, mode: int = 0o644):
+        """Pushes one host file into a container, creating parent dirs; works for
+        stopped containers (lxc CLI, unlike push_file_to_container's mkdir via exec)."""
+        await self._run_lxc("file", "push", "--create-dirs", "--mode", f"{mode:o}",
+                            local_path, f"{container_name}{container_path}", *self._project_args())
+
     async def delete_file(self, container_name: str, container_path: str):
         """Deletes a file or directory inside a container (running or stopped).
 

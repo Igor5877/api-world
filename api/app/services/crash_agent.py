@@ -49,3 +49,24 @@ async def collect_before_destroy(container_name: str) -> tuple[bool, str]:
             return False, reason
         logger.warning(f"Destroy barrier: '{container_name}' not collected yet ({reason}) — retrying.")
         await asyncio.sleep(15)
+
+
+async def stat(container_name: str, root: str, dirs: list[str]) -> dict[str, tuple[int, int]] | None:
+    """{relpath: (size, mtime)} of the files under root/dirs, read by the crash
+    agent (SFTP — works for stopped containers too). None when the agent is not
+    configured or unavailable — callers then fall back to a full sync."""
+    if not settings.CRASH_AGENT_URL or not dirs:
+        return None
+    url = settings.CRASH_AGENT_URL.rstrip("/") + "/stat"
+    params = {"project": settings.LXD_PROJECT or "default", "container": container_name,
+              "root": root, "dirs": ",".join(dirs)}
+    try:
+        async with httpx.AsyncClient(timeout=150) as client:
+            resp = await client.get(url, params=params)
+        if resp.status_code != 200:
+            logger.warning(f"Crash agent stat of '{container_name}': HTTP {resp.status_code} {resp.text[:200]}")
+            return None
+        return {path: (int(v[0]), int(v[1])) for path, v in resp.json().get("files", {}).items()}
+    except Exception as e:
+        logger.warning(f"Crash agent stat of '{container_name}' failed: {e}")
+        return None

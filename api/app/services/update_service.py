@@ -24,6 +24,7 @@ from app.schemas.island import IslandStatusEnum
 from app.services import git_sync
 from app.services.git_sync import (SYNC_DIRS, CLEAN_SYNC_DIRS, CLEAN_SYNC_SUBDIRS,
                                    CORE_SYNC_DIRS, CORE_SYNC_FILES)
+from app.services import repo_sync
 from app.services.lxd_service import TEMPLATE_VERSION_PROPERTY, lxd_service
 from app.services.websocket_manager import manager as websocket_manager
 
@@ -117,14 +118,23 @@ class UpdateService:
         touched = {entry[1].split("/", 1)[0] for entry in (campaign.changed_paths or [])}
         return [d for d in CORE_SYNC_DIRS if d in touched]
 
-    async def _push_repo_to_container(self, container_name: str):
-        """Syncs all whitelisted repo directories into the container.
+    async def _push_repo_to_container(self, container_name: str) -> "repo_sync.SyncResult":
+        """Brings the container's repo-owned files to the repo state.
 
-        The full state is always pushed (not just the diff) so islands that
-        missed earlier campaigns converge. Repo-owned dirs (mods/, kubejs/,
-        quests/, ...) are wiped before the push so deleted files disappear;
-        config/ is pushed on top (island-specific files survive) except its
-        repo-owned subdirs like config/ftbquests.
+        Only what differs is pushed (repo_sync: changed in git, changed by
+        hand, missing; extra files in repo-owned dirs are deleted). Without a
+        manifest or the crash agent it falls back to the full wipe-and-push.
+        """
+        return await repo_sync.sync_repo(
+            container_name, full_push=lambda: self._push_repo_full(container_name))
+
+    async def _push_repo_full(self, container_name: str):
+        """Syncs all whitelisted repo directories into the container in full.
+
+        Repo-owned dirs (mods/, kubejs/, quests/, ...) are wiped before the
+        push so deleted files disappear; config/ is pushed on top
+        (island-specific files survive) except its repo-owned subdirs like
+        config/ftbquests.
         """
         target = settings.UPDATES_TARGET_DIR
         for local_dir in self._repo_sync_dirs():
@@ -343,6 +353,7 @@ class UpdateService:
         if not await crud_island.claim_status(db_session, island_id=island.id,
                                               expected=previous_status, new=IslandStatusEnum.UPDATING):
             raise IslandBusyError(f"Island {island.id} left {previous_status.value} before the update started.")
+        sync = None
         try:
             backup_dir = self._backup_dir_for(island, campaign.version)
             paths_to_save = self._paths_to_back_up(campaign)
@@ -377,7 +388,7 @@ class UpdateService:
                     description=f"File backup before update {campaign.version} ({len(backed_up)} files)",
                 )
 
-                await self._push_repo_to_container(container_name)
+                sync = await self._push_repo_to_container(container_name)
                 await self._push_core_to_container(container_name, campaign)
                 await self._cleanup_container_logs(container_name)
 
@@ -396,7 +407,7 @@ class UpdateService:
                     description=f"File backup before soft update {campaign.version} ({len(backed_up)} files)",
                 )
 
-                await self._push_repo_to_container(container_name)
+                sync = await self._push_repo_to_container(container_name)
 
                 if owner_uuid and previous_status == IslandStatusEnum.RUNNING:
                     await self._queue_reload_commands(db_session, island, owner_uuid, campaign)
@@ -409,6 +420,7 @@ class UpdateService:
                 obj_in={"status": final_status, "current_version": campaign.version, **extra},
             )
             logger.info(f"UpdateService: Island {island.id} ({container_name}) updated to {campaign.version}.")
+            return sync
 
         except Exception as e:
             logger.error(f"UpdateService: Update of island {island.id} failed: {e}", exc_info=True)
